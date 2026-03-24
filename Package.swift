@@ -5,7 +5,7 @@ import PackageDescription
 import Foundation
 
 let package = Package(
-    name: "whisperkit",
+    name: "argmax-oss-swift",
     platforms: [
         .iOS(.v16),
         .macOS(.v13),
@@ -13,6 +13,10 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
+        .library(
+            name: "ArgmaxOSS",
+            targets: ["ArgmaxOSS"]
+        ),
         .library(
             name: "WhisperKit",
             targets: ["WhisperKit"]
@@ -26,9 +30,13 @@ let package = Package(
             targets: ["SpeakerKit"]
         ),
         .executable(
+            name: "argmax-cli",
+            targets: ["ArgmaxCLI"]
+        ),
+        .executable(
             name: "whisperkit-cli",
-            targets: ["WhisperKitCLI"]
-        )
+            targets: ["ArgmaxCLI"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
@@ -40,6 +48,15 @@ let package = Package(
 
     ] : []),
     targets: [
+        .target(
+            name: "ArgmaxOSS",
+            dependencies: [
+                "ArgmaxCore",
+                "WhisperKit",
+                "TTSKit",
+                "SpeakerKit",
+            ]
+        ),
         .target(
             name: "ArgmaxCore"
         ),
@@ -94,7 +111,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "WhisperKitCLI",
+            name: "ArgmaxCLI",
             dependencies: [
                 "WhisperKit",
                 "TTSKit",
@@ -105,6 +122,7 @@ let package = Package(
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIVapor", package: "swift-openapi-vapor"),
             ] : []),
+            path: "Sources/ArgmaxCLI",
             exclude: (isServerEnabled() ? [] : ["Server"]),
             swiftSettings: (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
         )

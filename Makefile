@@ -155,13 +155,13 @@ download-tts-model: setup-tts-model-repo
 	git lfs pull --include="qwen3_tts/*/12hz-$(MODEL)-customvoice/**"
 
 build:
-	@echo "Building WhisperKit..."
+	@echo "Building argmax-oss-swift..."
 	@swift build -v
 
 
 build-cli:
-	@echo "Building WhisperKit CLI..."
-	@swift build -c release --product whisperkit-cli
+	@echo "Building Argmax CLI..."
+	@swift build -c release --product argmax-cli
 
 
 test:
@@ -198,8 +198,8 @@ clean-package-caches:
 	@swift package reset
 
 build-local-server:
-	@echo "Building WhisperKit CLI with server support..."
-	@BUILD_ALL=1 swift build -c release --product whisperkit-cli
+	@echo "Building Argmax CLI with server support..."
+	@BUILD_ALL=1 swift build -c release --product argmax-cli
 
 generate-server:
 	@echo "Generating server OpenAPI spec and code..."
@@ -209,11 +209,11 @@ generate-server:
 	@echo "Generating server code from OpenAPI spec..."
 	@echo "=========================================="
 	@BUILD_ALL=1 swift run swift-openapi-generator generate scripts/specs/localserver_openapi.yaml \
-		--output-directory Sources/WhisperKitCLI/Server/GeneratedSources \
+		--output-directory Sources/ArgmaxCLI/Server/GeneratedSources \
 		--mode types \
 		--mode server
 	@echo ""
 	@echo "=========================================="
 	@echo "Server generation complete!"
 	@echo "=========================================="
-	@echo "Run 'BUILD_ALL=1 swift run whisperkit-cli serve' to start the server"
+	@echo "Run 'BUILD_ALL=1 swift run argmax-cli serve' to start the server"
