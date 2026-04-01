@@ -430,8 +430,8 @@ struct TranscribeCLI: AsyncParsableCommand {
             modelRepo: diarizationModelRepo ?? "argmaxinc/speakerkit-coreml",
             modelFolder: diarizationModelPath,
             download: diarizationModelPath == nil,
-            verbose: cliArguments.verbose,
-            load: true
+            load: true,
+            verbose: cliArguments.verbose
         )
 
         let loadStart = Date()
