@@ -359,7 +359,7 @@ Task {
 }
 ```
 
-`TTSKit()` automatically downloads the default 0.6B model on first run, loads the tokenizer and six CoreML models concurrently, and is ready to generate.
+`TTSKit()` automatically downloads the default 0.6B model on first run. The tokenizer and CoreML models are loaded lazily on the first `generate()` call.
 
 ### Model Selection
 
@@ -501,8 +501,7 @@ This example demonstrates how to diarize an audio file:
 import SpeakerKit
 
 Task {
-    let config = PyannoteConfig()
-    let speakerKit = try await SpeakerKit(config)
+    let speakerKit = try await SpeakerKit()
 
     let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
     let result = try await speakerKit.diarize(audioArray: audioArray)
@@ -514,7 +513,7 @@ Task {
 }
 ```
 
-`SpeakerKit(config)` automatically downloads the default Pyannote models from [HuggingFace](https://huggingface.co/argmaxinc/speakerkit-coreml) on first run, loads the segmenter and embedder CoreML models, and is ready to diarize.
+`SpeakerKit()` uses `PyannoteConfig()` defaults, automatically downloading models from [HuggingFace](https://huggingface.co/argmaxinc/speakerkit-coreml) on first run. The segmenter and embedder CoreML models are loaded lazily (unless `load` is set on config) on the first `diarize()` call.
 
 ### Diarization Options
 
@@ -533,7 +532,7 @@ let result = try await speakerKit.diarize(audioArray: audioArray, options: optio
 For local models, skip the download step:
 
 ```swift
-let config = PyannoteConfig(modelFolder: URL(filePath: "/path/to/models"))
+let config = PyannoteConfig(modelFolder: "/path/to/models")
 let speakerKit = try await SpeakerKit(config)
 ```
 
@@ -545,14 +544,14 @@ SpeakerKit can merge diarization results with WhisperKit transcriptions to produ
 import WhisperKit
 import SpeakerKit
 
-let whisper = try await WhisperKit()
-let speakerKit = try await SpeakerKit(PyannoteConfig())
+let whisperKit = try await WhisperKit()
+let speakerKit = try await SpeakerKit()
 
 let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
-let transcription = try await whisper.transcribe(audioArray: audioArray)
-let result = try await speakerKit.diarize(audioArray: audioArray)
+let transcription = try await whisperKit.transcribe(audioArray: audioArray)
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
 
-let speakerSegments = result.addSpeakerInfo(to: transcription)
+let speakerSegments = diarization.addSpeakerInfo(to: transcription)
 
 for group in speakerSegments {
     for segment in group {
@@ -570,7 +569,12 @@ Two strategies are available for matching speakers to transcription:
 Generate RTTM output:
 
 ```swift
-let rttmLines = SpeakerKit.generateRTTM(from: result, fileName: "meeting")
+let speakerKit = try await SpeakerKit()
+
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "meeting.wav")
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+let rttmLines = SpeakerKit.generateRTTM(from: diarization, fileName: "meeting")
 for line in rttmLines {
     print(line)
 }

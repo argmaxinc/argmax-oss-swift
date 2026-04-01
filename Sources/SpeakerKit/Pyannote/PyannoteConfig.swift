@@ -44,14 +44,7 @@ public extension ModelInfo {
 // MARK: - Pyannote Configuration
 
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-public struct PyannoteConfig: Sendable {
-    public var downloadBase: URL?
-    public var modelRepo: String?
-    public var modelToken: String?
-    public var modelFolder: URL?
-    public var download: Bool
-    public var verbose: Bool
-    public var useBackgroundDownloadSession: Bool
+public class PyannoteConfig: SpeakerKitConfig, @unchecked Sendable {
     public var fullRedundancy: Bool
     /// Number of concurrent segmenter inference workers. Defaults to 4.
     public var concurrentSegmenterWorkers: Int
@@ -59,36 +52,74 @@ public struct PyannoteConfig: Sendable {
     public var concurrentEmbedderWorkers: Int?
 
     public init(
-        downloadBase: URL? = nil,
-        modelRepo: String? = nil,
-        modelToken: String? = nil,
-        modelFolder: URL? = nil,
+        modelDownloadConfig: ModelDownloadConfig? = nil,
         download: Bool = true,
-        verbose: Bool = false,
-        useBackgroundDownloadSession: Bool = false,
+        load: Bool = false,
+        verbose: Bool = true,
+        logLevel: Logging.LogLevel = .info,
         fullRedundancy: Bool = true,
         concurrentSegmenterWorkers: Int = 4,
-        concurrentEmbedderWorkers: Int? = nil
+        concurrentEmbedderWorkers: Int? = nil,
+        diarizer: (any Diarizer)? = nil
     ) {
-        self.downloadBase = downloadBase
-        self.modelRepo = modelRepo
-        self.modelToken = modelToken
-        self.modelFolder = modelFolder
-        self.download = download
-        self.verbose = verbose
-        self.useBackgroundDownloadSession = useBackgroundDownloadSession
         self.fullRedundancy = fullRedundancy
         self.concurrentSegmenterWorkers = concurrentSegmenterWorkers
         self.concurrentEmbedderWorkers = concurrentEmbedderWorkers
+        super.init(
+            modelDownloadConfig: modelDownloadConfig,
+            download: download,
+            verbose: verbose,
+            logLevel: logLevel,
+            load: load,
+            diarizer: diarizer
+        )
+    }
+
+    /// Flattened initializer aligned with ``ModelDownloadConfig`` parameter order, then lifecycle and Pyannote runtime flags (same ordering as WhisperKit/TTSKit: download location, then `load`, then feature flags).
+    ///
+    /// `modelEndpoint` maps to the Hub endpoint (see ``ModelDownloadConfig/endpoint``). `downloadRevision` maps to ``ModelDownloadConfig/revision``.
+    public init(
+        downloadBase: String? = nil,
+        modelRepo: String = "argmaxinc/speakerkit-coreml",
+        modelToken: String? = nil,
+        modelFolder: String? = nil,
+        download: Bool = true,
+        useBackgroundDownloadSession: Bool = false,
+        modelEndpoint: String = "https://huggingface.co",
+        downloadRevision: String = "main",
+        load: Bool = false,
+        verbose: Bool = true,
+        logLevel: Logging.LogLevel = .info,
+        fullRedundancy: Bool = true,
+        concurrentSegmenterWorkers: Int = 4,
+        concurrentEmbedderWorkers: Int? = nil,
+        diarizer: (any Diarizer)? = nil
+    ) {
+        self.fullRedundancy = fullRedundancy
+        self.concurrentSegmenterWorkers = concurrentSegmenterWorkers
+        self.concurrentEmbedderWorkers = concurrentEmbedderWorkers
+        super.init(
+            modelDownloadConfig: ModelDownloadConfig(
+                downloadBase: downloadBase,
+                modelRepo: modelRepo,
+                modelToken: modelToken,
+                modelFolder: modelFolder,
+                useBackgroundSession: useBackgroundDownloadSession,
+                endpoint: modelEndpoint,
+                revision: downloadRevision
+            ),
+            download: download,
+            verbose: verbose,
+            logLevel: logLevel,
+            load: load,
+            diarizer: diarizer
+        )
     }
 }
 
 // MARK: - Diarization Options
 
-/// Marker protocol for all diarization option types.
-public protocol DiarizationOptionsProtocol: Sendable {}
-
-public struct PyannoteDiarizationOptions: DiarizationOptionsProtocol {
+public struct PyannoteDiarizationOptions: DiarizationOptions {
     public var numberOfSpeakers: Int?
     public var minActiveOffset: Float?
     public var clusterDistanceThreshold: Float?
@@ -116,7 +147,7 @@ public struct PyannoteDiarizationOptions: DiarizationOptionsProtocol {
 
 // MARK: - Performance Timings
 
-public struct DiarizationTimings: CustomStringConvertible, CustomDebugStringConvertible, Sendable {
+public struct PyannoteDiarizationTimings: DiarizationTimings, CustomStringConvertible, CustomDebugStringConvertible {
     public init() {}
 
     public internal(set) var inputAudioSeconds: TimeInterval = 0
@@ -177,3 +208,4 @@ public struct DiarizationTimings: CustomStringConvertible, CustomDebugStringConv
         """
     }
 }
+

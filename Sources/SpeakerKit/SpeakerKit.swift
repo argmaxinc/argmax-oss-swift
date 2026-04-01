@@ -9,69 +9,75 @@ import ArgmaxCore
 
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 open class SpeakerKit: @unchecked Sendable {
-    private var _diarizer: SpeakerKitDiarizer?
+    public var diarizer: any Diarizer
 
-    /// Creates SpeakerKit with pre-loaded Pyannote models.
-    /// - Parameter models: Loaded segmenter and embedder models plus config.
-    public init(models: PyannoteModels) throws {
-        let diarizerConfig = DiarizerConfig(
-            segmenterModel: models.segmenter,
-            embedderModel: models.embedder,
-            clusterer: VBxClustering(),
-            verbose: models.config.verbose,
-            concurrentEmbedderWorkers: models.config.concurrentEmbedderWorkers,
-            models: models
-        )
-        self._diarizer = PyannoteDiarizer(config: diarizerConfig)
-    }
+    /// Creates SpeakerKit with the specified configuration.
+    ///
+    /// Downloads models if `config.download` is true.
+    /// Loads models into memory if `config.load` is true.
+    /// When both are false, models are loaded lazily on the first ``diarize(audioArray:options:progressCallback:)`` call.
+    ///
+    /// - Parameter config: Configuration specifying backend, download settings, and runtime options.
+    public init(_ config: SpeakerKitConfig = PyannoteConfig()) async throws {
+        Logging.shared.logLevel = config.verbose ? config.logLevel : .none
 
-    /// Loads (and optionally downloads) Pyannote models and creates SpeakerKit.
-    /// - Parameter config: Model paths, download/repo settings, and runtime options.
-    public convenience init(_ config: PyannoteConfig) async throws {
-        let manager = SpeakerKitModelManager(config: config)
+        // If custom diarizer provided via config, use it; otherwise create default
+        if let customDiarizer = config.diarizer {
+            self.diarizer = customDiarizer
+        } else if let pyannoteConfig = config as? PyannoteConfig {
+            self.diarizer = SpeakerKitDiarizer.pyannote(config: pyannoteConfig)
+        } else {
+            throw SpeakerKitError.invalidConfiguration("Config must be PyannoteConfig or provide custom diarizer")
+        }
+        
         if config.download {
-            try await manager.downloadModels()
+            try await diarizer.downloadModels()
         }
-        try await manager.loadModels()
-        guard let models = manager.models as? PyannoteModels else {
-            throw SpeakerKitError.modelUnavailable("Failed to load SpeakerKit models")
+        if config.load {
+            try await diarizer.loadModels()
         }
-        try self.init(models: models)
     }
-
-    /// For subclasses that provide their own backend call this with their diarizer.
-    /// - Parameter diarizer: Speaker diarizer to use with SpeakerKit.
-    public init(diarizer: SpeakerKitDiarizer?) {
-        self._diarizer = diarizer
+    
+    /// Use ``init(_:)`` instead with a ``PyannoteConfig``.
+    @available(*, unavailable, renamed: "init(_:)")
+    public convenience init(models: some SpeakerKitModels) async throws { fatalError() }
+    
+    /// Deprecated: For backward compatibility with code using `SpeakerKitDiarizer` protocol.
+    @available(*, deprecated, message: "Conform to Diarizer protocol instead of SpeakerKitDiarizer")
+    public convenience init(diarizer: SpeakerKitDiarizer?) {
+        fatalError("SpeakerKitDiarizer-based init is no longer supported. Use Diarizer protocol instead.")
     }
-
-    // MARK: - Subclass hooks
-
-    /// Override or use from subclasses to access the active diarizer backend.
-    open var diarizer: SpeakerKitDiarizer? { _diarizer }
 
     // MARK: - Diarization
 
-    /// Unloads segmenter and embedder and clears the diarizer.
+    /// Ensures models are downloaded and loaded before inference.
+    public func ensureModelsLoaded() async throws {
+        guard diarizer.modelState != .loaded else { return }
+        try await diarizer.downloadModels()
+        try await diarizer.loadModels()
+    }
+
+    /// Unload SpeakerKit models from memory
     public func unloadModels() async {
-        await _diarizer?.unloadModels()
-        _diarizer = nil
+        await diarizer.unloadModels()
     }
 
     /// Processes audio and returns labeled speaker segments.
+    ///
+    /// If models are not yet loaded, this method loads them automatically before running inference.
+    /// Concurrent callers are safe.
+    ///
     /// - Parameters:
     ///   - audioArray: 16 kHz mono PCM samples to diarize.
-    ///   - options: Diarization options. Nil uses defaults.
+    ///   - options: Diarization options. Nil uses the defaults.
     ///   - progressCallback: Optional callback for progress updates.
     /// - Returns: Labeled speaker segments with timings.
-    public func diarize(
+    open func diarize(
         audioArray: [Float],
-        options: (any DiarizationOptionsProtocol)? = nil,
+        options: (any DiarizationOptions)? = nil,
         progressCallback: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> DiarizationResult {
-        guard let diarizer = _diarizer else {
-            throw SpeakerKitError.invalidConfiguration("Diarizer is not initialized")
-        }
+        try await ensureModelsLoaded()
         return try await diarizer.diarize(audioArray: audioArray, options: options, progressCallback: progressCallback)
     }
 
@@ -132,11 +138,13 @@ public enum SpeakerKitError: Error, LocalizedError {
     }
 }
 
-// MARK: - Diarizer Protocol
+/// Marker protocol for all diarization option types.
+public protocol DiarizationOptions: Sendable {}
 
-/// Shared diarizer interface so SpeakerKit can delegate to the active backend.
+// MARK: - Model Containers
+
+/// Marker protocol for loaded model containers.
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-public protocol SpeakerKitDiarizer: AnyObject, Sendable {
-    func unloadModels() async
-    func diarize(audioArray: [Float], options: (any DiarizationOptionsProtocol)?, progressCallback: (@Sendable (Progress) -> Void)?) async throws -> DiarizationResult
+public protocol SpeakerKitModels: Sendable {
+    var modelInfos: [ModelInfo] { get }
 }

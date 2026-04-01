@@ -17,9 +17,7 @@ final class ExclusiveReconciliationTests: XCTestCase {
 
     func testExclusiveReconciliationWithPyannote4() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let baseOptions = PyannoteDiarizationOptions(
             clusterDistanceThreshold: 0.3,
@@ -55,9 +53,7 @@ final class ExclusiveReconciliationTests: XCTestCase {
 
     func testExclusiveReconciliationWithSpeakers() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let aggressiveOptions = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -88,9 +84,7 @@ final class ExclusiveReconciliationTests: XCTestCase {
 
     func testExclusiveReconciliationWithForcedSpeakerCount() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let forcedOptions = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,

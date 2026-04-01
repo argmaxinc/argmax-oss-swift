@@ -10,12 +10,8 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
     public private(set) var modelURL: URL
     public private(set) var computeUnits: MLComputeUnits
     public private(set) var model: MLModel?
-    public private(set) var verbose: Bool
     public private(set) var modelState: ModelState = .unloaded
     public let sampleRate: Int
-
-    public private(set) var outputStream: AsyncStream<SpeakerSegmenterOutput>
-    private(set) var outputContinuation: AsyncStream<SpeakerSegmenterOutput>.Continuation
 
     let concurrentWorkers: Int
 
@@ -27,20 +23,14 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
         modelURL: URL,
         sampleRate: Int = 16000,
         concurrentWorkers: Int = 1,
-        verbose: Bool = false,
         useFullRedundancy: Bool = true,
         computeUnits: MLComputeUnits = .cpuOnly
     ) async throws {
         self.computeUnits = computeUnits
         self.modelURL = modelURL
-        self.verbose = verbose
         self.concurrentWorkers = concurrentWorkers
         self.useFullRedundancy = useFullRedundancy
         self.sampleRate = sampleRate
-
-        let (stream, continuation) = AsyncStream.makeStream(of: SpeakerSegmenterOutput.self)
-        self.outputStream = stream
-        self.outputContinuation = continuation
 
         Logging.info("[SpeakerSegmenter] initialized with \(modelURL.lastPathComponent) model")
     }
@@ -128,7 +118,11 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
 
     // MARK: - Prediction
 
-    public func predict(audioArray: [Float], windowPadding: Int = 0) async throws {
+    public func predict(
+        audioArray: [Float],
+        outputContinuation: AsyncStream<SpeakerSegmenterOutput>.Continuation,
+        windowPadding: Int = 0
+    ) async throws {
         defer { outputContinuation.finish() }
 
         guard let model else {
@@ -167,7 +161,6 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
         }
 
         let modelSampleRate = modelSampleRate
-        let outputContinuation = self.outputContinuation
         let workerCount = max(1, concurrentWorkers)
 
         await withTaskGroup(of: Void.self) { taskGroup in
@@ -221,16 +214,6 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
                 }
             }
         }
-    }
-
-    public func reset() {
-        let (stream, continuation) = AsyncStream.makeStream(of: SpeakerSegmenterOutput.self)
-        self.outputStream = stream
-        self.outputContinuation = continuation
-    }
-
-    public func finishOutputStream() {
-        outputContinuation.finish()
     }
 
     func maxChunks(for audioLength: Int) -> Int {

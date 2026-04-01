@@ -17,9 +17,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testSegmentLengthAndFrameDistribution() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: true)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -67,9 +65,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testFrameIndexConsistencyWithMultipleWindows() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: true)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 2,
@@ -100,9 +96,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testPostProcessingWith3SpeakersBasicScenario() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -135,9 +129,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testPostProcessingWith3SpeakersOverlappingScenario() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -154,9 +146,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testPostProcessingWith3SpeakersExclusiveReconciliation() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let normalResult = try await speakerKit.diarize(audioArray: audioArray, options: PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -183,9 +173,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testFrameCalculationWith3Speakers() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -218,9 +206,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testPostProcessingWith3SpeakersEdgeCases() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,
@@ -244,9 +230,7 @@ final class DiarizerPostProcessingTests: XCTestCase {
 
     func testPostProcessingFrameCounterConsistency() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: false)
-        let speakerKit = try await SpeakerKit(config)
+        let speakerKit = try await SpeakerKit()
 
         let options = PyannoteDiarizationOptions(
             numberOfSpeakers: 3,

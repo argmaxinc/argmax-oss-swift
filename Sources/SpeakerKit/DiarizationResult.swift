@@ -13,6 +13,14 @@ enum SegmentMatchingMode {
     case intersection
 }
 
+// MARK: - DiarizationPipelineTimings
+
+/// Protocol for pipeline-specific timing objects produced by a diarizer backend.
+///
+/// Conform to this protocol when implementing a custom diarizer backend that
+/// produces its own timing data. Pyannote produces ``DiarizationTimings``.
+public protocol DiarizationTimings: CustomStringConvertible, CustomDebugStringConvertible, Sendable {}
+
 // MARK: - DiarizationResult
 
 public struct DiarizationResult: Sendable {
@@ -21,7 +29,7 @@ public struct DiarizationResult: Sendable {
     public let totalFrames: Int
     public let frameRate: Float
     public private(set) var segments: [SpeakerSegment]
-    public var timings: DiarizationTimings?
+    public var timings: (any DiarizationTimings)?
 
     /// Pyannote init: builds segments from binary speaker activity matrix
     init(binaryMatrix: [[Int]], diarizationFrameRate: Float) {
@@ -36,7 +44,7 @@ public struct DiarizationResult: Sendable {
     }
 
     /// Generic init: for engines that produce segments directly
-    public init(speakerCount: Int, totalFrames: Int, frameRate: Float, segments: [SpeakerSegment], timings: DiarizationTimings? = nil) {
+    public init(speakerCount: Int, totalFrames: Int, frameRate: Float, segments: [SpeakerSegment], timings: (any DiarizationTimings)? = nil) {
         self.binaryMatrix = []
         self.speakerCount = speakerCount
         self.totalFrames = totalFrames

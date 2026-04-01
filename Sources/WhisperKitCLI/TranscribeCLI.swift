@@ -426,34 +426,20 @@ struct TranscribeCLI: AsyncParsableCommand {
 
 
     private func runDiarization(audioPath: String, transcriptionResults: [TranscriptionResult]) async throws {
-        let modelFolder: URL? = diarizationModelPath.map { URL(filePath: $0) }
         let config = PyannoteConfig(
-            modelRepo: diarizationModelRepo,
-            modelFolder: modelFolder,
-            download: modelFolder == nil,
-            verbose: cliArguments.verbose
+            modelRepo: diarizationModelRepo ?? "argmaxinc/speakerkit-coreml",
+            modelFolder: diarizationModelPath,
+            download: diarizationModelPath == nil
         )
 
-        let manager = SpeakerKitModelManager(config: config)
-        if modelFolder == nil {
-            print("Preparing diarization models...")
-            try await manager.downloadModels()
-        }
         let loadStart = Date()
-        try await manager.loadModels()
+        let speakerKit = try await SpeakerKit(config)
         let loadTime = Date().timeIntervalSince(loadStart)
-
-        guard let models = manager.models as? PyannoteModels else {
-            throw SpeakerKitError.modelUnavailable("Failed to load diarization models")
-        }
 
         if cliArguments.verbose {
             print("\nDiarization model initialization complete:")
-            print("  - Model folder: \(manager.modelPath?.path ?? "Not specified")")
             print(String(format: "  - Total load time: %.2f seconds", loadTime))
         }
-
-        let speakerKit = try SpeakerKit(models: models)
 
         let audioFrames = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioPath)
 

@@ -95,30 +95,17 @@ struct DiarizeCLI: AsyncParsableCommand {
     }
 
     private func setupSpeakerKit() async throws -> SpeakerKit {
-        let modelFolder: URL? = modelPath.map { URL(filePath: $0) }
-
-        let downloadFolder: URL? = downloadModelPath.map { URL(filePath: $0) }
-
         let config = PyannoteConfig(
-            downloadBase: modelFolder == nil ? downloadFolder : nil,
-            modelRepo: modelRepo,
+            downloadBase: modelPath == nil ? downloadModelPath : nil,
+            modelRepo: modelRepo ?? "argmaxinc/speakerkit-coreml",
             modelToken: modelToken,
-            modelFolder: modelFolder,
-            download: modelFolder == nil,
+            modelFolder: modelPath,
+            download: modelPath == nil,
             verbose: verbose,
+            logLevel: .debug,
             fullRedundancy: !disableFullRedundancy
         )
 
-        let manager = SpeakerKitModelManager(config: config)
-        if modelFolder == nil {
-            try await manager.downloadModels()
-        }
-        try await manager.loadModels()
-
-        guard let models = manager.models as? PyannoteModels else {
-            throw SpeakerKitError.modelUnavailable("Failed to load SpeakerKit models")
-        }
-
-        return try SpeakerKit(models: models)
+        return try await SpeakerKit(config)
     }
 }

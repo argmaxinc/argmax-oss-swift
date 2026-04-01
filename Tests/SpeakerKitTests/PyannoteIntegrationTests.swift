@@ -15,16 +15,9 @@ final class PyannoteIntegrationTests: XCTestCase {
         return AudioProcessor.convertBufferToArray(buffer: audioBuffer)
     }
 
-    private func makeSpeakerKit(_ config: PyannoteConfig = PyannoteConfig()) async throws -> SpeakerKit {
-        return try await SpeakerKit(config)
-    }
-
     func testDiarizationWithCustomClusteringOptions() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: true)
-        let speakerKit = try await makeSpeakerKit(config)
-
+        let speakerKit = try await SpeakerKit()
         let defaultResult = try await speakerKit.diarize(audioArray: audioArray)
         XCTAssertGreaterThan(defaultResult.speakerCount, 0, "Should have at least one speaker")
         XCTAssertFalse(defaultResult.segments.isEmpty, "Should have at least one segment")
@@ -39,10 +32,7 @@ final class PyannoteIntegrationTests: XCTestCase {
 
     func testDiarizationOptionsWithMinActiveOffset() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: true)
-        let speakerKit = try await makeSpeakerKit(config)
-
+        let speakerKit = try await SpeakerKit()
         let result = try await speakerKit.diarize(audioArray: audioArray, options: PyannoteDiarizationOptions(
             numberOfSpeakers: nil,
             minActiveOffset: 0.5,
@@ -57,10 +47,7 @@ final class PyannoteIntegrationTests: XCTestCase {
 
     func testDiarizationBasicSanity() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
-
-        let config = PyannoteConfig(verbose: true)
-        let speakerKit = try await makeSpeakerKit(config)
-
+        let speakerKit = try await SpeakerKit()
         let result = try await speakerKit.diarize(audioArray: audioArray)
         XCTAssertGreaterThan(result.speakerCount, 0, "Should have at least one speaker")
         XCTAssertFalse(result.segments.isEmpty, "Should have at least one segment")

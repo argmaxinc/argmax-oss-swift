@@ -11,7 +11,6 @@ struct DiarizerConfig {
     let segmenterModel: SpeakerSegmenterModel
     let embedderModel: SpeakerEmbedderModel
     let clusterer: any Clusterer
-    let verbose: Bool
     let concurrentEmbedderWorkers: Int?
     let models: PyannoteModels?
 
@@ -19,14 +18,12 @@ struct DiarizerConfig {
         segmenterModel: SpeakerSegmenterModel,
         embedderModel: SpeakerEmbedderModel,
         clusterer: any Clusterer,
-        verbose: Bool,
         concurrentEmbedderWorkers: Int? = nil,
         models: PyannoteModels? = nil
     ) {
         self.segmenterModel = segmenterModel
         self.embedderModel = embedderModel
         self.clusterer = clusterer
-        self.verbose = verbose
         self.concurrentEmbedderWorkers = concurrentEmbedderWorkers
         self.models = models
     }
@@ -34,12 +31,62 @@ struct DiarizerConfig {
 
 // MARK: - PyannoteDiarizer
 
+/// Pyannote-based speaker diarization implementation
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-actor PyannoteDiarizer: SpeakerKitDiarizer {
+public final class PyannoteDiarizer: Diarizer, @unchecked Sendable {
+    private let loader: PyannoteModelLoader
+    private let downloader: ModelDownloader
+    private let diarizerActor: PyannoteDiarizerActor
+    
+    public var modelFolder: URL? {
+        guard let path = loader.modelFolder else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+    
+    public var modelState: ModelState {
+        loader.models != nil ? .loaded : .unloaded
+    }
+    
+    init(loader: PyannoteModelLoader, downloader: ModelDownloader, config: DiarizerConfig) {
+        self.loader = loader
+        self.downloader = downloader
+        self.diarizerActor = PyannoteDiarizerActor(config: config)
+    }
+    
+    public func downloadModels() async throws {
+        try await downloadModels(progressCallback: nil)
+    }
+
+    public func downloadModels(progressCallback: (@Sendable (Progress) -> Void)?) async throws {
+        _ = try await loader.resolveModels(downloader: downloader, progressCallback: progressCallback)
+    }
+    
+    public func loadModels() async throws {
+        let modelPath = try await loader.resolveModels(downloader: downloader, progressCallback: nil)
+        try await loader.load(from: modelPath, prewarm: false)
+    }
+    
+    public func unloadModels() async {
+        await loader.unload()
+    }
+
+    public func diarize(
+        audioArray: [Float],
+        options: (any DiarizationOptions)? = nil,
+        progressCallback: (@Sendable (Progress) -> Void)? = nil
+    ) async throws -> DiarizationResult {
+        try await diarizerActor.diarize(audioArray: audioArray, options: options, progressCallback: progressCallback)
+    }
+}
+
+// MARK: - PyannoteDiarizerActor
+
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+actor PyannoteDiarizerActor {
     let config: DiarizerConfig
 
     private var audioLength: Int = 0
-    private var timings: DiarizationTimings
+    private var timings: PyannoteDiarizationTimings
     private var modelLoadTime: CFAbsoluteTime
     private var diarizationTask: Task<Void, Error>?
 
@@ -91,7 +138,6 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
     func reset() async {
         diarizationTask?.cancel()
         diarizationTask = nil
-        config.segmenterModel.reset()
         await config.clusterer.reset()
         timings = .init()
     }
@@ -127,7 +173,6 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
 
             for (seekClipStart, seekClipEnd) in seekClips {
                 try Task.checkCancellation()
-                segmenterModel.reset()
 
                 let audioClip = Array(audioArray[seekClipStart..<seekClipEnd])
                 let clipSeconds = Double(audioClip.count) / Double(WhisperKit.sampleRate)
@@ -139,10 +184,12 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
                 let embedderWorkerCount = concurrentEmbedderWorkers ?? min(8, max(2, Int(clipSeconds / 30.0)))
                 self.timings.numberOfEmbedderWorkers = embedderWorkerCount
 
+                let (outputStream, outputContinuation) = AsyncStream.makeStream(of: SpeakerSegmenterOutput.self)
+
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for _ in 0..<embedderWorkerCount {
                         group.addTask { [processedAudioSeconds, progressReporter] in
-                            for await output in segmenterModel.outputStream {
+                            for await output in outputStream {
                                 guard !Task.isCancelled else { break }
                                 let startTime = CFAbsoluteTimeGetCurrent()
                                 do {
@@ -164,12 +211,7 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
 
                     group.addTask {
                         let segmenterStart = CFAbsoluteTimeGetCurrent()
-                        do {
-                            try await segmenterModel.predict(audioArray: audioClip)
-                        } catch {
-                            segmenterModel.finishOutputStream()
-                            throw error
-                        }
+                        try await segmenterModel.predict(audioArray: audioClip, outputContinuation: outputContinuation)
                         await counter.addSegmenterTime((CFAbsoluteTimeGetCurrent() - segmenterStart) * 1_000)
                     }
 
@@ -218,11 +260,7 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
         timings.numberOfSpeakers = diarizationResult.speakerCount
         timings.fullPipeline = (CFAbsoluteTimeGetCurrent() - timings.pipelineStart) * 1_000
 
-        if config.verbose {
-            Logging.debug(timings.debugDescription)
-        } else {
-            Logging.debug(timings)
-        }
+        Logging.debug(timings.debugDescription)
 
         diarizationResult.timings = timings
         progressObj.completedUnitCount = 100
@@ -325,14 +363,7 @@ actor PyannoteDiarizer: SpeakerKitDiarizer {
         return DiarizationResult(binaryMatrix: binaryDiarization, diarizationFrameRate: diarizationFrameRate)
     }
 
-    // MARK: - SpeakerKitDiarizer
-
-    func unloadModels() async {
-        config.segmenterModel.unloadModel()
-        config.embedderModel.unloadModel()
-    }
-
-    func diarize(audioArray: [Float], options: (any DiarizationOptionsProtocol)?, progressCallback: (@Sendable (Progress) -> Void)?) async throws -> DiarizationResult {
+    func diarize(audioArray: [Float], options: (any DiarizationOptions)?, progressCallback: (@Sendable (Progress) -> Void)?) async throws -> DiarizationResult {
         let opts = options as? PyannoteDiarizationOptions
 
         guard let progressCallback else {

@@ -99,7 +99,7 @@ struct ContentView: View {
 
     @State private var speakerKit: SpeakerKit?
     @State private var speakerModelState: ModelState = .unloaded
-    @State private var speakerModelPath: URL? = nil
+    @State private var speakerModelURL: URL? = nil
     @State private var diarizationProgress: Double = 0.0
     @State private var diarizedSpeakerSegments: [SpeakerSegment] = []
     @State private var selectedDisplayTab: DisplayTab = .transcription
@@ -631,17 +631,17 @@ struct ContentView: View {
             .onChange(of: clustererVersionRaw, initial: false) { _, newValue in
                 speakerKit = nil
                 speakerModelState = .unloaded
-                speakerModelPath = nil
+                speakerModelURL = nil
                 if newValue != "none" {
                     Task { await loadSpeakerKit() }
                 }
             }
 
             Button(action: {
-                if let path = speakerModelPath {
+                if let path = speakerModelURL {
                     speakerKit = nil
                     speakerModelState = .unloaded
-                    speakerModelPath = nil
+                    speakerModelURL = nil
                     try? FileManager.default.removeItem(at: path)
                 }
             }, label: {
@@ -649,11 +649,11 @@ struct ContentView: View {
             })
             .help("Delete SpeakerKit models")
             .buttonStyle(BorderlessButtonStyle())
-            .disabled(speakerModelPath == nil)
+            .disabled(speakerModelURL == nil)
 
             #if os(macOS)
             Button(action: {
-                let folder = speakerModelPath ?? Self.speakerKitModelsPath()
+                let folder = speakerModelURL ?? Self.speakerKitModelsURL()
                 NSWorkspace.shared.open(folder)
             }, label: {
                 Image(systemName: "folder")
@@ -1459,23 +1459,21 @@ struct ContentView: View {
         do {
             await MainActor.run { speakerModelState = .downloading }
             let config = PyannoteConfig(
-                downloadBase: Self.speakerKitModelsPath(),
-                download: true
+                downloadBase: Self.speakerKitModelsURL().path,
+                load: true
             )
-            let manager = SpeakerKitModelManager(
+            let manager = SpeakerKitDiarizer.pyannote(
                 config: config,
                 segmenterModelInfo: .segmenter(computeUnits: segCompute),
                 embedderModelInfo: .embedder(computeUnits: embCompute)
             )
-            try await manager.downloadModels()
-            try await manager.loadModels()
-            guard let models = manager.models as? PyannoteModels else { return }
-            let kit = try SpeakerKit(models: models)
-            let resolvedPath = manager.modelPath
+            config.diarizer = manager
+            let kit = try await SpeakerKit(config)
+            let resolvedURL = manager.downloader.localRepoLocation(downloadBase: Self.speakerKitModelsURL())
             await MainActor.run {
                 speakerKit = kit
                 speakerModelState = .loaded
-                speakerModelPath = resolvedPath
+                speakerModelURL = resolvedURL
             }
         } catch {
             await MainActor.run { speakerModelState = .unloaded }
@@ -1483,7 +1481,7 @@ struct ContentView: View {
         }
     }
 
-    private static func speakerKitModelsPath() -> URL {
+    private static func speakerKitModelsURL() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
             .appendingPathComponent("huggingface")
     }
