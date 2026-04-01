@@ -3,6 +3,7 @@
 
 import SwiftUI
 import WhisperKit
+import SpeakerKit
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -94,14 +95,57 @@ struct ContentView: View {
     @State private var hypothesisWords: [WordTiming] = []
     @State private var hypothesisText: String = ""
 
+    // MARK: SpeakerKit
+
+    @State private var speakerKit: SpeakerKit?
+    @State private var speakerModelState: ModelState = .unloaded
+    @State private var speakerModelURL: URL? = nil
+    @State private var diarizationProgress: Double = 0.0
+    @State private var diarizedSpeakerSegments: [SpeakerSegment] = []
+    @State private var selectedDisplayTab: DisplayTab = .transcription
+
+    @AppStorage("diarizationMode") private var diarizationModeRaw: String = "Sequential"
+    @AppStorage("numberOfSpeakers") private var numberOfSpeakers: Int = 0
+    @AppStorage("useExclusiveReconciliation") private var useExclusiveReconciliation: Bool = true
+    @AppStorage("speakerInfoStrategy") private var speakerInfoStrategyRaw: String = "subsegment"
+    @AppStorage("clustererVersion") private var clustererVersionRaw: String = "pyannote4"
+    @AppStorage("segmenterComputeUnits") private var segmenterComputeUnits: MLComputeUnits = .cpuOnly
+    @AppStorage("embedderComputeUnits") private var embedderComputeUnits: MLComputeUnits = .cpuAndNeuralEngine
+
+    @State private var lastAudioFileSamples: [Float] = []
+    @State private var lastTranscriptionResult: TranscriptionResult? = nil
+
+    enum DiarizationMode: String, CaseIterable {
+        case disabled = "Disabled"
+        case sequential = "Sequential"
+        case concurrent = "Concurrent"
+    }
+
+    private var diarizationMode: DiarizationMode {
+        DiarizationMode(rawValue: diarizationModeRaw) ?? .sequential
+    }
+
+    private var diarizationEnabled: Bool { diarizationMode != .disabled }
+
+    private var speakerInfoStrategy: SpeakerInfoStrategy {
+        speakerInfoStrategyRaw == "segment" ? .segment : .subsegment
+    }
+
+    enum DisplayTab: String, CaseIterable {
+        case transcription = "Transcription"
+        case speakers = "Speakers"
+    }
+
     // MARK: UI properties
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showComputeUnits: Bool = true
+    @State private var showWhisperKitComputeUnits: Bool = true
+    @State private var showSpeakerKitComputeUnits: Bool = false
     @State private var showAdvancedOptions: Bool = false
     @State private var transcriptionTask: Task<Void, Never>?
     @State private var selectedCategoryId: MenuItem.ID?
     @State private var transcribeTask: Task<Void, Never>?
+    @State private var reDiarizeTask: Task<Void, Never>?
 
     struct MenuItem: Identifiable, Hashable {
         var id = UUID()
@@ -159,15 +203,32 @@ struct ContentView: View {
         confirmedText = ""
         hypothesisWords = []
         hypothesisText = ""
+
+        diarizedSpeakerSegments = []
+        diarizationProgress = 0.0
+        selectedDisplayTab = .transcription
     }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             VStack(alignment: .leading) {
+                Text("WhisperKit")
+                    .font(.headline)
+                    .padding(.top)
                 modelSelectorView
-                    .padding(.vertical)
-                computeUnitsView
+                    .padding(.bottom, 4)
+                whisperKitComputeUnitsView
                     .disabled(modelState != .loaded && modelState != .unloaded)
+                    .padding(.bottom)
+
+                Divider()
+
+                Text("SpeakerKit")
+                    .font(.headline)
+                    .padding(.top)
+                speakerModelSelectorView
+                    .padding(.bottom, 4)
+                speakerKitComputeUnitsView
                     .padding(.bottom)
 
                 List(menu, selection: $selectedCategoryId) { item in
@@ -204,6 +265,9 @@ struct ContentView: View {
                 .padding(.vertical)
             }
             .navigationTitle("WhisperAX")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .navigationSplitViewColumnWidth(min: 300, ideal: 350)
             .padding(.horizontal)
             Spacer()
@@ -263,8 +327,85 @@ struct ContentView: View {
 
     // MARK: - Transcription
 
+    var speakerBubblesView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(diarizedSpeakerSegments.enumerated()), id: \.offset) { index, segment in
+                    let prevSpeaker = index > 0 ? diarizedSpeakerSegments[index - 1].speaker : nil
+                    let speakerChanged = prevSpeaker?.speakerId != segment.speaker.speakerId
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        if speakerChanged {
+                            Text(speakerDisplayName(for: segment.speaker.speakerId))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal)
+                                .padding(.top, 6)
+                        }
+                        Text(segment.text)
+                            .padding(10)
+                            .background(speakerColor(for: segment.speaker.speakerId))
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .padding(.horizontal)
+                    }
+                }
+            }
+            .padding(.vertical)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    func speakerColor(for speakerId: Int?) -> Color {
+        guard let id = speakerId else { return Color.gray }
+        switch id {
+        case 0:  return Color(red: 0.224, green: 0.212, blue: 0.855)
+        case 1:  return Color(red: 0.275, green: 0.639, blue: 0.408)
+        case 2:  return Color(red: 0.867, green: 0.373, blue: 0.184)
+        case 3:  return Color(red: 0.761, green: 0.502, blue: 0.196)
+        default: return Color(red: 0.451, green: 0.439, blue: 0.400)
+        }
+    }
+
+    func speakerDisplayName(for speakerId: Int?) -> String {
+        guard let id = speakerId else { return "Unknown" }
+        return "Speaker \(id + 1)"
+    }
+
     var transcriptionView: some View {
         VStack {
+            if !isStreamMode && diarizationEnabled && speakerKit != nil {
+                Picker("", selection: $selectedDisplayTab) {
+                    ForEach(DisplayTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .disabled(diarizedSpeakerSegments.isEmpty)
+
+                HStack {
+                    Label("Speakers", systemImage: "person.2")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Picker("", selection: $numberOfSpeakers) {
+                        Text("Auto").tag(0)
+                        ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(width: 80)
+                    .onChange(of: numberOfSpeakers, initial: false) { _, _ in
+                        reDiarizeTask?.cancel()
+                        reDiarizeTask = Task { await reDiarize() }
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            if selectedDisplayTab == .speakers && !diarizedSpeakerSegments.isEmpty {
+                speakerBubblesView
+            } else {
             if !bufferEnergy.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 1) {
@@ -359,6 +500,13 @@ struct ContentView: View {
                     .buttonStyle(BorderlessButtonStyle())
                 }
             }
+            } // end else (speakers tab not active)
+
+            if diarizationEnabled, diarizationProgress > 0, diarizationProgress < 1 {
+                ProgressView("Diarizing...", value: diarizationProgress, total: 1)
+                    .progressViewStyle(.linear)
+                    .padding(.horizontal)
+            }
         }
     }
 
@@ -385,6 +533,7 @@ struct ContentView: View {
                             }
                         }
                         .pickerStyle(MenuPickerStyle())
+                        .frame(minWidth: 140)
                         .onChange(of: selectedModel, initial: false) { _, _ in
                             modelState = .unloaded
                         }
@@ -463,8 +612,76 @@ struct ContentView: View {
         }
     }
 
-    var computeUnitsView: some View {
-        DisclosureGroup(isExpanded: $showComputeUnits) {
+    var speakerModelSelectorView: some View {
+        HStack {
+            Image(systemName: "circle.fill")
+                .foregroundStyle(speakerModelState == .loaded ? .green : (speakerModelState == .unloaded ? .red : .yellow))
+                .symbolEffect(.variableColor, isActive: speakerModelState != .loaded && speakerModelState != .unloaded)
+            Text(speakerModelState.description)
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Picker("", selection: $clustererVersionRaw) {
+                Text("None").tag("none")
+                Text("Pyannote 4").tag("pyannote4")
+            }
+            .pickerStyle(MenuPickerStyle())
+            .frame(minWidth: 140)
+            .onChange(of: clustererVersionRaw, initial: false) { _, newValue in
+                speakerKit = nil
+                speakerModelState = .unloaded
+                speakerModelURL = nil
+                if newValue != "none" {
+                    Task { await loadSpeakerKit() }
+                }
+            }
+
+            Button(action: {
+                if let path = speakerModelURL {
+                    speakerKit = nil
+                    speakerModelState = .unloaded
+                    speakerModelURL = nil
+                    try? FileManager.default.removeItem(at: path)
+                }
+            }, label: {
+                Image(systemName: "trash")
+            })
+            .help("Delete SpeakerKit models")
+            .buttonStyle(BorderlessButtonStyle())
+            .disabled(speakerModelURL == nil)
+
+            #if os(macOS)
+            Button(action: {
+                let folder = speakerModelURL ?? Self.speakerKitModelsURL()
+                NSWorkspace.shared.open(folder)
+            }, label: {
+                Image(systemName: "folder")
+            })
+            .help("Show in Finder")
+            .buttonStyle(BorderlessButtonStyle())
+            .disabled(clustererVersionRaw == "none")
+            #endif
+
+            Button(action: {
+                if let url = URL(string: "https://huggingface.co/argmaxinc/speakerkit-coreml") {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(url)
+                    #else
+                    UIApplication.shared.open(url)
+                    #endif
+                }
+            }, label: {
+                Image(systemName: "link.circle")
+            })
+            .help("Open on Hugging Face")
+            .buttonStyle(BorderlessButtonStyle())
+            .disabled(clustererVersionRaw == "none")
+        }
+    }
+
+    var whisperKitComputeUnitsView: some View {
+        DisclosureGroup(isExpanded: $showWhisperKitComputeUnits) {
             VStack(alignment: .leading) {
                 HStack {
                     Image(systemName: "circle.fill")
@@ -504,12 +721,74 @@ struct ContentView: View {
             .padding(.top)
         } label: {
             Button {
-                showComputeUnits.toggle()
+                showWhisperKitComputeUnits.toggle()
             } label: {
                 Text("Compute Units")
-                    .font(.headline)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+        }
+        .onChange(of: showWhisperKitComputeUnits) { _, isOpen in
+            if isOpen { showSpeakerKitComputeUnits = false }
+        }
+    }
+
+    var speakerKitComputeUnitsView: some View {
+        DisclosureGroup(isExpanded: $showSpeakerKitComputeUnits) {
+            VStack(alignment: .leading) {
+                HStack {
+                    Image(systemName: "circle.fill")
+                        .foregroundStyle(speakerModelState == .loaded ? .green : (speakerModelState == .unloaded ? .red : .yellow))
+                        .symbolEffect(.variableColor, isActive: speakerModelState != .loaded && speakerModelState != .unloaded)
+                    Text("Segmenter")
+                    Spacer()
+                    Picker("", selection: $segmenterComputeUnits) {
+                        Text("CPU").tag(MLComputeUnits.cpuOnly)
+                        Text("GPU").tag(MLComputeUnits.cpuAndGPU)
+                        Text("Neural Engine").tag(MLComputeUnits.cpuAndNeuralEngine)
+                    }
+                    .onChange(of: segmenterComputeUnits, initial: false) { _, _ in
+                        speakerKit = nil
+                        speakerModelState = .unloaded
+                        Task { await loadSpeakerKit() }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(width: 150)
+                }
+                HStack {
+                    Image(systemName: "circle.fill")
+                        .foregroundStyle(speakerModelState == .loaded ? .green : (speakerModelState == .unloaded ? .red : .yellow))
+                        .symbolEffect(.variableColor, isActive: speakerModelState != .loaded && speakerModelState != .unloaded)
+                    Text("Embedder")
+                    Spacer()
+                    Picker("", selection: $embedderComputeUnits) {
+                        Text("CPU").tag(MLComputeUnits.cpuOnly)
+                        Text("GPU").tag(MLComputeUnits.cpuAndGPU)
+                        Text("Neural Engine").tag(MLComputeUnits.cpuAndNeuralEngine)
+                    }
+                    .onChange(of: embedderComputeUnits, initial: false) { _, _ in
+                        speakerKit = nil
+                        speakerModelState = .unloaded
+                        Task { await loadSpeakerKit() }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(width: 150)
+                }
+            }
+            .padding(.top)
+        } label: {
+            Button {
+                showSpeakerKitComputeUnits.toggle()
+            } label: {
+                Text("Compute Units")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .onChange(of: showSpeakerKitComputeUnits) { _, isOpen in
+            if isOpen { showWhisperKitComputeUnits = false }
         }
     }
 
@@ -918,6 +1197,54 @@ struct ContentView: View {
             }
             .padding(.horizontal)
 
+            Section(header: Text("Speaker Diarization")) {
+                HStack {
+                    Picker("Mode", selection: Binding(
+                        get: { diarizationMode },
+                        set: { diarizationModeRaw = $0.rawValue }
+                    )) {
+                        ForEach(DiarizationMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .disabled(speakerKit == nil)
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "circle.fill")
+                            .foregroundStyle(speakerModelState == .loaded ? .green : (speakerModelState == .unloaded ? .red : .yellow))
+                            .font(.caption2)
+                        Text(speakerModelState.description)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top)
+
+                if diarizationEnabled {
+                    HStack {
+                        Text("Exclusive Reconciliation")
+                        InfoButton("When enabled, only one speaker is active per frame — prevents overlapping speaker assignments.")
+                        Spacer()
+                        Toggle("", isOn: $useExclusiveReconciliation)
+                    }
+                    .padding(.horizontal)
+
+                    HStack {
+                        Text("Speaker Info Strategy")
+                        InfoButton("Segment assigns the dominant speaker to each full transcription segment. Subsegment splits segments at speaker boundaries for finer-grained attribution.")
+                        Spacer()
+                        Picker("", selection: $speakerInfoStrategyRaw) {
+                            Text("Segment").tag("segment")
+                            Text("Subsegment").tag("subsegment")
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .fixedSize()
+                    }
+                    .padding(.horizontal)
+                }
+            }
+
             Section(header: Text("Experimental")) {
                 HStack {
                     Text("Eager Streaming Mode")
@@ -999,7 +1326,7 @@ struct ContentView: View {
             }
         }
 
-        localModels = WhisperKit.formatModelFiles(localModels)
+        localModels = ModelUtilities.formatModelFiles(localModels)
         for model in localModels {
             if !availableModels.contains(model) {
                 availableModels.append(model)
@@ -1119,7 +1446,44 @@ struct ContentView: View {
                     modelState = whisperKit.modelState
                 }
             }
+
+            if clustererVersionRaw != "none" {
+                await loadSpeakerKit()
+            }
         }
+    }
+
+    private func loadSpeakerKit() async {
+        let segCompute = segmenterComputeUnits
+        let embCompute = embedderComputeUnits
+        do {
+            await MainActor.run { speakerModelState = .downloading }
+            let config = PyannoteConfig(
+                downloadBase: Self.speakerKitModelsURL().path,
+                load: true
+            )
+            let manager = SpeakerKitDiarizer.pyannote(
+                config: config,
+                segmenterModelInfo: .segmenter(computeUnits: segCompute),
+                embedderModelInfo: .embedder(computeUnits: embCompute)
+            )
+            config.diarizer = manager
+            let kit = try await SpeakerKit(config)
+            let resolvedURL = manager.downloader.localRepoLocation(downloadBase: Self.speakerKitModelsURL())
+            await MainActor.run {
+                speakerKit = kit
+                speakerModelState = .loaded
+                speakerModelURL = resolvedURL
+            }
+        } catch {
+            await MainActor.run { speakerModelState = .unloaded }
+            Logging.error("[WhisperAX] SpeakerKit failed to load: \(error)")
+        }
+    }
+
+    private static func speakerKitModelsURL() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("huggingface")
     }
 
     func deleteModel() {
@@ -1277,12 +1641,13 @@ struct ContentView: View {
             audioProcessor.stopRecording()
         }
 
-        // If not looping, transcribe the full buffer
+        // If not looping, transcribe the full recorded buffer with diarization
         if !loop {
+            let recordedSamples = Array(whisperKit?.audioProcessor.audioSamples ?? [])
             transcribeTask = Task {
                 isTranscribing = true
                 do {
-                    try await transcribeCurrentBuffer()
+                    try await transcribeAndDiarize(recordedSamples)
                 } catch {
                     print("Error: \(error.localizedDescription)")
                 }
@@ -1314,7 +1679,6 @@ struct ContentView: View {
     // MARK: - Transcribe Logic
 
     func transcribeCurrentFile(path: String) async throws {
-        // Load and convert buffer in a limited scope
         Logging.debug("Loading audio file: \(path)")
         let loadingStart = Date()
         let audioFileSamples = try await Task {
@@ -1323,15 +1687,42 @@ struct ContentView: View {
             }
         }.value
         Logging.debug("Loaded audio file in \(Date().timeIntervalSince(loadingStart)) seconds")
+        try await transcribeAndDiarize(audioFileSamples)
+    }
+
+    func transcribeAndDiarize(_ audioFileSamples: [Float]) async throws {
+        await MainActor.run { lastAudioFileSamples = audioFileSamples }
+
+        let capturedSpeakerKit: SpeakerKit? = diarizationMode == .concurrent ? speakerKit : nil
+        var concurrentDiarizationTask: Task<DiarizationResult?, Never>? = nil
+        defer { concurrentDiarizationTask?.cancel() }
+        if let capturedSpeakerKit {
+            let options = PyannoteDiarizationOptions(
+                numberOfSpeakers: numberOfSpeakers == 0 ? nil : numberOfSpeakers,
+                useExclusiveReconciliation: useExclusiveReconciliation
+            )
+            concurrentDiarizationTask = Task {
+                do {
+                    await MainActor.run { diarizationProgress = 0.0 }
+                    return try await capturedSpeakerKit.diarize(
+                        audioArray: audioFileSamples,
+                        options: options,
+                        progressCallback: { p in
+                            Task { @MainActor in diarizationProgress = p.fractionCompleted }
+                        }
+                    )
+                } catch {
+                    Logging.error("[WhisperAX] Concurrent diarization failed: \(error)")
+                    return nil
+                }
+            }
+        }
 
         let transcription = try await transcribeAudioSamples(audioFileSamples)
 
         await MainActor.run {
             currentText = ""
-            guard let segments = transcription?.segments else {
-                return
-            }
-
+            guard let segments = transcription?.segments else { return }
             tokensPerSecond = transcription?.timings.tokensPerSecond ?? 0
             effectiveRealTimeFactor = transcription?.timings.realTimeFactor ?? 0
             effectiveSpeedFactor = transcription?.timings.speedFactor ?? 0
@@ -1340,8 +1731,60 @@ struct ContentView: View {
             modelLoadingTime = transcription?.timings.modelLoading ?? 0
             pipelineStart = transcription?.timings.pipelineStart ?? 0
             currentLag = transcription?.timings.decodingLoop ?? 0
-
             confirmedSegments = segments
+            lastTranscriptionResult = transcription
+        }
+
+        guard let transcription else { return }
+
+        if diarizationMode == .concurrent, let task = concurrentDiarizationTask {
+            if let diarizationResult = await task.value, speakerKit === capturedSpeakerKit {
+                let segments = diarizationResult.addSpeakerInfo(to: [transcription], strategy: speakerInfoStrategy)
+                await MainActor.run {
+                    diarizedSpeakerSegments = segments.flatMap { $0 }
+                    selectedDisplayTab = .speakers
+                }
+            }
+        } else if diarizationMode == .sequential, let speakerKit {
+            do {
+                await MainActor.run { diarizationProgress = 0.0 }
+                let options = PyannoteDiarizationOptions(
+                    numberOfSpeakers: numberOfSpeakers == 0 ? nil : numberOfSpeakers,
+                    useExclusiveReconciliation: useExclusiveReconciliation
+                )
+                let diarizationResult = try await speakerKit.diarize(
+                    audioArray: audioFileSamples,
+                    options: options,
+                    progressCallback: { p in
+                        Task { @MainActor in diarizationProgress = p.fractionCompleted }
+                    }
+                )
+                let segments = diarizationResult.addSpeakerInfo(to: [transcription], strategy: speakerInfoStrategy)
+                await MainActor.run {
+                    diarizedSpeakerSegments = segments.flatMap { $0 }
+                    selectedDisplayTab = .speakers
+                }
+            } catch {
+                Logging.error("[WhisperAX] Diarization failed: \(error)")
+            }
+        }
+    }
+
+    func reDiarize() async {
+        guard diarizationEnabled, let speakerKit, let transcription = lastTranscriptionResult, !lastAudioFileSamples.isEmpty else { return }
+        do {
+            let options = PyannoteDiarizationOptions(
+                numberOfSpeakers: numberOfSpeakers == 0 ? nil : numberOfSpeakers,
+                useExclusiveReconciliation: useExclusiveReconciliation
+            )
+            let diarizationResult = try await speakerKit.diarize(audioArray: lastAudioFileSamples, options: options)
+            let segments = diarizationResult.addSpeakerInfo(to: [transcription], strategy: speakerInfoStrategy)
+            await MainActor.run {
+                diarizedSpeakerSegments = segments.flatMap { $0 }
+                selectedDisplayTab = .speakers
+            }
+        } catch {
+            Logging.error("[WhisperAX] Re-diarization failed: \(error)")
         }
     }
 

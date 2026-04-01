@@ -21,6 +21,10 @@ let package = Package(
             name: "TTSKit",
             targets: ["TTSKit"]
         ),
+        .library(
+            name: "SpeakerKit",
+            targets: ["SpeakerKit"]
+        ),
         .executable(
             name: "whisperkit-cli",
             targets: ["WhisperKitCLI"]
@@ -38,7 +42,10 @@ let package = Package(
     ] : []),
     targets: [
         .target(
-            name: "ArgmaxCore"
+            name: "ArgmaxCore",
+            dependencies: [
+                .product(name: "Hub", package: "swift-transformers"),
+            ]
         ),
         .target(
             name: "WhisperKit",
@@ -53,6 +60,15 @@ let package = Package(
             dependencies: [
                 "ArgmaxCore",
                 .product(name: "Tokenizers", package: "swift-transformers"),
+                .product(name: "Hub", package: "swift-transformers"),
+            ],
+            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
+        ),
+        .target(
+            name: "SpeakerKit",
+            dependencies: [
+                "ArgmaxCore",
+                "WhisperKit",
                 .product(name: "Hub", package: "swift-transformers"),
             ],
             swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
@@ -75,11 +91,25 @@ let package = Package(
                 "TTSKit"
             ]
         ),
+        .testTarget(
+            name: "SpeakerKitTests",
+            dependencies: [
+                "SpeakerKit",
+                "WhisperKit",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
         .executableTarget(
             name: "WhisperKitCLI",
             dependencies: [
                 "WhisperKit",
                 "TTSKit",
+                "SpeakerKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ] + (isServerEnabled() ? [
                 .product(name: "Vapor", package: "vapor"),

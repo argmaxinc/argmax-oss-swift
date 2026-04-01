@@ -19,12 +19,12 @@
 
 </div>
 
-WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying state-of-the-art speech-to-text systems (e.g. [Whisper](https://github.com/openai/whisper)) on device with advanced features such as real-time streaming, word timestamps, voice activity detection, and more.
+WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying state-of-the-art speech-to-text systems (e.g. [Whisper](https://github.com/openai/whisper)) on device with advanced features such as real-time streaming, word timestamps, voice activity detection, speaker diarization, and more.
 
 [[TestFlight Demo App]](https://testflight.apple.com/join/Q1cywTJw) [[Python Tools]](https://github.com/argmaxinc/whisperkittools) [[Benchmarks & Device Support]](https://huggingface.co/spaces/argmaxinc/whisperkit-benchmarks) [[WhisperKit Android]](https://github.com/argmaxinc/WhisperKitAndroid)
 
 > [!IMPORTANT]
-> WhisperKit is ideal for getting started with on-device speech-to-text. When you are ready to scale your on-device deployment with real-time transcription and speaker diarization, start your [14-day trial](https://app.argmaxinc.com) for [Argmax Pro SDK](https://www.argmaxinc.com/#SDK) with 9x faster and higher accuracy models such as Nvidia Parakeet V3, [pyannoteAI's flagship](https://www.argmaxinc.com/blog/pyannote-argmax) speaker diarization model, and a Deepgram-compatible WebSocket [local server](https://www.argmaxinc.com/blog/argmax-local-server) for easy integration into non-Swift projects.
+> WhisperKit is ideal for getting started with on-device speech-to-text. When you are ready to scale your on-device deployment with real-time transcription and speaker diarization, start your [14-day trial](https://app.argmaxinc.com) for [Argmax Pro SDK](https://www.argmaxinc.com/#SDK) with 9x faster and higher accuracy models such as Nvidia Parakeet V3, [Nvidia Sortformer](https://www.argmaxinc.com/blog/argmax-sdk-2) streaming speaker diarization model, and a Deepgram-compatible WebSocket [local server](https://www.argmaxinc.com/blog/argmax-local-server) for easy integration into non-Swift projects.
 
 ## Table of Contents
 
@@ -60,6 +60,12 @@ WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying st
   - [Progress Callbacks](#progress-callbacks)
   - [Swift CLI](#swift-cli-1)
   - [Demo App](#demo-app)
+- [SpeakerKit](#speakerkit)
+  - [Quick Example](#quick-example-2)
+  - [Diarization Options](#diarization-options)
+  - [Combining with Transcription](#combining-with-transcription)
+  - [RTTM Output](#rttm-output)
+  - [Swift CLI](#swift-cli-2)
 - [Contributing \& Roadmap](#contributing--roadmap)
 - [License](#license)
 - [Citation](#citation)
@@ -68,7 +74,7 @@ WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying st
 
 ### Swift Package Manager
 
-WhisperKit and TTSKit are separate library products in the same Swift package. Add the package once and pick the products you need.
+WhisperKit, TTSKit, and SpeakerKit are separate library products in the same Swift package. Add the package once and pick the products you need.
 
 ### Prerequisites
 
@@ -81,11 +87,11 @@ WhisperKit and TTSKit are separate library products in the same Swift package. A
 2. Navigate to `File` > `Add Package Dependencies...`.
 3. Enter the package repository URL: `https://github.com/argmaxinc/whisperkit`.
 4. Choose the version range or specific version.
-5. When prompted to choose library products, select **WhisperKit**, **TTSKit**, or both.
+5. When prompted to choose library products, select **WhisperKit**, **TTSKit**, **SpeakerKit**, or any combination.
 
 ### Package.swift
 
-If you're using WhisperKit or TTSKit as part of a swift package, you can include it in your Package.swift dependencies as follows:
+If you're using WhisperKit, TTSKit, or SpeakerKit as part of a swift package, you can include it in your Package.swift dependencies as follows:
 
 ```swift
 dependencies: [
@@ -99,8 +105,9 @@ Then add the products you need as target dependencies:
 .target(
     name: "YourApp",
     dependencies: [
-        "WhisperKit", // speech-to-text
-        "TTSKit",     // text-to-speech
+        "WhisperKit",   // speech-to-text
+        "TTSKit",       // text-to-speech
+        "SpeakerKit",   // speaker diarization
     ]
 ),
 ```
@@ -352,7 +359,7 @@ Task {
 }
 ```
 
-`TTSKit()` automatically downloads the default 0.6B model on first run, loads the tokenizer and six CoreML models concurrently, and is ready to generate.
+`TTSKit()` automatically downloads the default 0.6B model on first run. The tokenizer and CoreML models are loaded lazily on the first `generate()` call.
 
 ### Model Selection
 
@@ -478,6 +485,121 @@ swift run whisperkit-cli tts --help
 ### Demo App
 
 The [TTSKitExample](Examples/TTS/TTSKitExample/) example app showcases real-time streaming, model management, waveform visualization, and generation history on macOS and iOS. See the [TTSKitExample README](Examples/TTS/TTSKitExample/README.md) for build instructions.
+
+## SpeakerKit
+
+SpeakerKit is an on-device speaker diarization framework built on Core ML. It runs [Pyannote v4 (community-1)](https://huggingface.co/argmaxinc/speakerkit-coreml) segmentation and embedding models on Apple silicon to identify and label speakers in audio. Read the [blog post](https://www.argmaxinc.com/blog/speakerkit) for architecture details and benchmarks.
+
+- macOS 13.0 or later.
+- iOS 16.0 or later.
+
+### Quick Example
+
+This example demonstrates how to diarize an audio file:
+
+```swift
+import SpeakerKit
+
+Task {
+    let speakerKit = try await SpeakerKit()
+
+    let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+    let result = try await speakerKit.diarize(audioArray: audioArray)
+
+    print("Detected \(result.speakerCount) speakers")
+    for segment in result.segments {
+        print(segment)
+    }
+}
+```
+
+`SpeakerKit()` uses `PyannoteConfig()` defaults, automatically downloading models from [HuggingFace](https://huggingface.co/argmaxinc/speakerkit-coreml) on first run. The segmenter and embedder CoreML models are loaded lazily (unless `load` is set on config) on the first `diarize()` call.
+
+### Diarization Options
+
+You can control speaker detection via `PyannoteDiarizationOptions`:
+
+```swift
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+let options = PyannoteDiarizationOptions(
+    numberOfSpeakers: 2,               // nil = automatic detection
+    clusterDistanceThreshold: 0.6,     // clustering threshold
+    useExclusiveReconciliation: false   // exclusive speaker assignment per frame
+)
+let result = try await speakerKit.diarize(audioArray: audioArray, options: options)
+```
+
+For local models, skip the download step:
+
+```swift
+let config = PyannoteConfig(modelFolder: "/path/to/models")
+let speakerKit = try await SpeakerKit(config)
+```
+
+### Combining with Transcription
+
+SpeakerKit can merge diarization results with WhisperKit transcriptions to produce speaker-attributed segments:
+
+```swift
+import WhisperKit
+import SpeakerKit
+
+let whisperKit = try await WhisperKit()
+let speakerKit = try await SpeakerKit()
+
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+let transcription = try await whisperKit.transcribe(audioArray: audioArray)
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+let speakerSegments = diarization.addSpeakerInfo(to: transcription)
+
+for group in speakerSegments {
+    for segment in group {
+        print("\(segment.speaker): \(segment.text)")
+    }
+}
+```
+
+Two strategies are available for matching speakers to transcription:
+- `.subsegment` (default) -- splits segments at word gaps, then assigns speakers
+- `.segment` -- assigns a speaker to each transcription segment as a whole
+
+### RTTM Output
+
+Generate RTTM output:
+
+```swift
+let speakerKit = try await SpeakerKit()
+
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "meeting.wav")
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+let rttmLines = SpeakerKit.generateRTTM(from: diarization, fileName: "meeting")
+for line in rttmLines {
+    print(line)
+}
+```
+
+### Swift CLI
+
+The diarization commands are available through the `whisperkit-cli` tool:
+
+```bash
+# Standalone diarization
+swift run whisperkit-cli diarize --audio-path audio.wav --verbose
+
+# Save RTTM output
+swift run whisperkit-cli diarize --audio-path audio.wav --rttm-path output.rttm
+
+# Specify number of speakers
+swift run whisperkit-cli diarize --audio-path audio.wav --num-speakers 3
+
+# Transcription with diarization
+swift run whisperkit-cli transcribe --audio-path audio.wav --diarization
+
+# See all options
+swift run whisperkit-cli diarize --help
+```
 
 ## Contributing & Roadmap
 

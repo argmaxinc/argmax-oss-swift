@@ -4,6 +4,7 @@
 import ArgumentParser
 import CoreML
 import Foundation
+import SpeakerKit
 import WhisperKit
 import TTSKit
 
@@ -15,6 +16,18 @@ struct TranscribeCLI: AsyncParsableCommand {
 
     @OptionGroup
     var cliArguments: TranscribeCLIArguments
+
+    @Flag(name: .long, help: "Enable speaker diarization")
+    var diarization: Bool = false
+
+    @Option(name: .long, help: "Number of speakers for diarization (default: automatic)")
+    var diarizationNumSpeakers: Int?
+
+    @Option(name: .long, help: "Path to diarization model files (skips download)")
+    var diarizationModelPath: String?
+
+    @Option(name: .long, help: "HuggingFace repo for diarization models")
+    var diarizationModelRepo: String?
 
     mutating func validate() throws {
         if let language = cliArguments.language {
@@ -44,6 +57,9 @@ struct TranscribeCLI: AsyncParsableCommand {
     }
 
     mutating func run() async throws {
+        if cliArguments.verbose {
+            Logging.shared.logLevel = .debug
+        }
         if cliArguments.stream {
             try await transcribeStream()
         } else if cliArguments.streamSimulated {
@@ -105,6 +121,9 @@ struct TranscribeCLI: AsyncParsableCommand {
         }
 
         var options = TranscribeCLIUtils.createDecodingOptions(from: cliArguments, task: task)
+        if diarization {
+            options.wordTimestamps = true
+        }
         if cliArguments.verbose {
             print("\nConfiguring decoding options...")
         }
@@ -236,6 +255,17 @@ struct TranscribeCLI: AsyncParsableCommand {
                 processTranscriptionResult(audioPath: audioPath, transcribeResult: mergedPartialResult)
             } catch {
                 print("Error when transcribing \(audioPath): \(error)")
+            }
+        }
+
+        if diarization {
+            for (audioPath, result) in zip(resolvedAudioPaths, transcribeResult) {
+                do {
+                    let partialResult = try result.get()
+                    try await runDiarization(audioPath: audioPath, transcriptionResults: partialResult)
+                } catch {
+                    print("Error during diarization for \(audioPath): \(error)")
+                }
             }
         }
     }
@@ -394,6 +424,41 @@ struct TranscribeCLI: AsyncParsableCommand {
 
 
 
+
+    private func runDiarization(audioPath: String, transcriptionResults: [TranscriptionResult]) async throws {
+        let config = PyannoteConfig(
+            modelRepo: diarizationModelRepo ?? "argmaxinc/speakerkit-coreml",
+            modelFolder: diarizationModelPath,
+            download: diarizationModelPath == nil,
+            load: true,
+            verbose: cliArguments.verbose
+        )
+
+        let loadStart = Date()
+        let speakerKit = try await SpeakerKit(config)
+        let loadTime = Date().timeIntervalSince(loadStart)
+
+        if cliArguments.verbose {
+            print("\nDiarization model initialization complete:")
+            print(String(format: "  - Total load time: %.2f seconds", loadTime))
+        }
+
+        let audioFrames = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioPath)
+
+        let options = PyannoteDiarizationOptions(numberOfSpeakers: diarizationNumSpeakers)
+        let diarizationResult = try await speakerKit.diarize(audioArray: audioFrames, options: options)
+
+        let rttmLines = SpeakerKit.generateRTTM(
+            from: diarizationResult,
+            transcription: transcriptionResults,
+            fileName: URL(filePath: audioPath).deletingPathExtension().lastPathComponent
+        )
+
+        print("\n---- Speaker Diarization Results ----")
+        for line in rttmLines {
+            print(line)
+        }
+    }
 
     private func processTranscriptionResult(
         audioPath: String,

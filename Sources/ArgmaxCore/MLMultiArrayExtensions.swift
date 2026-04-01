@@ -128,6 +128,7 @@ extension MLMultiArray {
 // MARK: - Error
 
 /// Error thrown when MLMultiArray creation fails.
+@frozen
 public enum MLMultiArrayCreationError: Error, LocalizedError {
     case pixelBufferFailed
 
