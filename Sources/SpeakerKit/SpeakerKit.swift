@@ -43,7 +43,7 @@ open class SpeakerKit: @unchecked Sendable {
     public convenience init(models: some SpeakerKitModels) async throws { fatalError() }
     
     /// Deprecated: For backward compatibility with code using `SpeakerKitDiarizer` protocol.
-    @available(*, deprecated, message: "Conform to Diarizer protocol instead of SpeakerKitDiarizer")
+    @available(*, unavailable, message: "Conform to Diarizer protocol instead of SpeakerKitDiarizer")
     public convenience init(diarizer: SpeakerKitDiarizer?) {
         fatalError("SpeakerKitDiarizer-based init is no longer supported. Use Diarizer protocol instead.")
     }
@@ -52,9 +52,8 @@ open class SpeakerKit: @unchecked Sendable {
 
     /// Ensures models are downloaded and loaded before inference.
     public func ensureModelsLoaded() async throws {
-        guard diarizer.modelState != .loaded else { return }
-        try await diarizer.downloadModels()
-        try await diarizer.loadModels()
+        guard let modelManager = diarizer as? ModelManager else { return }
+        try await modelManager.ensureModelsLoaded()
     }
 
     /// Unload SpeakerKit models from memory

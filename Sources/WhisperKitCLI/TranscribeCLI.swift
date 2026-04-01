@@ -429,7 +429,9 @@ struct TranscribeCLI: AsyncParsableCommand {
         let config = PyannoteConfig(
             modelRepo: diarizationModelRepo ?? "argmaxinc/speakerkit-coreml",
             modelFolder: diarizationModelPath,
-            download: diarizationModelPath == nil
+            download: diarizationModelPath == nil,
+            verbose: cliArguments.verbose,
+            load: true
         )
 
         let loadStart = Date()

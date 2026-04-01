@@ -18,7 +18,7 @@ enum SegmentMatchingMode {
 /// Protocol for pipeline-specific timing objects produced by a diarizer backend.
 ///
 /// Conform to this protocol when implementing a custom diarizer backend that
-/// produces its own timing data. Pyannote produces ``DiarizationTimings``.
+/// produces its own timing data. Pyannote produces ``PyannoteDiarizationTimings`` conforming to this protocol.
 public protocol DiarizationTimings: CustomStringConvertible, CustomDebugStringConvertible, Sendable {}
 
 // MARK: - DiarizationResult
