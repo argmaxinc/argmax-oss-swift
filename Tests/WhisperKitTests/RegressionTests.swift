@@ -3,7 +3,6 @@
 
 import CoreML
 import Foundation
-import Hub
 import UniformTypeIdentifiers
 import WhisperKit
 import XCTest
@@ -479,10 +478,10 @@ class RegressionTests: XCTestCase {
             do {
                 Logging.debug("Available models: \(modelsToTest)")
 
-                let testDatasetRepo = Hub.Repo(id: datasetRepo, type: .datasets)
+                let testDatasetRepo = HubApiWrapper.Repo(id: datasetRepo, type: .datasets)
                 let tempPath = FileManager.default.temporaryDirectory
                 let downloadBase = tempPath.appending(component: "huggingface")
-                let hubApi = HubApi(downloadBase: downloadBase)
+                let hubApi = HubApiWrapper(downloadBase: downloadBase)
                 let repoURL = try await hubApi.snapshot(from: testDatasetRepo, matching: ["\(dataset)/*"]) { progress in
                     Logging.debug("Downloading \(dataset) dataset: \(progress)")
                 }.appending(path: dataset)
@@ -534,10 +533,10 @@ class RegressionTests: XCTestCase {
 
     private func getWERTestData() async -> (String?, String?) {
         do {
-            let testDataset = Hub.Repo(id: datasetRepo, type: .datasets)
+            let testDataset = HubApiWrapper.Repo(id: datasetRepo, type: .datasets)
             let tempPath = FileManager.default.temporaryDirectory
             let downloadBase = tempPath.appending(component: "huggingface")
-            let hubApi = HubApi(downloadBase: downloadBase)
+            let hubApi = HubApiWrapper(downloadBase: downloadBase)
             let testWERRepoURL = try await hubApi.snapshot(from: testDataset, matching: ["*.txt"])
             let testWERTextURLs = try FileManager.default.contentsOfDirectory(atPath: testWERRepoURL.path()).filter { $0.hasSuffix(".txt") }
             self.testWERURLs = testWERTextURLs.map { testWERRepoURL.appending(component: $0) }

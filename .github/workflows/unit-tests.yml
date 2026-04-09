@@ -75,7 +75,7 @@ jobs:
         run: |
           echo "Simulators on runner:"
           xcrun simctl list
-          if [[ "${{ matrix.run-config['name'] }}" == "visionOS" ]]; then
+          if [[ "${{ matrix.run-config['name'] }}" != "macOS" ]]; then
             xcodebuild -downloadPlatform ${{ matrix.run-config['name'] }}
           fi
           echo "Runtimes for testing:"

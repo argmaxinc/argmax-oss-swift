@@ -3,7 +3,6 @@
 
 import Foundation
 import CoreML
-import Hub
 import ArgmaxCore
 
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)

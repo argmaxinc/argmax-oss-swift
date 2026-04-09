@@ -3,7 +3,6 @@
 
 import CoreML
 import Foundation
-import Hub
 
 // MARK: - ModelDownloader
 
@@ -85,7 +84,7 @@ open class ModelDownloader {
 
         let resolvedDownloadBase = downloadBase ?? config.downloadBase.map { URL(fileURLWithPath: $0) }
         let hubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession, useOfflineMode: useOfflineMode)
-        let repo = Hub.Repo(id: config.modelRepo, type: .models)
+        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
 
         if useOfflineMode ?? false {
             Logging.debug("[ModelDownloader] Searching for models matching \"\(searchPath)\" in \(repo)")
@@ -108,7 +107,7 @@ open class ModelDownloader {
     public func localRepoLocation(downloadBase: URL? = nil) -> URL {
         let resolvedDownloadBase = downloadBase ?? config.downloadBase.map { URL(fileURLWithPath: $0) }
         let hubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession)
-        let repo = Hub.Repo(id: config.modelRepo, type: .models)
+        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
         return hubApi.localRepoLocation(repo)
     }
 
@@ -215,7 +214,7 @@ open class ModelDownloader {
         }
 
         let hubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession)
-        let repo = Hub.Repo(id: config.modelRepo, type: .models)
+        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
 
         Logging.info("[ModelDownloader] Downloading \(patterns.count) model(s) from \(config.modelRepo)...")
         let snapshotRoot = try await hubApi.snapshot(from: repo, revision: config.revision, matching: patterns, progressHandler: progressCallback ?? { _ in })
@@ -232,7 +231,7 @@ open class ModelDownloader {
     public func fetchFilenames(matching patterns: [String], downloadBase: URL? = nil) async throws -> [String] {
         let resolvedDownloadBase = downloadBase ?? config.downloadBase.map { URL(fileURLWithPath: $0) }
         let hubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession)
-        let repo = Hub.Repo(id: config.modelRepo, type: .models)
+        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
         return try await hubApi.getFilenames(from: repo, revision: config.revision, matching: patterns)
     }
 

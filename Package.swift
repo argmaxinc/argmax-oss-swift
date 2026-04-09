@@ -31,7 +31,6 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/huggingface/swift-transformers.git", .upToNextMinor(from: "1.1.6")),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
     ] + (isServerEnabled() ? [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.115.1"),
@@ -43,24 +42,18 @@ let package = Package(
     targets: [
         .target(
             name: "ArgmaxCore",
-            dependencies: [
-                .product(name: "Hub", package: "swift-transformers"),
-            ]
+            exclude: ["External/LICENSE"]
         ),
         .target(
             name: "WhisperKit",
             dependencies: [
                 "ArgmaxCore",
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Tokenizers", package: "swift-transformers"),
             ]
         ),
         .target(
             name: "TTSKit",
             dependencies: [
                 "ArgmaxCore",
-                .product(name: "Tokenizers", package: "swift-transformers"),
-                .product(name: "Hub", package: "swift-transformers"),
             ],
             swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
         ),
@@ -69,7 +62,6 @@ let package = Package(
             dependencies: [
                 "ArgmaxCore",
                 "WhisperKit",
-                .product(name: "Hub", package: "swift-transformers"),
             ],
             swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
         ),
@@ -77,8 +69,6 @@ let package = Package(
             name: "WhisperKitTests",
             dependencies: [
                 "WhisperKit",
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             exclude: ["UnitTestsPlan.xctestplan"],
             resources: [

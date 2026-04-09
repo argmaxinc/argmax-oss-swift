@@ -3,11 +3,10 @@
 
 @_exported import ArgmaxCore
 import Accelerate
+import ArgmaxCore
 import AVFoundation
 import CoreML
 import Foundation
-import Hub
-import Tokenizers
 
 open class WhisperKit {
     /// Models
@@ -186,13 +185,14 @@ open class WhisperKit {
         remoteConfigName: String = Constants.defaultRemoteConfigName,
         endpoint: String = Constants.defaultRemoteEndpoint
     ) async -> ModelSupportConfig {
-        let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
+        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
+        let repoRef = HubApiWrapper.Repo(id: repo)
         var modelSupportConfig = Constants.fallbackModelSupportConfig
 
         do {
             // Try to decode config file into ModelSupportConfig
             Logging.debug("Searching for config file matching \"\(remoteConfigName)\" in \(repo)")
-            let files = try await hubApi.getFilenames(from: repo, matching: remoteConfigName)
+            let files = try await hubApi.getFilenames(from: repoRef, matching: [remoteConfigName])
             if files.count > 1 {
                 Logging.info("Multiple config files found (\(files.count)): \(files). Using first matching file: \(files.first ?? "none")")
             } else if files.isEmpty {
@@ -204,7 +204,7 @@ open class WhisperKit {
             // Use the first file in the list, or default to Constants.defaultRemoteConfigName
             let configFileName = files.first ?? Constants.defaultRemoteConfigName
             
-            let configUrl = try await hubApi.snapshot(from: repo, matching: configFileName)
+            let configUrl = try await hubApi.snapshot(from: repoRef, matching: [configFileName])
             let decoder = JSONDecoder()
             let jsonData = try Data(contentsOf: configUrl.appendingPathComponent(configFileName))
             modelSupportConfig = try decoder.decode(ModelSupportConfig.self, from: jsonData)
@@ -250,8 +250,8 @@ open class WhisperKit {
         endpoint: String = Constants.defaultRemoteEndpoint,
         progressCallback: ((Progress) -> Void)? = nil
     ) async throws -> URL {
-        let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
-        let repo = Hub.Repo(id: repo, type: .models)
+        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
+        let repo = HubApiWrapper.Repo(id: repo, type: .models)
         var modelSearchPath = "*\(variant.description)/*"
         do {
             Logging.debug("Searching for models matching \"\(modelSearchPath)\" in \(repo)")
@@ -475,8 +475,8 @@ open class WhisperKit {
         let additionalSearchPaths: [URL]
         if let modelFolder {
             // TODO: remove hub path in future version, retained as additional search path for backward compatibility
-            let hubTokenizerFolderFromModel = HubApi(downloadBase: modelFolder).localRepoLocation(
-                HubApi.Repo(id: ModelUtilities.tokenizerNameForVariant(modelVariant))
+            let hubTokenizerFolderFromModel = HubApiWrapper(downloadBase: modelFolder).localRepoLocation(
+                HubApiWrapper.Repo(id: ModelUtilities.tokenizerNameForVariant(modelVariant))
             )
 
             additionalSearchPaths = [modelFolder] + [hubTokenizerFolderFromModel]

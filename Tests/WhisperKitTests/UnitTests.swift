@@ -4,9 +4,7 @@
 import AVFoundation
 import Combine
 import CoreML
-import Hub
 import NaturalLanguage
-import Tokenizers
 @testable import WhisperKit
 import XCTest
 

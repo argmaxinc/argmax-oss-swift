@@ -4,9 +4,9 @@
 import Accelerate
 import AVFAudio
 import CoreML
-import Hub
 import NaturalLanguage
-import Tokenizers
+import ArgmaxCore
+
 // MARK: - CoreML
 
 public protocol WhisperMLModel: AnyObject {
@@ -1249,7 +1249,7 @@ public protocol WhisperTokenizer {
 }
 
 open class WhisperTokenizerWrapper: WhisperTokenizer {
-    let tokenizer: any Tokenizer
+    let tokenizer: TokenizerWrapper
     let tokenizerFolder: URL?
     public let specialTokens: SpecialTokens
     public let allLanguageTokens: Set<Int>
@@ -1285,7 +1285,7 @@ open class WhisperTokenizerWrapper: WhisperTokenizer {
     /// - Note: Special tokens are automatically detected from the tokenizer vocabulary, with
     ///   fallback to default values if tokens are not found. Language tokens are identified
     ///   by matching the pattern `<|language|>` against the tokenizer's vocabulary.
-    init(tokenizer: any Tokenizer, at tokenizerFolder: URL? = nil) {
+    init(tokenizer: TokenizerWrapper, at tokenizerFolder: URL? = nil) {
         let specialTokens = SpecialTokens(
             endToken: tokenizer.convertTokenToId("<|endoftext|>") ?? Self.defaultEndToken,
             englishToken: tokenizer.convertTokenToId("<|en|>") ?? Self.defaultEnglishToken,

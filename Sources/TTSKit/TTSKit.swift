@@ -2,9 +2,9 @@
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
 @_exported import ArgmaxCore
+import ArgmaxCore
 import CoreML
 import Foundation
-import Tokenizers
 import os
 
 // MARK: - Callback Typealiases
@@ -46,7 +46,7 @@ open class TTSKit: @unchecked Sendable {
     /// RVQ codes -> audio waveform. Conforms to `SpeechDecoding`.
     public var speechDecoder: any SpeechDecoding = Qwen3SpeechDecoder()
     /// Tokenizer. `nil` before the first `loadModels()` call or after `unloadModels()`.
-    public var tokenizer: (any Tokenizer)?
+    public var tokenizer: (any TTSTokenizer)?
 
     // MARK: - Model state
 
@@ -533,19 +533,19 @@ open class TTSKit: @unchecked Sendable {
     ///
     /// Override this method to plug in a custom tokenizer loading strategy (e.g. fully
     /// offline from a bundled path) without touching the rest of `loadModels()`.
-    open func loadTokenizer() async throws -> any Tokenizer {
+    open func loadTokenizer() async throws -> any TTSTokenizer {
         let start = CFAbsoluteTimeGetCurrent()
         Logging.info("Loading tokenizer from \(config.tokenizerSource)...")
         let tokenizerURL = URL(fileURLWithPath: config.tokenizerSource)
-        let tokenizer: any Tokenizer
+        let wrapper: TokenizerWrapper
         if FileManager.default.fileExists(atPath: tokenizerURL.appending(path: "tokenizer.json").path) {
-            tokenizer = try await AutoTokenizer.from(modelFolder: tokenizerURL)
+            wrapper = try await AutoTokenizerWrapper.from(modelFolder: tokenizerURL)
         } else {
-            tokenizer = try await AutoTokenizer.from(pretrained: config.tokenizerSource)
+            wrapper = try await AutoTokenizerWrapper.from(pretrained: config.tokenizerSource)
         }
         currentTimings.tokenizerLoadTime = CFAbsoluteTimeGetCurrent() - start
         Logging.info(String(format: "Tokenizer loaded in %.2fs", tokenizerLoadTime))
-        return tokenizer
+        return TTSTokenizerWrapper(wrapper)
     }
 
     /// Release all model weights and the tokenizer from memory.
@@ -693,7 +693,7 @@ open class TTSKit: @unchecked Sendable {
     open func setupGenerateTask(
         currentTimings: SpeechTimings,
         progress: Progress,
-        tokenizer: any Tokenizer,
+        tokenizer: any TTSTokenizer,
         sampler: any TokenSampling
     ) throws -> any SpeechGenerating {
         switch config.model.family {
