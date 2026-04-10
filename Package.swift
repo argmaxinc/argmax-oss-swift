@@ -41,8 +41,7 @@ let package = Package(
     ] : []),
     targets: [
         .target(
-            name: "ArgmaxCore",
-            exclude: ["External/LICENSE"]
+            name: "ArgmaxCore"
         ),
         .target(
             name: "WhisperKit",

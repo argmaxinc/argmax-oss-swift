@@ -611,6 +611,8 @@ Our goal is to make WhisperKit better and better over time and we'd love your he
 
 WhisperKit is released under the MIT License. See [LICENSE](LICENSE) for more details.
 
+WhisperKit incorporates third-party software under their own license terms. See [NOTICES](NOTICES) for attributions.
+
 ## Citation
 
 If you use WhisperKit for something cool or just find it useful, please drop us a note at [info@argmaxinc.com](mailto:info@argmaxinc.com)!
