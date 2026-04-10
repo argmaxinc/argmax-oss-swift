@@ -1,15 +1,9 @@
 
 <div align="center">
-  
-<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-light-mode-only">
-  <img src="https://github.com/user-attachments/assets/f0699c07-c29f-45b6-a9c6-f6d491b8f791" alt="Argmax Open Core SDK" width="20%" />
-</a>
 
-<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-dark-mode-only">
-  <img src="https://github.com/user-attachments/assets/1be5e31c-de42-40ab-9b85-790cb911ed47" alt="Argmax Open Core SDK" width="20%" />
-</a>
+<br/>
 
-# Argmax Open Core SDK
+# Argmax Open-Source SDK Swift
 
 [![Tests](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml/badge.svg)](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml)
 [![Supported Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dswift-versions&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift) [![Supported Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dplatforms&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift)
@@ -19,12 +13,28 @@
 
 </div>
 
-The Argmax Open Core SDK is an [Argmax](https://www.takeargmax.com) Swift package for deploying state-of-the-art on-device speech and audio models on Apple Silicon. It includes **WhisperKit** (speech-to-text), **TTSKit** (text-to-speech), and **SpeakerKit** (speaker diarization).
+<br/>
 
-[[TestFlight Demo App]](https://testflight.apple.com/join/Q1cywTJw) [[Python Tools]](https://github.com/argmaxinc/whisperkittools) [[Benchmarks & Device Support]](https://huggingface.co/spaces/argmaxinc/whisperkit-benchmarks) [[WhisperKit Android]](https://github.com/argmaxinc/WhisperKitAndroid)
+[Argmax](https://argmaxinc.com/blog) Open-Source SDK Swift is a collection of turn-key on-device inference frameworks:
+- **WhisperKit** for speech-to-text with OpenAI Whisper
+- **SpeakerKit** for speaker diarization Pyannote
+- **TTSKit** for text-to-speech with Qwen-TTS
 
-> [!IMPORTANT]
-> The open-source kits are ideal for getting started with on-device speech. When you are ready to scale your on-device deployment with real-time transcription and speaker diarization, start your [14-day trial](https://app.argmaxinc.com) for [Argmax Pro SDK](https://www.argmaxinc.com/#SDK) with 9x faster and higher accuracy models such as Nvidia Parakeet V3, [Nvidia Sortformer](https://www.argmaxinc.com/blog/argmax-sdk-2) streaming speaker diarization model, and a Deepgram-compatible WebSocket [local server](https://www.argmaxinc.com/blog/argmax-local-server) for easy integration into non-Swift projects.
+<br/>
+
+[Argmax Pro SDK](https://www.argmaxinc.com/blog/argmax-sdk-2) supports additional models and advanced features such as:
+- Real-time transcription with speakers
+- Frontier accuracy for your use case with custom vocabulary
+- Argmax Local Server for non-native apps
+- Android support with Argmax Pro SDK Kotlin
+
+<br/>
+
+Further resources:
+- [Open-source vs Pro SDK](https://app.argmaxinc.com/docs/wiki/open-source-vs-pro-sdk)
+- [Model Gallery](https://app.argmaxinc.com/docs/models)
+
+<br/>
 
 ## Table of Contents
 
@@ -145,16 +155,21 @@ Task {
 
 ### Model Selection
 
+> [!NOTE]
+> Argmax recommends `large-v3-v20240930_626MB` for maximum multilingual accuracy and `tiny` for the fastest debugging workflow.
+
+
 WhisperKit automatically downloads the recommended model for the device if not specified. You can also select a specific model by passing in the model name:
 
+
 ```swift
-let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3"))
+let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3-v20240930_626MB"))
 ```
 
 This method also supports glob search, so you can use wildcards to select a model:
 
 ```swift
-let pipe = try? await WhisperKit(WhisperKitConfig(model: "distil*large-v3"))
+let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3-v20240930_626MB"))
 ```
 
 Note that the model search must return a single model from the source repo, otherwise an error will be thrown.
@@ -166,7 +181,7 @@ For a list of available models, see our [HuggingFace repo](https://huggingface.c
 WhisperKit also comes with the supporting repo [`whisperkittools`](https://github.com/argmaxinc/whisperkittools) which lets you create and deploy your own fine tuned versions of Whisper in CoreML format to HuggingFace. Once generated, they can be loaded by simply changing the repo name to the one used to upload the model:
 
 ```swift
-let config = WhisperKitConfig(model: "large-v3", modelRepo: "username/your-model-repo")
+let config = WhisperKitConfig(model: "large-v3-v20240930_626MB", modelRepo: "username/your-model-repo")
 let pipe = try? await WhisperKit(config)
 ```
 
@@ -183,7 +198,7 @@ Then, setup the environment and download your desired model.
 
 ```bash
 make setup
-make download-model MODEL=large-v3
+make download-model MODEL=large-v3-v20240930_626MB
 ```
 
 **Note**:
@@ -200,13 +215,13 @@ make download-models
 You can then run them via the CLI with:
 
 ```bash
-swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3" --audio-path "path/to/your/audio.{wav,mp3,m4a,flac}" 
+swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3-v20240930_626MB" --audio-path "path/to/your/audio.{wav,mp3,m4a,flac}"
 ```
 
 Which should print a transcription of the audio file. If you would like to stream the audio directly from a microphone, use:
 
 ```bash
-swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3" --stream
+swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3-v20240930_626MB" --stream
 ```
 
 ### Local Server
@@ -214,7 +229,8 @@ swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_wh
 The Argmax CLI includes a local server that implements the OpenAI Audio API, allowing you to use existing OpenAI SDK clients or generate new ones. The server supports transcription and translation with **output streaming** capabilities (real-time transcription results as they're generated).
 
 > [!NOTE]
-> **For real-time transcription server with full-duplex streaming capabilities**, check out [Argmax Pro Local Server](https://www.argmaxinc.com/blog/argmax-local-server) which provides live audio streaming and real-time transcription for applications requiring continuous audio processing.
+> [Argmax Pro Local Server](https://www.argmaxinc.com/blog/argmax-local-server) provides a real-time streaming transcription with a WebSocket local server that is API-compatible with cloud-based providers such as Deepgram.
+
 
 #### Building the Server
 
@@ -344,7 +360,7 @@ The local server fully supports these OpenAI API features:
 
 ## TTSKit
 
-TTSKit is an on-device text-to-speech framework built on Core ML. It runs [Qwen3 TTS](https://github.com/QwenLM/Qwen3-TTS) models entirely on Apple silicon with real-time streaming playback, no server required.
+TTSKit is an on-device text-to-speech framework built on Core ML. It runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) models entirely on Apple silicon with real-time streaming playback, no server required.
 
 - macOS 15.0 or later.
 - iOS 18.0 or later.
@@ -391,7 +407,7 @@ let result = try await tts.generate(
 )
 ```
 
-**Voices:** `.ryan`, `.aiden`, `.onoAnna` (`"ono-anna"`), `.sohee`, `.eric`, `.dylan`, `.serena`, `.vivian`, `.uncleFu` (`"uncle-fu"`)
+**Voices:** `.ryan`, `.aiden`, `.onoAnna`, `.sohee`, `.eric`, `.dylan`, `.serena`, `.vivian`, `.uncleFu`
 
 **Languages:** `.english`, `.chinese`, `.japanese`, `.korean`, `.german`, `.french`, `.russian`, `.portuguese`, `.spanish`, `.italian`
 
@@ -492,7 +508,7 @@ The [TTSKitExample](Examples/TTS/TTSKitExample/) example app showcases real-time
 
 ## SpeakerKit
 
-SpeakerKit is an on-device speaker diarization framework built on Core ML. It runs [Pyannote v4 (community-1)](https://huggingface.co/argmaxinc/speakerkit-coreml) segmentation and embedding models on Apple silicon to identify and label speakers in audio. Read the [blog post](https://www.argmaxinc.com/blog/speakerkit) for architecture details and benchmarks.
+SpeakerKit is an on-device speaker diarization framework built on Core ML. It runs [Pyannote v4 (community-1)](https://huggingface.co/argmaxinc/speakerkit-coreml) on Apple silicon to label speakers in audio. Read the [blog post](https://www.argmaxinc.com/blog/speakerkit) for architecture details and benchmarks.
 
 - macOS 13.0 or later.
 - iOS 16.0 or later.
@@ -625,7 +641,7 @@ If you use WhisperKit for academic work, here is the BibTeX:
 
 ```bibtex
 @misc{whisperkit-argmax,
-   title = {WhisperKit},
+   title = {Argmax OSS: WhisperKit, SpeakerKit and TTSKit},
    author = {Argmax, Inc.},
    year = {2024},
    URL = {https://github.com/argmaxinc/argmax-oss-swift}
