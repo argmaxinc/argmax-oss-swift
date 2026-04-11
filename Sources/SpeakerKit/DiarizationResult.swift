@@ -30,15 +30,17 @@ public struct DiarizationResult: Sendable {
     public let frameRate: Float
     public private(set) var segments: [SpeakerSegment]
     public var timings: (any DiarizationTimings)?
+    public var speakerCentroidEmbeddings: [Int: [Float]]
 
     /// Pyannote init: builds segments from binary speaker activity matrix
-    init(binaryMatrix: [[Int]], diarizationFrameRate: Float) {
+    init(binaryMatrix: [[Int]], diarizationFrameRate: Float, speakerCentroidEmbeddings: [Int: [Float]] = [:]) {
         self.binaryMatrix = binaryMatrix
         self.frameRate = diarizationFrameRate
         self.speakerCount = binaryMatrix.count
         self.totalFrames = speakerCount > 0 ? binaryMatrix[0].count : 0
         self.segments = []
         self.timings = nil
+        self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
 
         self.updateSegments(minActiveOffset: 0.0)
     }
@@ -51,6 +53,7 @@ public struct DiarizationResult: Sendable {
         self.frameRate = frameRate
         self.segments = segments
         self.timings = timings
+        self.speakerCentroidEmbeddings = [:]
     }
 
     public mutating func updateSegments(minActiveOffset: Float) {
