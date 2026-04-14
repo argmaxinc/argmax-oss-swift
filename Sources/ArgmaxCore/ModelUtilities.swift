@@ -39,6 +39,31 @@ public struct ModelUtilities {
 
     // MARK: - Model URL Detection
 
+    /// Recursively searches a directory tree for a named CoreML model bundle.
+    ///
+    /// Checks the direct path first (like `detectModelURL(inFolder:named:)`), then
+    /// falls back to a recursive walk. Useful when Hub downloads place models inside
+    /// nested `snapshots/` subdirectories.
+    public static func detectModelURL(inFolder path: URL, named modelName: String, recursive: Bool) -> URL {
+        guard recursive else { return detectModelURL(inFolder: path, named: modelName) }
+
+        let compiledName = "\(modelName).mlmodelc"
+        let direct = path.appending(path: compiledName)
+        if FileManager.default.fileExists(atPath: direct.path) {
+            return direct
+        }
+
+        if let enumerator = FileManager.default.enumerator(at: path, includingPropertiesForKeys: nil) {
+            while let url = enumerator.nextObject() as? URL {
+                if url.lastPathComponent == compiledName {
+                    return url
+                }
+            }
+        }
+
+        return direct
+    }
+
     /// Detects the best available CoreML model URL in a folder, preferring
     /// compiled `.mlmodelc` over `.mlpackage`.
     public static func detectModelURL(inFolder path: URL, named modelName: String) -> URL {

@@ -4,7 +4,6 @@
 import Accelerate
 import ArgmaxCore
 import CoreML
-import Tokenizers
 
 public protocol TextDecoderTensorType {}
 public protocol TextDecoderInputType {}

@@ -4,10 +4,8 @@
 import AVFoundation
 import Combine
 import CoreML
-import Hub
 import NaturalLanguage
 import os.lock
-import Tokenizers
 @testable import WhisperKit
 import XCTest
 
@@ -1910,15 +1908,15 @@ final class UnitTests: XCTestCase {
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let indexes2: [[Int]] = [[0, 0, 0], [0, 0, 1], [0, 0, 5]]
         logits2.fill(indexes: indexes2, with: -FloatType.infinity)
-        XCTAssertEqual(logits2.data(for: 2), [-.infinity, -.infinity, 0.3, 0.4, 0.5, -.infinity, 0.7])
+        XCTAssertEqual(logits2.data(for: 2), [-FloatType.infinity, -FloatType.infinity, 0.3, 0.4, 0.5, -FloatType.infinity, 0.7])
 
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         logits3.fillLastDimension(indexes: 0..<1, with: -FloatType.infinity)
-        XCTAssertEqual(logits3.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(logits3.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         logits4.fillLastDimension(indexes: 2..<5, with: -FloatType.infinity)
-        XCTAssertEqual(logits4.data(for: 2), [0.1, 0.2, -.infinity, -.infinity, -.infinity, 0.6, 0.7])
+        XCTAssertEqual(logits4.data(for: 2), [0.1, 0.2, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.6, 0.7])
     }
 
     func testBatchedArray() {
@@ -1990,12 +1988,12 @@ final class UnitTests: XCTestCase {
         let tokensFilter2 = SuppressTokensFilter(suppressTokens: [0])
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result2 = tokensFilter2.filterLogits(logits2, withTokens: [])
-        XCTAssertEqual(result2.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result2.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter3 = SuppressTokensFilter(suppressTokens: [0, 2, 5, 6])
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result3 = tokensFilter3.filterLogits(logits3, withTokens: [])
-        XCTAssertEqual(result3.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, -FloatType.infinity, -FloatType.infinity])
     }
 
     func testSuppressBlankFilter() throws {
@@ -2005,7 +2003,7 @@ final class UnitTests: XCTestCase {
         )
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result2 = tokensFilter2.filterLogits(logits2, withTokens: [])
-        XCTAssertEqual(result2.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result2.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter3 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -2013,7 +2011,7 @@ final class UnitTests: XCTestCase {
         )
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result3 = tokensFilter3.filterLogits(logits3, withTokens: [])
-        XCTAssertEqual(result3.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result3.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter4 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -2021,7 +2019,7 @@ final class UnitTests: XCTestCase {
         )
         let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result4 = tokensFilter4.filterLogits(logits4, withTokens: [1, 2, 3])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter5 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -2036,7 +2034,7 @@ final class UnitTests: XCTestCase {
         let tokensFilter1 = LanguageLogitsFilter(allLanguageTokens: [2, 4, 6], logitsDim: 7, sampleBegin: 0)
         let logits1 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result1 = tokensFilter1.filterLogits(logits1, withTokens: [])
-        XCTAssertEqual(result1.data(for: 2), [-.infinity, -.infinity, 0.3, -.infinity, 0.5, -.infinity, 0.7])
+        XCTAssertEqual(result1.data(for: 2), [-FloatType.infinity, -FloatType.infinity, 0.3, -FloatType.infinity, 0.5, -FloatType.infinity, 0.7])
 
         let tokensFilter2 = LanguageLogitsFilter(allLanguageTokens: [2, 4, 6], logitsDim: 7, sampleBegin: 2)
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
@@ -2062,22 +2060,22 @@ final class UnitTests: XCTestCase {
         // noTimestampToken should always be suppressed if tokens pass sampleBegin
         let logits1 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result1 = tokensFilter.filterLogits(logits1, withTokens: [4])
-        XCTAssertEqual(result1.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
+        XCTAssertEqual(result1.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
 
         // Timestamps should not decrease (filters up to last seen timestamp)
         let logits2 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result2 = tokensFilter.filterLogits(logits2, withTokens: [0, 6, 7, 3])
-        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, 0.1])
+        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, 0.1])
 
         // If last two tokens are timestamps, filter all timestamps (allows text token to be next)
         let logits3 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result3 = tokensFilter.filterLogits(logits3, withTokens: [0, 6, 7])
-        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity])
 
         // If only one previous token was a timestamp, filter all text and non-decreasing timestamps (to find matching timestamp pair)
         let logits4 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result4 = tokensFilter.filterLogits(logits4, withTokens: [0, 4, 7])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, 0.1, 0.1])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.1, 0.1])
     }
 
     func testTimestampRulesFilterMultilingual() throws {
@@ -2103,17 +2101,17 @@ final class UnitTests: XCTestCase {
         // Timestamps should not decrease after task token (filters up to last seen timestamp)
         let logits2 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result2 = tokensFilter.filterLogits(logits2, withTokens: [0, 4, 6, 7, 3])
-        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, 0.1])
+        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, 0.1])
 
         // If last two tokens after task are timestamps, filter all timestamps (allows text token to be next)
         let logits3 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result3 = tokensFilter.filterLogits(logits3, withTokens: [0, 5, 6, 7])
-        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity])
 
         // After transcribe token with text and single timestamp (should force timestamp tokens)
         let logits4 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result4 = tokensFilter.filterLogits(logits4, withTokens: [0, 4, 0, 7])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, 0.1, 0.1])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.1, 0.1])
     }
 
     // MARK: - VAD Tests

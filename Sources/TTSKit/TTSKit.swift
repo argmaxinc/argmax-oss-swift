@@ -2,10 +2,9 @@
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
 @_exported import ArgmaxCore
+import ArgmaxCore
 import CoreML
 import Foundation
-import Hub
-import Tokenizers
 import os
 
 // MARK: - Callback Typealiases
@@ -47,7 +46,7 @@ open class TTSKit: @unchecked Sendable {
     /// RVQ codes -> audio waveform. Conforms to `SpeechDecoding`.
     public var speechDecoder: any SpeechDecoding = Qwen3SpeechDecoder()
     /// Tokenizer. `nil` before the first `loadModels()` call or after `unloadModels()`.
-    public var tokenizer: (any Tokenizer)?
+    public var tokenizer: (any TTSTokenizer)?
 
     // MARK: - Model state
 
@@ -246,7 +245,7 @@ open class TTSKit: @unchecked Sendable {
     /// - Parameters:
     ///   - repo: HuggingFace repo ID to query. Defaults to the standard Qwen3 TTS repo.
     ///   - matching: Glob patterns to filter returned variant names. Defaults to `["*"]` (all variants).
-    ///   - downloadBase: Optional base URL for Hub downloads.
+    ///   - downloadBase: Optional base URL for the Hub cache when listing files; `nil` uses the Hub default.
     ///   - token: HuggingFace API token (or set `HF_TOKEN` env var).
     ///   - endpoint: HuggingFace Hub endpoint URL.
     /// - Returns: Display names of available model variants matching the given patterns.
@@ -258,9 +257,8 @@ open class TTSKit: @unchecked Sendable {
         token: String? = nil,
         endpoint: String = Qwen3TTSConstants.defaultEndpoint
     ) async throws -> [String] {
-        let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
-        let hubRepo = Hub.Repo(id: repo, type: .models)
-        let files = try await hubApi.getFilenames(from: hubRepo, matching: ["qwen3_tts/**"])
+        let downloader = ModelDownloader(endpoint: endpoint, repoName: repo, modelToken: token)
+        let files = try await downloader.fetchFilenames(matching: ["qwen3_tts/**"], downloadBase: downloadBase)
         var variants: [String] = []
         for variant in TTSModelVariant.allCases {
             let prefix = "qwen3_tts/code_decoder/\(variant.versionDir)/"
@@ -291,7 +289,7 @@ open class TTSKit: @unchecked Sendable {
     ///   - endpoint: HuggingFace Hub endpoint URL.
     ///   - revision: Specific git revision (commit SHA, tag, or branch) to download.
     ///   - additionalPatterns: Extra glob patterns to include alongside the default component patterns.
-    ///   - progressCallback: Optional closure receiving download progress updates.
+    ///   - progressCallback: Optional closure receiving `Progress` updates; `progress.fractionCompleted` is in [0, 1].
     /// - Returns: Local URL of the downloaded model folder.
     /// - Throws: `TTSError` if the Hub download fails.
     open class func download(
@@ -320,31 +318,35 @@ open class TTSKit: @unchecked Sendable {
 
     /// Download models using a full `TTSKitConfig`.
     ///
-    /// Downloads only the files matching the configured component variants.
-    /// Files are cached locally by the Hub library.
+    /// Downloads only the files matching the configured component variants at the
+    /// config’s `downloadRevision`. Files are cached locally by the Hub library.
     ///
     /// - Parameters:
-    ///   - config: Pipeline configuration containing `modelRepo`, `modelToken`,
-    ///     `downloadRevision`, `downloadAdditionalPatterns`, and variant settings.
-    ///   - progressCallback: Optional closure receiving download progress updates.
+    ///   - config: Pipeline configuration including `modelRepo`, `modelToken`, `downloadBase`,
+    ///     `downloadRevision`, `downloadAdditionalPatterns`, `useBackgroundDownloadSession`, and variant settings.
+    ///   - progressCallback: Optional closure receiving `Progress` updates; `progress.fractionCompleted` is in [0, 1].
     /// - Returns: Local URL of the downloaded model folder.
     /// - Throws: `TTSError` if the Hub download fails.
     open class func download(
         config: TTSKitConfig = TTSKitConfig(),
         progressCallback: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> URL {
-        let hubApi = HubApi(downloadBase: config.downloadBase, hfToken: config.modelToken, endpoint: config.modelEndpoint)
-        let hubRepo = Hub.Repo(id: config.modelRepo, type: .models)
+        let downloader = ModelDownloader(
+            endpoint: config.modelEndpoint,
+            repoName: config.modelRepo,
+            modelToken: config.modelToken,
+            revision: config.downloadRevision ?? "main",
+            useBackgroundSession: config.useBackgroundDownloadSession
+        )
         let patterns = config.downloadPatterns + config.downloadAdditionalPatterns
 
         do {
-            return try await hubApi.snapshot(
-                from: hubRepo,
-                revision: config.downloadRevision ?? "main",
-                matching: patterns
-            ) { progress in
-                progressCallback?(progress)
-            }
+            return try await downloader.resolveRepo(
+                patterns: patterns,
+                downloadBase: config.downloadBase,
+                download: true,
+                progressCallback: progressCallback
+            )
         } catch {
             throw TTSError.generationFailed(
                 "Failed to download models from \(config.modelRepo). Check that the repo exists and you have access. Error: \(error.localizedDescription)"
@@ -531,19 +533,19 @@ open class TTSKit: @unchecked Sendable {
     ///
     /// Override this method to plug in a custom tokenizer loading strategy (e.g. fully
     /// offline from a bundled path) without touching the rest of `loadModels()`.
-    open func loadTokenizer() async throws -> any Tokenizer {
+    open func loadTokenizer() async throws -> any TTSTokenizer {
         let start = CFAbsoluteTimeGetCurrent()
         Logging.info("Loading tokenizer from \(config.tokenizerSource)...")
         let tokenizerURL = URL(fileURLWithPath: config.tokenizerSource)
-        let tokenizer: any Tokenizer
+        let wrapper: TokenizerWrapper
         if FileManager.default.fileExists(atPath: tokenizerURL.appending(path: "tokenizer.json").path) {
-            tokenizer = try await AutoTokenizer.from(modelFolder: tokenizerURL)
+            wrapper = try await AutoTokenizerWrapper.from(modelFolder: tokenizerURL)
         } else {
-            tokenizer = try await AutoTokenizer.from(pretrained: config.tokenizerSource)
+            wrapper = try await AutoTokenizerWrapper.from(pretrained: config.tokenizerSource)
         }
         currentTimings.tokenizerLoadTime = CFAbsoluteTimeGetCurrent() - start
         Logging.info(String(format: "Tokenizer loaded in %.2fs", tokenizerLoadTime))
-        return tokenizer
+        return TTSTokenizerWrapper(wrapper)
     }
 
     /// Release all model weights and the tokenizer from memory.
@@ -704,7 +706,7 @@ open class TTSKit: @unchecked Sendable {
     open func setupGenerateTask(
         currentTimings: SpeechTimings,
         progress: Progress,
-        tokenizer: any Tokenizer,
+        tokenizer: any TTSTokenizer,
         sampler: any TokenSampling
     ) throws -> any SpeechGenerating {
         switch config.model.family {

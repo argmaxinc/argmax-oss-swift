@@ -26,13 +26,16 @@ let package = Package(
             name: "TTSKit",
             targets: ["TTSKit"]
         ),
+        .library(
+            name: "SpeakerKit",
+            targets: ["SpeakerKit"]
+        ),
         .executable(
             name: "whisperkit-cli",
             targets: ["WhisperKitCLI"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/huggingface/swift-transformers.git", .upToNextMinor(from: "1.1.6")),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
     ] + (isServerEnabled() ? [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.115.1"),
@@ -49,8 +52,6 @@ let package = Package(
             name: "WhisperKit",
             dependencies: [
                 "ArgmaxCore",
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             swiftSettings: approachableConcurrencySettings
         ),
@@ -58,8 +59,14 @@ let package = Package(
             name: "TTSKit",
             dependencies: [
                 "ArgmaxCore",
-                .product(name: "Tokenizers", package: "swift-transformers"),
-                .product(name: "Hub", package: "swift-transformers"),
+            ],
+            swiftSettings: approachableConcurrencySettings
+        ),
+        .target(
+            name: "SpeakerKit",
+            dependencies: [
+                "ArgmaxCore",
+                "WhisperKit",
             ],
             swiftSettings: approachableConcurrencySettings
         ),
@@ -67,8 +74,6 @@ let package = Package(
             name: "WhisperKitTests",
             dependencies: [
                 "WhisperKit",
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             exclude: ["UnitTestsPlan.xctestplan"],
             resources: [
@@ -83,11 +88,23 @@ let package = Package(
             ],
             swiftSettings: approachableConcurrencySettings
         ),
+        .testTarget(
+            name: "SpeakerKitTests",
+            dependencies: [
+                "SpeakerKit",
+                "WhisperKit",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: approachableConcurrencySettings
+        ),
         .executableTarget(
             name: "WhisperKitCLI",
             dependencies: [
                 "WhisperKit",
                 "TTSKit",
+                "SpeakerKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ] + (isServerEnabled() ? [
                 .product(name: "Vapor", package: "vapor"),

@@ -1,4 +1,4 @@
-.PHONY: setup setup-huggingface-cli setup-model-repo download-models download-model build build-cli test \
+.PHONY: setup setup-huggingface-cli setup-model-repo download-models download-model download-speakerkit-models build build-cli test \
  		clean-package-caches list-devices benchmark-connected-devices benchmark-device benchmark-devices \
 		extract-xcresult build-local-server generate-server generate-server-spec generate-server-code
 
@@ -10,6 +10,8 @@ MODEL_REPO := argmaxinc/whisperkit-coreml
 MODEL_REPO_DIR := ./Models/whisperkit-coreml
 TTS_MODEL_REPO := argmaxinc/ttskit-coreml
 TTS_MODEL_REPO_DIR := ./Models/ttskit-coreml
+SPEAKERKIT_MODEL_REPO := argmaxinc/speakerkit-coreml
+SPEAKERKIT_MODEL_REPO_DIR := ./Models/speakerkit-coreml
 BASE_COMPILED_DIR := ./Models
 
 GIT_HASH := $(shell git rev-parse --short HEAD)
@@ -112,6 +114,27 @@ download-model:
 	@echo "Fetching model $(MODEL)..."
 	@cd $(MODEL_REPO_DIR) && \
 	git lfs pull --include="openai_whisper-$(MODEL)/*"
+
+setup-speakerkit-model-repo:
+	@echo "Setting up SpeakerKit repository..."
+	@mkdir -p $(BASE_COMPILED_DIR)
+	@if [ -d "$(SPEAKERKIT_MODEL_REPO_DIR)/.git" ]; then \
+		echo "Repository exists, resetting..."; \
+		export GIT_LFS_SKIP_SMUDGE=1; \
+		cd $(SPEAKERKIT_MODEL_REPO_DIR) && git fetch --all && git reset --hard origin/main && git clean -fdx; \
+	else \
+		echo "Repository not found, initializing..."; \
+		export GIT_LFS_SKIP_SMUDGE=1; \
+		git clone https://huggingface.co/$(SPEAKERKIT_MODEL_REPO) $(SPEAKERKIT_MODEL_REPO_DIR); \
+	fi
+
+# Download Pyannote v4 models required by the OSS SpeakerKit diarizer
+download-speakerkit-models: setup-speakerkit-model-repo
+	@echo "Downloading SpeakerKit models..."
+	@cd $(SPEAKERKIT_MODEL_REPO_DIR) && \
+	git lfs pull --include="speaker_segmenter/**" && \
+	git lfs pull --include="speaker_embedder/**" && \
+	git lfs pull --include="speaker_clusterer/pyannote-v4/**"
 
 download-tts-models: setup-tts-model-repo
 	@echo "Downloading all TTS models..."

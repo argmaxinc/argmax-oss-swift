@@ -14,12 +14,12 @@ import PDFKit
 /// Supports:
 /// - Plain text files (`.txt`, and any UTF-8 readable file)
 /// - PDF files (via PDFKit, where available)
-public enum FileUtilities {
+enum FileUtilities {
     /// Reads and returns the text content of the file at `url`.
     ///
     /// - Returns: The extracted string, or `nil` if the file cannot be read or has no
     ///   readable text content.
-    public static func readTextContent(at url: URL) -> String? {
+    static func readTextContent(at url: URL) -> String? {
         switch url.pathExtension.lowercased() {
         case "pdf":
             return readPDF(at: url)

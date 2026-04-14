@@ -18,12 +18,12 @@ jobs:
             visionos-version: "2.5"
             xcode-version: "26.0"
           - os: macos-26
-            ios-version: "26.0.1"
+            ios-version: "26.4"
             ios-device: "iPhone 17"
-            watchos-version: "26.0"
-            visionos-version: "26.0"
+            watchos-version: "26.4"
+            visionos-version: "26.4"
             macos-runner: "macos-26"
-            xcode-version: "26.0"
+            xcode-version: "26.4"
     uses: ./.github/workflows/unit-tests.yml
     with:
       macos-runner: ${{ matrix.os }}

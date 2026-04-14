@@ -2,7 +2,6 @@
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
 import Foundation
-import Tokenizers
 
 /// Strategy for splitting long text into chunks.
 @frozen
@@ -45,7 +44,7 @@ public struct TextChunker {
     public init(
         targetChunkSize: Int = TextChunker.defaultTargetChunkSize,
         minChunkSize: Int = TextChunker.defaultMinChunkSize,
-        tokenizer: any Tokenizer
+        tokenizer: any TTSTokenizer
     ) {
         self.targetChunkSize = targetChunkSize
         self.minChunkSize = minChunkSize

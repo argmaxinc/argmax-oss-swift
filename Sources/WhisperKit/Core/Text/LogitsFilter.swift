@@ -4,7 +4,6 @@
 import Accelerate
 import CoreML
 import Foundation
-import Tokenizers
 
 public protocol LogitsFiltering {
     func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray
