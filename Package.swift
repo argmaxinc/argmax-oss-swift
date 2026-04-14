@@ -10,7 +10,7 @@ let approachableConcurrencySettings: [SwiftSetting] = [
 ]
 
 let package = Package(
-    name: "whisperkit",
+    name: "argmax-oss-swift",
     platforms: [
         .iOS(.v16),
         .macOS(.v13),
@@ -18,6 +18,10 @@ let package = Package(
         .visionOS(.v1)
     ],
     products: [
+        .library(
+            name: "ArgmaxOSS",
+            targets: ["ArgmaxOSS"]
+        ),
         .library(
             name: "WhisperKit",
             targets: ["WhisperKit"]
@@ -31,9 +35,13 @@ let package = Package(
             targets: ["SpeakerKit"]
         ),
         .executable(
+            name: "argmax-cli",
+            targets: ["ArgmaxCLI"]
+        ),
+        .executable(
             name: "whisperkit-cli",
-            targets: ["WhisperKitCLI"]
-        )
+            targets: ["ArgmaxCLI"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
@@ -44,6 +52,16 @@ let package = Package(
         .package(url: "https://github.com/swift-server/swift-openapi-vapor", from: "1.0.1"),
     ] : []),
     targets: [
+        .target(
+            name: "ArgmaxOSS",
+            dependencies: [
+                "ArgmaxCore",
+                "WhisperKit",
+                "TTSKit",
+                "SpeakerKit",
+            ],
+            swiftSettings: approachableConcurrencySettings
+        ),
         .target(
             name: "ArgmaxCore",
             swiftSettings: approachableConcurrencySettings
@@ -100,7 +118,7 @@ let package = Package(
             swiftSettings: approachableConcurrencySettings
         ),
         .executableTarget(
-            name: "WhisperKitCLI",
+            name: "ArgmaxCLI",
             dependencies: [
                 "WhisperKit",
                 "TTSKit",
@@ -111,6 +129,7 @@ let package = Package(
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIVapor", package: "swift-openapi-vapor"),
             ] : []),
+            path: "Sources/ArgmaxCLI",
             exclude: (isServerEnabled() ? [] : ["Server"]),
             swiftSettings: approachableConcurrencySettings + (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
         )

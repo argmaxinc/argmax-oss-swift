@@ -15,11 +15,11 @@ var subcommands: [ParsableCommand.Type] {
 }
 
 @main
-struct WhisperKitCLI: AsyncParsableCommand {
+struct ArgmaxCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "whisperkit-cli",
-        abstract: "WhisperKit CLI",
-        discussion: "Swift native speech recognition with Whisper for Apple Silicon",
+        commandName: "argmax-cli",
+        abstract: "Argmax OSS CLI",
+        discussion: "Swift native on-device speech recognition, text-to-speech, and speaker diarization for Apple Silicon",
         version: VERSION,
         subcommands: subcommands
     )
