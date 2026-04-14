@@ -8,7 +8,9 @@
 [![Tests](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml/badge.svg)](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml)
 [![Supported Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dswift-versions&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift) [![Supported Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dplatforms&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift)
 [![License](https://img.shields.io/github/license/argmaxinc/argmax-oss-swift?logo=github&logoColor=969da4&label=License&labelColor=353a41&color=32d058)](LICENSE.md)
+<br/>
 [![Discord](https://img.shields.io/discord/1171912382512115722?style=flat&logo=discord&logoColor=969da4&label=Discord&labelColor=353a41&color=32d058&link=https%3A%2F%2Fdiscord.gg%2FG5F5GZGecC)](https://discord.gg/G5F5GZGecC)
+[![Hugging Face](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhuggingface.co%2Fapi%2Fmodels%2Fargmaxinc%2Fwhisperkit-coreml&query=%24.downloads&suffix=%2Fmonth&logo=huggingface&logoColor=969da4&label=Downloads&labelColor=353a41&color=32d058)](https://huggingface.co/argmaxinc/whisperkit-coreml)
 
 
 </div>
