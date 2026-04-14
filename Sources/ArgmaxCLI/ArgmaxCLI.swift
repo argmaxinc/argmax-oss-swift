@@ -18,7 +18,7 @@ var subcommands: [ParsableCommand.Type] {
 struct ArgmaxCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "argmax-cli",
-        abstract: "Argmax Open Core SDK CLI",
+        abstract: "Argmax OSS CLI",
         discussion: "Swift native on-device speech recognition, text-to-speech, and speaker diarization for Apple Silicon",
         version: VERSION,
         subcommands: subcommands

@@ -355,7 +355,7 @@ struct TranscribeCLI: AsyncParsableCommand {
         for seekSample in stride(from: 16000, to: audioArray.count, by: 16000) {
             let endSample = min(seekSample + 16000, audioArray.count)
             if cliArguments.verbose {
-                print("[whisperkit-cli] \(lastAgreedSeconds)-\(Double(endSample) / 16000.0) seconds")
+                print("[argmax-cli] \(lastAgreedSeconds)-\(Double(endSample) / 16000.0) seconds")
             }
 
             let simulatedStreamingAudio = Array(audioArray[..<endSample])
@@ -373,26 +373,26 @@ struct TranscribeCLI: AsyncParsableCommand {
                         prevWords = prevResult.allWords.filter { $0.start >= lastAgreedSeconds }
                         let commonPrefix = TranscriptionUtilities.findLongestCommonPrefix(prevWords, hypothesisWords)
                         if cliArguments.verbose {
-                            print("[whisperkit-cli] Prev \"\((prevWords.map { $0.word }).joined())\"")
-                            print("[whisperkit-cli] Next \"\((hypothesisWords.map { $0.word }).joined())\"")
-                            print("[whisperkit-cli] Found common prefix \"\((commonPrefix.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Prev \"\((prevWords.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Next \"\((hypothesisWords.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Found common prefix \"\((commonPrefix.map { $0.word }).joined())\"")
                         }
 
                         if commonPrefix.count >= agreementCountNeeded {
                             lastAgreedWords = commonPrefix.suffix(agreementCountNeeded)
                             lastAgreedSeconds = lastAgreedWords.first!.start
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Found new last agreed word \(lastAgreedWords.first!.word) at \(lastAgreedSeconds) seconds")
+                                print("[argmax-cli] Found new last agreed word \(lastAgreedWords.first!.word) at \(lastAgreedSeconds) seconds")
                             }
 
                             confirmedWords.append(contentsOf: commonPrefix.prefix(commonPrefix.count - agreementCountNeeded))
                             let currentWords = confirmedWords.map { $0.word }.joined()
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Current: \(lastAgreedSeconds) -> \(Double(endSample) / 16000.0) \(currentWords)")
+                                print("[argmax-cli] Current: \(lastAgreedSeconds) -> \(Double(endSample) / 16000.0) \(currentWords)")
                             }
                         } else {
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Using same last agreed time \(lastAgreedSeconds)")
+                                print("[argmax-cli] Using same last agreed time \(lastAgreedSeconds)")
                             }
                             skipAppend = true
                         }
@@ -400,7 +400,7 @@ struct TranscribeCLI: AsyncParsableCommand {
                     prevResult = result
                 } else {
                     if cliArguments.verbose {
-                        print("[whisperkit-cli] No word timings found, this may be due to alignment weights missing from the model being used")
+                        print("[argmax-cli] No word timings found, this may be due to alignment weights missing from the model being used")
                     }
                 }
                 if !skipAppend {

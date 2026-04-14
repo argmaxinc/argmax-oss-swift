@@ -1,12 +1,12 @@
-This file lists third-party software incorporated into Argmax Open Core SDK and the
-license terms under which that software is distributed. Argmax Open Core SDK itself is
+This file lists third-party software incorporated into Argmax OSS and the
+license terms under which that software is distributed. Argmax OSS itself is
 released under the MIT License (see LICENSE in the repository root).
 
 ================================================================================
 swift-transformers
 ================================================================================
 
-Portions of Argmax Open Core SDK (under Sources/ArgmaxCore/External) are derived from the
+Portions of Argmax OSS (under Sources/ArgmaxCore/External) are derived from the
 swift-transformers project:
 
   https://github.com/huggingface/swift-transformers

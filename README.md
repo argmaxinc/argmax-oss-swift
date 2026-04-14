@@ -1,9 +1,15 @@
 
 <div align="center">
 
-<br/>
+<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-light-mode-only">
+  <img src="https://github.com/user-attachments/assets/2ef4d2b4-b4f1-4b9b-9590-4e57432633ed" alt="Argmax Logo" width="20%" />
+</a>
 
-# Argmax Open-Source SDK Swift
+<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-dark-mode-only">
+  <img src="https://github.com/user-attachments/assets/6f2c77c4-94b5-4ce5-8647-b177641e6f02" alt="Argmax Logo" width="20%" />
+</a>
+
+# Argmax Open-Source SDK
 
 [![Tests](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml/badge.svg)](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml)
 [![Supported Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dswift-versions&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift) [![Supported Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dplatforms&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift)
@@ -15,28 +21,22 @@
 
 </div>
 
-<br/>
-
 [Argmax](https://argmaxinc.com/blog) Open-Source SDK Swift is a collection of turn-key on-device inference frameworks:
 - **WhisperKit** for speech-to-text with OpenAI Whisper
 - **SpeakerKit** for speaker diarization Pyannote
 - **TTSKit** for text-to-speech with Qwen-TTS
 
-<br/>
-
-[Argmax Pro SDK](https://www.argmaxinc.com/blog/argmax-sdk-2) supports additional models and advanced features such as:
-- Real-time transcription with speakers
-- Frontier accuracy for your use case with custom vocabulary
-- Argmax Local Server for non-native apps
-- Android support with Argmax Pro SDK Kotlin
-
-<br/>
-
-Further resources:
-- [Open-source vs Pro SDK](https://app.argmaxinc.com/docs/wiki/open-source-vs-pro-sdk)
-- [Model Gallery](https://app.argmaxinc.com/docs/models)
-
-<br/>
+> [!IMPORTANT]
+> [Argmax Pro SDK](https://www.argmaxinc.com/blog/argmax-sdk-2) supports additional models and advanced features such as:
+> - Real-time transcription with speakers
+> - Frontier accuracy for your use case with custom vocabulary
+> - Argmax Local Server for non-native apps
+> - Android support with Argmax Pro SDK Kotlin
+> 
+> Further resources:
+> - [Open-source vs Pro SDK](https://app.argmaxinc.com/docs/wiki/open-source-vs-pro-sdk)
+> - [Try Pro SDK on TestFlight](https://testflight.apple.com/join/Q1cywTJw)
+> - [Model Gallery](https://app.argmaxinc.com/docs/models)
 
 ## Table of Contents
 
@@ -631,9 +631,9 @@ Our goal is to make this SDK better and better over time and we'd love your help
 
 ## License
 
-Argmax Open Core SDK is released under the MIT License. See [LICENSE](LICENSE) for more details.
+Argmax OSS is released under the MIT License. See [LICENSE](LICENSE) for more details.
 
-WhisperKit incorporates third-party software under their own license terms. See [NOTICES](NOTICES) for attributions.
+This project incorporates third-party software under their own license terms. See [NOTICES](NOTICES) for attributions.
 
 ## Citation
 
