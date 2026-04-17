@@ -7,14 +7,17 @@ import OSLog
 ///
 /// Configure the log level once at startup:
 /// ```swift
-/// await Logging.updateLogLevel(.debug)
+/// Logging.shared.logLevel = .debug
 /// ```
 /// or via a config object, following the WhisperKit pattern:
 /// ```swift
-/// await Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
+/// Logging.shared.logLevel = config.verbose ? config.logLevel : .none
 /// ```
-@frozen
-public enum Logging {
+/// Thread-safe by construction: all mutable state lives inside `OSAllocatedUnfairLock`
+/// (which is `Sendable` on its own), and every other stored property is a
+/// `let`-bound value whose type is itself `Sendable`. That combination lets the
+/// class conform to `Sendable` without `@unchecked`.
+public final class Logging: Sendable {
 
     // MARK: - Helper Types
 
@@ -33,7 +36,7 @@ public enum Logging {
     /// - `.error` (3): Errors and failures that require attention.
     /// - `.none`  (4): Disables all logging.
     @frozen
-    public enum LogLevel: Int, Comparable {
+    public enum LogLevel: Int, Comparable, Sendable {
         case debug = 1
         case info = 2
         case error = 3
@@ -53,210 +56,131 @@ public enum Logging {
         }
     }
 
-    private actor LoggingActor {
-        var level: LogLevel
-        var callback: LoggingCallback?
-        private let logger: Logger
-
-        var isLoggingEnabled: Bool {
-            level != .none
-        }
-
-        init(level: LogLevel = .none, callback: LoggingCallback? = nil) {
-            self.level = level
-            self.callback = callback
-            self.logger = Logger(
-                subsystem: Bundle.main.bundleIdentifier ?? "com.argmax.argmaxcore",
-                category: "Argmax"
-            )
-        }
-
-        func updateLogLevel(_ level: LogLevel) {
-            self.level = level
-        }
-
-        func updateCallback(_ callback: LoggingCallback?) {
-            self.callback = callback
-        }
-
-        func log(level: LogLevel, message: String) {
-            guard isLoggingEnabled(for: level) else { return }
-
-            if let callback {
-                callback(message)
-            } else {
-                logger.log(level: level.osLogType, "\(message, privacy: .public)")
-            }
-        }
-
-        func isLoggingEnabled(for level: LogLevel) -> Bool {
-            self.level != .none && self.level <= level
-        }
+    private struct State {
+        var logLevel: LogLevel = .none
+        var loggingCallback: LoggingCallback?
     }
 
-    // MARK: - Properties
+    // Internal state is guarded by `lock`; the class is `@unchecked Sendable`
+    // because all mutation/observation funnels through `lock.withLock`.
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.argmax.argmaxcore",
+        category: "Argmax"
+    )
 
-    private static let loggingActor = LoggingActor()
+    /// Shared singleton logger.
+    public static let shared = Logging()
+
+    private init() {}
+
+    // MARK: - Configuration
 
     /// The current global logging level.
     ///
-    /// Accessing this property is asynchronous because it reads state managed by an internal
-    /// actor to ensure thread-safe access across concurrency domains.
+    /// Thread-safe; reads and writes are serialized by an internal lock.
+    public var logLevel: LogLevel {
+        get { lock.withLock { $0.logLevel } }
+        set { lock.withLock { $0.logLevel = newValue } }
+    }
+
+    /// Optional callback to intercept log messages.
     ///
-    /// - Returns: The currently configured `LogLevel`.
-    public static var logLevel: LogLevel {
-        get async {
-            await loggingActor.level
+    /// When non-`nil`, messages are forwarded here instead of the system logger.
+    /// Thread-safe; reads and writes are serialized by an internal lock.
+    public var loggingCallback: LoggingCallback? {
+        get { lock.withLock { $0.loggingCallback } }
+        set { lock.withLock { $0.loggingCallback = newValue } }
+    }
+
+    /// Whether logging is enabled for any level other than `.none`.
+    public var isLoggingEnabled: Bool {
+        logLevel != .none
+    }
+
+    /// Whether logging is enabled for a specific level.
+    public func isLoggingEnabled(for level: LogLevel) -> Bool {
+        let current = logLevel
+        return current != .none && current <= level
+    }
+
+    // MARK: - Core logging
+
+    /// Logs a message at the specified `OSLogType`.
+    ///
+    /// Respects the current `logLevel` and routes through `loggingCallback` if set.
+    public func log(_ items: Any..., separator: String = " ", terminator: String = "\n", type: OSLogType) {
+        let (level, callback) = lock.withLock { ($0.logLevel, $0.loggingCallback) }
+        let messageLevel = LogLevel(osLogType: type)
+        guard level != .none, level <= messageLevel else { return }
+        let message = items.map { "\($0)" }.joined(separator: separator) + terminator
+        if let callback {
+            callback(message)
+        } else {
+            logger.log(level: type, "\(message, privacy: .public)")
         }
     }
 
-    /// A Boolean value indicating whether logging is currently enabled.
-    ///
-    /// This property reflects the global logging state managed by the internal logging actor.
-    /// When `true`, log messages at or above the configured `LogLevel` may be emitted either
-    /// to the system logger or to a custom callback if one has been provided. When `false`
-    /// (i.e., when the log level is `.none`), all logging is suppressed.
-    ///
-    /// Accessing this property is asynchronous because it queries state stored within an actor,
-    /// ensuring thread-safe reads across concurrency domains.
-    ///
-    /// - Returns: `true` if logging is enabled for any level other than `.none`; otherwise, `false`.
-    /// - Note: The effective behavior also depends on the current `LogLevel` (see `updateLogLevel(_:)`)
-    ///   and any registered `LoggingCallback` (see `updateCallback(_:)`).
+    // MARK: - Static convenience
+
+    /// Whether logging is enabled on the shared logger.
     public static var isLoggingEnabled: Bool {
-        get async { await loggingActor.isLoggingEnabled }
+        shared.isLoggingEnabled
     }
 
-    /// Updates the global logging level used by the logging system.
-    ///
-    /// This method communicates with an internal actor to safely mutate the shared
-    /// logging state across concurrency domains. The effective logging behavior is
-    /// determined by the value you provide:
-    /// - `.debug`: Enables all logs (debug, info, error).
-    /// - `.info`: Enables info and error logs; suppresses debug logs.
-    /// - `.error`: Enables only error logs.
-    /// - `.none`: Disables all logging.
-    ///
-    /// - Important: Because this operation crosses an actor boundary, it is asynchronous
-    ///   and must be awaited from async contexts.
-    ///
-    /// - Parameter level: The new `LogLevel` to apply globally.
-    /// - SeeAlso: `updateCallback(_:)`, `isLoggingEnabled`, `isLoggingEnabled(for:)`
-    public static func updateLogLevel(_ level: LogLevel) async {
-        await loggingActor.updateLogLevel(level)
+    /// Whether logging is enabled at the given level on the shared logger.
+    public static func isLoggingEnabled(for level: LogLevel) -> Bool {
+        shared.isLoggingEnabled(for: level)
     }
 
-    /// Updates the global logging level without requiring an async context (fire-and-forget).
-    ///
-    /// This convenience overload schedules the level update on the internal logging actor
-    /// without blocking the caller. Use this when you need to change the log level from
-    /// synchronous code paths. If you need to guarantee the update has completed before
-    /// proceeding, prefer the async variant `updateLogLevel(_:)`.
-    ///
-    /// - Parameter level: The new `LogLevel` to apply globally.
-    public static func updateLogLevel(_ level: LogLevel) {
-        Task(priority: .high) {
-            await loggingActor.updateLogLevel(level)
-        }
+    public static func debug(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        shared.log(items, separator: separator, terminator: terminator, type: .debug)
     }
 
-    /// Updates the global logging callback used to handle emitted log messages.
-    ///
-    /// By default, messages are sent to the system logger (OSLog). Providing a custom
-    /// callback allows you to intercept and route log output elsewhere (e.g., to a UI,
-    /// file, or analytics pipeline). Pass `nil` to remove any previously set callback
-    /// and revert to system logging.
-    ///
-    /// This method is asynchronous because it safely updates shared logging state
-    /// managed by an internal actor.
-    ///
-    /// - Parameter callback: A closure that receives each log message as a `String`,
-    ///   or `nil` to clear the custom callback.
-    /// - Important: The callback is invoked on an actor-isolated context; ensure the
-    ///   closure is `@Sendable` and avoid long-running or blocking work inside it.
-    /// - SeeAlso: `updateCallback(_:)` (non-async), `updateLogLevel(_:)`, `isLoggingEnabled`
-    public static func updateCallback(_ callback: LoggingCallback?) async {
-        await loggingActor.updateCallback(callback)
+    public static func info(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        shared.log(items, separator: separator, terminator: terminator, type: .info)
     }
 
-    /// Updates the logging callback without requiring an async context (fire-and-forget).
-    ///
-    /// This convenience overload schedules the callback update on the internal logging actor
-    /// without blocking the caller. Use this from synchronous code paths. If you need to
-    /// guarantee the update has completed before proceeding, prefer the async variant
-    /// `updateCallback(_:)`.
-    ///
-    /// - Parameter callback: The new `LoggingCallback` to apply globally, or `nil` to remove it.
-    public static func updateCallback(_ callback: LoggingCallback?) {
-        Task(priority: .high) {
-            await loggingActor.updateCallback(callback)
-        }
+    public static func error(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        shared.log(items, separator: separator, terminator: terminator, type: .error)
     }
+}
 
-    // MARK: - Convenience
-
-    /// Logs a debug message asynchronously (fire-and-forget).
-    /// - Warning: This method does not await logging completion.
-    /// Log messages may be dropped if the program terminates before logging completes.
-    public static func debug(_ message: String) {
-        dispatch(level: .debug, message)
-    }
-
-    /// Logs an info message asynchronously (fire-and-forget).
-    /// - Warning: This method does not await logging completion.
-    /// Log messages may be dropped if the program terminates before logging completes.
-    public static func info(_ message: String) {
-        dispatch(level: .info, message)
-    }
-
-    /// Logs an error message asynchronously (fire-and-forget).
-    /// - Warning: This method does not await logging completion.
-    /// Log messages may be dropped if the program terminates before logging completes.
-    public static func error(_ message: String) {
-        dispatch(level: .error, message)
-    }
-
-    /// Returns a Boolean value that indicates whether logging is currently enabled for a specific log level.
-    ///
-    /// This method safely queries the internal logging actor to determine if messages at the given
-    /// `level` would be emitted under the current configuration. Logging is considered enabled for
-    /// the provided level when:
-    /// - The global log level is not `.none`, and
-    /// - The global log level is less than or equal to the provided `level` (i.e., the message’s
-    ///   severity meets or exceeds the configured threshold).
-    ///
-    /// Because this check crosses an actor boundary, the API is asynchronous and must be awaited.
-    ///
-    /// - Parameter level: The `LogLevel` to evaluate (e.g., `.debug`, `.info`, `.error`).
-    /// - Returns: `true` if messages at the specified level would be logged; otherwise, `false`.
-    /// - SeeAlso: `updateLogLevel(_:)`, `isLoggingEnabled`, `debug(_:)`, `info(_:)`, `error(_:)`
-    public static func isLoggingEnabled(for level: LogLevel) async -> Bool {
-        await loggingActor.isLoggingEnabled(for: level)
-    }
-
-    private static func dispatch(level: LogLevel, _ message: String) {
-        Task(priority: .high) {
-            await loggingActor.log(level: level, message: message)
+private extension Logging.LogLevel {
+    init(osLogType: OSLogType) {
+        switch osLogType {
+        case .debug: self = .debug
+        case .info: self = .info
+        case .error, .fault: self = .error
+        default: self = .info
         }
     }
 }
 
-// MARK: - Convenience Extension
+// MARK: - Back-compat shims for the actor-based API
 
 public extension Logging {
-    static func debug(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-        let message = items.map { "\($0)" }.joined(separator: separator) + terminator
-        debug(message)
+    /// Update the global log level. Thread-safe.
+    ///
+    /// Async variant is preserved so code written against pre-1.0 swift-6 previews
+    /// (which exposed an actor-backed `updateLogLevel(_:) async`) keeps compiling.
+    static func updateLogLevel(_ level: LogLevel) {
+        shared.logLevel = level
     }
 
-    static func info(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-        let message = items.map { "\($0)" }.joined(separator: separator) + terminator
-        info(message)
+    @available(*, deprecated, message: "Assign directly to `Logging.shared.logLevel` — the update is now synchronous.")
+    static func updateLogLevel(_ level: LogLevel) async {
+        shared.logLevel = level
     }
 
-    static func error(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-        let message = items.map { "\($0)" }.joined(separator: separator) + terminator
-        error(message)
+    /// Update the logging callback. Thread-safe.
+    static func updateCallback(_ callback: LoggingCallback?) {
+        shared.loggingCallback = callback
+    }
+
+    @available(*, deprecated, message: "Assign directly to `Logging.shared.loggingCallback` — the update is now synchronous.")
+    static func updateCallback(_ callback: LoggingCallback?) async {
+        shared.loggingCallback = callback
     }
 }
 
