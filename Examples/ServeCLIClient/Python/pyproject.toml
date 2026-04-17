@@ -6,6 +6,8 @@ requires-python = ">=3.8"
 dependencies = [
     "openai>=1.0.0",
     "requests>=2.25.0",
+    "urllib3>=2.2.3,<2.6.0; python_version < '3.9'",
+    "urllib3>=2.6.0; python_version >= '3.9'",
     "python-dotenv>=0.19.0",
     "argparse",
 ]

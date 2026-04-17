@@ -745,7 +745,7 @@ dependencies = [
     { name = "certifi", marker = "python_full_version >= '3.9'" },
     { name = "charset-normalizer", marker = "python_full_version >= '3.9'" },
     { name = "idna", marker = "python_full_version >= '3.9'" },
-    { name = "urllib3", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "urllib3", version = "2.6.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c9/74/b3ff8e6c8446842c3f5c837e9c3dfcfe2018ea6ecef224c710c85ef728f4/requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf", size = 134517, upload-time = "2025-08-18T20:46:02.573Z" }
 wheels = [
@@ -823,14 +823,14 @@ wheels = [
 
 [[package]]
 name = "urllib3"
-version = "2.5.0"
+version = "2.6.3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.9'",
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/22/9ee70a2574a4f4599c47dd506532914ce044817c7752a79b6a51286319bc/urllib3-2.5.0.tar.gz", hash = "sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760", size = 393185, upload-time = "2025-06-18T14:07:41.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/c2/e95c800db513540ec61a268c9187af68d6d53d6ada129ba36f66e1b7d4c2/urllib3-2.6.3.tar.gz", hash = "sha256:4172b61d66c180737afc3681a463aac6d3a49639ce5d8f2d2050e783e3ab7f54", size = 393680, upload-time = "2026-02-18T00:48:37.654Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc", size = 129795, upload-time = "2025-06-18T14:07:40.39Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:57b016e24a9a65ca2ad3b857297a5f53924d29724eb7e818704e254ea7654324", size = 129795, upload-time = "2026-02-18T00:48:36.064Z" },
 ]
 
 [[package]]
@@ -844,6 +844,8 @@ dependencies = [
     { name = "python-dotenv", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "requests", version = "2.32.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "requests", version = "2.32.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "urllib3", version = "2.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "urllib3", version = "2.6.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 
 [package.metadata]
@@ -852,4 +854,6 @@ requires-dist = [
     { name = "openai", specifier = ">=1.0.0" },
     { name = "python-dotenv", specifier = ">=0.19.0" },
     { name = "requests", specifier = ">=2.25.0" },
+    { name = "urllib3", specifier = ">=2.2.3,<2.6.0", marker = "python_full_version < '3.9'" },
+    { name = "urllib3", specifier = ">=2.6.0", marker = "python_full_version >= '3.9'" },
 ]
