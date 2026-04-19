@@ -14,8 +14,12 @@ open class SuppressTokensFilter: LogitsFiltering {
     private let suppressTokenIndexes: [[NSNumber]]
 
     public init(suppressTokens: [Int]) {
-        self.suppressTokens = suppressTokens
-        self.suppressTokenIndexes = suppressTokens.map { [0, 0, $0 as NSNumber] }
+        // Defence in depth: refuse negative token ids here too. A negative
+        // sentinel reaching the MLMultiArray.fill path yields a write at a
+        // negative offset from dataPointer.
+        // ref: https://github.com/argmaxinc/argmax-oss-swift/issues/392
+        self.suppressTokens = suppressTokens.filter { $0 >= 0 }
+        self.suppressTokenIndexes = self.suppressTokens.map { [0, 0, $0 as NSNumber] }
     }
 
     public func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray {

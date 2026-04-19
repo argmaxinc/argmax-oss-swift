@@ -1064,7 +1064,13 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         }
 
         if !options.supressTokens.isEmpty {
-            let filteredSupressTokens = options.supressTokens.filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+            // Drop the OpenAI-reference sentinel "-1" (meaning "suppress all
+            // special tokens") and any other out-of-range values. Passing a
+            // negative index through SuppressTokensFilter produces a write at
+            // `dataPointer - strides[2]`, which on iOS 26 (where CoreML
+            // returns read-only MLMultiArray) triggers SIGBUS.
+            // ref: https://github.com/argmaxinc/argmax-oss-swift/issues/392
+            let filteredSupressTokens = options.supressTokens.filter { $0 >= 0 && $0 < tokenizer.specialTokens.specialTokenBegin }
             allFilters.append(SuppressTokensFilter(suppressTokens: filteredSupressTokens))
         }
 
