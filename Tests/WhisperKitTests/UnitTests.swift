@@ -1989,6 +1989,14 @@ final class UnitTests: XCTestCase {
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result3 = tokensFilter3.filterLogits(logits3, withTokens: [])
         XCTAssertEqual(result3.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, -FloatType.infinity, -FloatType.infinity])
+
+        // Negative sentinels (e.g. -1 used as "suppress all special" in some callers)
+        // must not reach the fill path, or they become negative offsets from
+        // dataPointer. ref: #392
+        let tokensFilter4 = SuppressTokensFilter(suppressTokens: [-1, 0, -5, 3])
+        let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        let result4 = tokensFilter4.filterLogits(logits4, withTokens: [])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, 0.2, 0.3, -FloatType.infinity, 0.5, 0.6, 0.7])
     }
 
     func testSuppressBlankFilter() throws {
