@@ -96,12 +96,51 @@ setup-tts-model-repo:
 	fi
 
 
+# Download a specific tokenizer
+download-tokenizer: setup-model-repo
+	@if [ -z "$(MODEL)" ]; then \
+		echo "Error: MODEL is not set. Usage: make download-tokenizer MODEL=base"; \
+		exit 1; \
+	fi
+	@if echo "$(MODEL)" | grep -q "^distil-"; then \
+		dest="$(MODEL_REPO_DIR)/distil-whisper_$(MODEL)"; \
+		base_model=$$(echo "$(MODEL)" | sed 's/_[0-9]*MB$$//' | sed 's/_turbo$$//' | sed 's/-v[0-9]\{8\}$$//'); \
+		repo="distil-whisper/$$base_model"; \
+	else \
+		dest="$(MODEL_REPO_DIR)/openai_whisper-$(MODEL)"; \
+		base_model=$$(echo "$(MODEL)" | sed 's/_[0-9]*MB$$//' | sed 's/_turbo$$//' | sed 's/-v[0-9]\{8\}$$//'); \
+		repo="openai/whisper-$$base_model"; \
+	fi; \
+	echo "Downloading tokenizer for $(MODEL) from $$repo into $$dest..."; \
+	curl -fL -o "$$dest/tokenizer.json" "https://huggingface.co/$$repo/resolve/main/tokenizer.json?download=true"; \
+	curl -fL -o "$$dest/tokenizer_config.json" "https://huggingface.co/$$repo/resolve/main/tokenizer_config.json?download=true"
+
+
+# Download tokenizers for all models
+download-tokenizers: setup-model-repo
+	@echo "Downloading tokenizers for models found in $(MODEL_REPO_DIR)..."
+	@cd $(MODEL_REPO_DIR) && \
+	for d in openai_whisper-* distil-whisper_*; do \
+	  [ -d "$$d" ] || continue; \
+	  if echo "$$d" | grep -q "^openai_whisper-"; then \
+	    model=$$(echo "$$d" | sed 's/openai_whisper-//'); \
+	    base_model=$$(echo "$$model" | sed 's/_[0-9]*MB$$//' | sed 's/_turbo$$//' | sed 's/-v[0-9]\{8\}$$//'); \
+	    repo="openai/whisper-$$base_model"; \
+	  elif echo "$$d" | grep -q "^distil-whisper_"; then \
+	    base_model=$$(echo "$$d" | sed 's/distil-whisper_//' | sed 's/_[0-9]*MB$$//' | sed 's/_turbo$$//' | sed 's/-v[0-9]\{8\}$$//'); \
+	    repo="distil-whisper/$$base_model"; \
+	  fi; \
+	  echo "Downloading tokenizer for $$d from $$repo..."; \
+	  curl -fL -o "$$d/tokenizer.json" "https://huggingface.co/$$repo/resolve/main/tokenizer.json?download=true"; \
+	  curl -fL -o "$$d/tokenizer_config.json" "https://huggingface.co/$$repo/resolve/main/tokenizer_config.json?download=true"; \
+	done
+
+
 # Download all models
 download-models: setup-model-repo
 	@echo "Downloading all models..."
 	@cd $(MODEL_REPO_DIR) && \
 	git lfs pull
-
 
 # Download a specific model
 download-model:
