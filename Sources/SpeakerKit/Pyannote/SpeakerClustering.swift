@@ -44,11 +44,14 @@ struct VBxClusteringConfig: Sendable {
 struct ClusteringResult {
     let clusterIndices: [Int]
     let speakerEmbeddings: [SpeakerEmbedding]
+    let speakerCentroids: [Int: [Float]]
 
     init(clusterIndices: [Int],
-         speakerEmbeddings: [SpeakerEmbedding]) {
+         speakerEmbeddings: [SpeakerEmbedding],
+         speakerCentroids: [Int: [Float]] = [:]) {
         self.clusterIndices = clusterIndices
         self.speakerEmbeddings = speakerEmbeddings
+        self.speakerCentroids = speakerCentroids
     }
 }
 

@@ -4,8 +4,8 @@
 import CoreML
 import ArgmaxCore
 
-public struct SpeakerEmbedding {
-    public let embedding: [Float]
+struct SpeakerEmbedding {
+    let embedding: [Float]
     let pldaEmbedding: [Float]?
     let activeFrames: [Float]
     let windowIndex: Int

@@ -30,7 +30,21 @@ public struct DiarizationResult: Sendable {
     public let frameRate: Float
     public private(set) var segments: [SpeakerSegment]
     public var timings: (any DiarizationTimings)?
-    public var speakerCentroidEmbeddings: [Int: [Float]]
+
+    /// Per-speaker centroid embeddings keyed by `speakerId`, in the raw speaker-embedder output
+    /// space (unnormalised, pre-PLDA). Useful for linking the same speaker across independent
+    /// `diarize(...)` calls without re-running the embedder.
+    ///
+    /// Each centroid is the arithmetic mean of the final per-window embeddings assigned to that
+    /// `speakerId` after clustering and cluster reassignment, so the centroid reflects the
+    /// speaker's actual membership in this result.
+    ///
+    /// Compare centroids with cosine distance via `centroidCosineDistance(between:_:)`, which
+    /// matches the convention used by `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit.
+    ///
+    /// This field is populated by the Pyannote backend (`PyannoteDiarizer`). Other backends
+    /// conforming to `Diarizer` may leave it as `[:]` if they do not expose per-cluster centroids.
+    public private(set) var speakerCentroidEmbeddings: [Int: [Float]]
 
     /// Pyannote init: builds segments from binary speaker activity matrix
     init(binaryMatrix: [[Int]], diarizationFrameRate: Float, speakerCentroidEmbeddings: [Int: [Float]] = [:]) {
@@ -102,6 +116,25 @@ public struct DiarizationResult: Sendable {
         }
 
         self.segments = segments.sorted { $0.startFrame < $1.startFrame }
+    }
+
+    // MARK: - Speaker Centroid Comparison
+
+    /// Cosine distance in `[0.0, 2.0]` between two speaker centroids from this result.
+    ///
+    /// Delegates to `MathOps.cosineDistance(_:_:)`, matching the convention used by
+    /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. The result is clamped to
+    /// `[0, 2]` to absorb floating-point error near the extremes.
+    ///
+    /// - Returns: `nil` if either `speakerId` is absent from
+    ///   ``speakerCentroidEmbeddings``, the centroids have different dimensions, or either
+    ///   vector is empty. Zero-magnitude centroids (unreachable in real diarization runs)
+    ///   yield `MathOps.cosineDistance`'s sentinel of `1.0`.
+    public func centroidCosineDistance(between a: Int, _ b: Int) -> Float? {
+        guard let lhs = speakerCentroidEmbeddings[a],
+              let rhs = speakerCentroidEmbeddings[b],
+              lhs.count == rhs.count, !lhs.isEmpty else { return nil }
+        return MathOps.cosineDistance(lhs, rhs)
     }
 
     // MARK: - Speaker Info Matching

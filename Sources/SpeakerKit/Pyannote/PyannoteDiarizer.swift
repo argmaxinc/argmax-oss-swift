@@ -255,6 +255,7 @@ actor PyannoteDiarizerActor {
         progressObj.completedUnitCount = 80
         progressCallback?(progressObj)
         var diarizationResult = postProcess(speakerEmbeddings: clusteringResult.speakerEmbeddings,
+                                            speakerCentroids: clusteringResult.speakerCentroids,
                                             originalLength: audioLength,
                                             useExclusiveReconciliation: resolvedOptions.useExclusiveReconciliation)
         timings.numberOfSpeakers = diarizationResult.speakerCount
@@ -268,7 +269,10 @@ actor PyannoteDiarizerActor {
         return diarizationResult
     }
 
-    private func postProcess(speakerEmbeddings: [SpeakerEmbedding], originalLength: Int, useExclusiveReconciliation: Bool) -> DiarizationResult {
+    private func postProcess(speakerEmbeddings: [SpeakerEmbedding],
+                             speakerCentroids: [Int: [Float]],
+                             originalLength: Int,
+                             useExclusiveReconciliation: Bool) -> DiarizationResult {
         let startTime = CFAbsoluteTimeGetCurrent()
         defer {
             let totalTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1_000
@@ -278,27 +282,6 @@ actor PyannoteDiarizerActor {
         let diarizationFrameRate = config.segmenterModel.modelSampleRate
         guard !speakerEmbeddings.isEmpty else {
             return DiarizationResult(binaryMatrix: [], diarizationFrameRate: diarizationFrameRate)
-        }
-
-        var centroidSums: [Int: [Float]] = [:]
-        var centroidCounts: [Int: Int] = [:]
-        for emb in speakerEmbeddings {
-            guard emb.clusterId >= 0, !emb.embedding.isEmpty else { continue }
-            if var existing = centroidSums[emb.clusterId] {
-                for i in 0..<emb.embedding.count {
-                    existing[i] += emb.embedding[i]
-                }
-                centroidSums[emb.clusterId] = existing
-                centroidCounts[emb.clusterId] = centroidCounts[emb.clusterId]! + 1
-            } else {
-                centroidSums[emb.clusterId] = emb.embedding
-                centroidCounts[emb.clusterId] = 1
-            }
-        }
-        var centroidEmbeddings: [Int: [Float]] = [:]
-        for (clusterId, sum) in centroidSums {
-            let count = Float(centroidCounts[clusterId]!)
-            centroidEmbeddings[clusterId] = sum.map { $0 / count }
         }
 
         let speakerCount = (speakerEmbeddings.map { $0.clusterId }.max() ?? 0) + 1
@@ -381,7 +364,7 @@ actor PyannoteDiarizerActor {
             }
         }
 
-        return DiarizationResult(binaryMatrix: binaryDiarization, diarizationFrameRate: diarizationFrameRate, speakerCentroidEmbeddings: centroidEmbeddings)
+        return DiarizationResult(binaryMatrix: binaryDiarization, diarizationFrameRate: diarizationFrameRate, speakerCentroidEmbeddings: speakerCentroids)
     }
 
     func diarize(audioArray: [Float], options: (any DiarizationOptions)?, progressCallback: (@Sendable (Progress) -> Void)?) async throws -> DiarizationResult {
