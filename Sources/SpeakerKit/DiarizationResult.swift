@@ -39,8 +39,11 @@ public struct DiarizationResult: Sendable {
     /// `speakerId` after clustering and cluster reassignment, so the centroid reflects the
     /// speaker's actual membership in this result.
     ///
-    /// Compare centroids with cosine distance via `centroidCosineDistance(between:_:)`, which
-    /// matches the convention used by `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit.
+    /// Compare centroids with cosine distance via `centroidCosineDistance(between:_:)` or
+    /// `nearestSpeakerCentroid(to:)`, matching the convention used by
+    /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. SpeakerKit does not define a
+    /// universal "same speaker" threshold for comparing centroids across independent runs;
+    /// callers should calibrate that policy for their model, audio, and application.
     ///
     /// This field is populated by the Pyannote backend (`PyannoteDiarizer`). Other backends
     /// conforming to `Diarizer` may leave it as `[:]` if they do not expose per-cluster centroids.
@@ -60,14 +63,21 @@ public struct DiarizationResult: Sendable {
     }
 
     /// Generic init: for engines that produce segments directly
-    public init(speakerCount: Int, totalFrames: Int, frameRate: Float, segments: [SpeakerSegment], timings: (any DiarizationTimings)? = nil) {
+    public init(
+        speakerCount: Int,
+        totalFrames: Int,
+        frameRate: Float,
+        segments: [SpeakerSegment],
+        timings: (any DiarizationTimings)? = nil,
+        speakerCentroidEmbeddings: [Int: [Float]] = [:]
+    ) {
         self.binaryMatrix = []
         self.speakerCount = speakerCount
         self.totalFrames = totalFrames
         self.frameRate = frameRate
         self.segments = segments
         self.timings = timings
-        self.speakerCentroidEmbeddings = [:]
+        self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
     }
 
     public mutating func updateSegments(minActiveOffset: Float) {
@@ -124,7 +134,9 @@ public struct DiarizationResult: Sendable {
     ///
     /// Delegates to `MathOps.cosineDistance(_:_:)`, matching the convention used by
     /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. The result is clamped to
-    /// `[0, 2]` to absorb floating-point error near the extremes.
+    /// `[0, 2]` to absorb floating-point error near the extremes. A distance of `0` means
+    /// identical direction, `1` means orthogonal vectors (no directional similarity), and
+    /// `2` means opposite direction.
     ///
     /// - Returns: `nil` if either `speakerId` is absent from
     ///   ``speakerCentroidEmbeddings``, the centroids have different dimensions, or either
@@ -135,6 +147,28 @@ public struct DiarizationResult: Sendable {
               let rhs = speakerCentroidEmbeddings[b],
               lhs.count == rhs.count, !lhs.isEmpty else { return nil }
         return MathOps.cosineDistance(lhs, rhs)
+    }
+
+    /// Nearest centroid in this result to an external speaker embedding.
+    ///
+    /// This is a pure nearest-neighbour lookup over ``speakerCentroidEmbeddings``. It does not
+    /// apply a same-speaker threshold; callers should interpret the returned distance according
+    /// to their own calibration.
+    ///
+    /// - Returns: The nearest compatible centroid, or `nil` when `embedding` is empty, no
+    ///   centroid exists, or all stored centroids have different dimensions.
+    public func nearestSpeakerCentroid(to embedding: [Float]) -> (speakerId: Int, distance: Float)? {
+        guard !embedding.isEmpty else { return nil }
+
+        var nearest: (speakerId: Int, distance: Float)?
+        for (speakerId, centroid) in speakerCentroidEmbeddings where centroid.count == embedding.count {
+            let distance = MathOps.cosineDistance(embedding, centroid)
+            if nearest == nil || distance < (nearest?.distance ?? .infinity) {
+                nearest = (speakerId, distance)
+            }
+        }
+
+        return nearest
     }
 
     // MARK: - Speaker Info Matching

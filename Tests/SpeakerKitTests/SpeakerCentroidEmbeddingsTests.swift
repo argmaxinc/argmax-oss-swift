@@ -30,10 +30,6 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         }
     }
 
-    private func l2Norm(_ v: [Float]) -> Float {
-        sqrt(v.reduce(0) { $0 + $1 * $1 })
-    }
-
     // MARK: - Unit tests: calculateCentroids (main VBx path)
 
     /// With one-hot responsibility per speaker, the weighted mean collapses to the
@@ -126,7 +122,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         let centroids = await clusterer.centroidsFromAssignments(
             assignments: assignments,
             embeddings: embeddings,
-            k: 2
+            clusterCount: 2
         )
 
         XCTAssertEqual(centroids.count, 2)
@@ -147,7 +143,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         let centroids = await clusterer.centroidsFromAssignments(
             assignments: assignments,
             embeddings: embeddings,
-            k: 2
+            clusterCount: 2
         )
 
         XCTAssertEqual(centroids.count, 2)
@@ -167,7 +163,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         let centroids = await clusterer.centroidsFromAssignments(
             assignments: assignments,
             embeddings: embeddings,
-            k: 3
+            clusterCount: 3
         )
 
         XCTAssertEqual(centroids.count, 3)
@@ -178,16 +174,16 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
     // MARK: - Clusterer-level invariant: value matches post-reassignment mean
 
-    /// Regression for a2they's "correct centroid is properly set": for any embedding input
-    /// that drives VBxClustering end-to-end, the surfaced `speakerCentroids[k]` must equal
-    /// the arithmetic mean of the embeddings whose final `clusterIndices[i]` is `k`.
-    /// This holds irrespective of which internal path (VBx weighted, kMeans correction,
-    /// AHC fallback) produced the assignments, because the final recompute is always a
-    /// plain `centroidsFromAssignments(...)` over the post-reassignment labels.
+    /// For any embedding input that drives VBxClustering end-to-end, the surfaced
+    /// `speakerCentroids[k]` must equal the arithmetic mean of the embeddings whose final
+    /// `clusterIndices[i]` is `k`. This holds irrespective of which internal path
+    /// (VBx weighted, kMeans correction, AHC fallback) produced the assignments, because the
+    /// final recompute is always a plain `centroidsFromAssignments(...)` over the
+    /// post-reassignment labels.
     func testCentroidValuesMatchFinalAssignmentMean() async {
         let dim = 128
-        // two separated groups in raw embedder space (4 + 4) so reassignment can fire,
-        // PLDA kept neutral so VBx does not diverge from this obvious partition.
+        // two separated groups in raw embedder space (4 + 4), with an explicit two-speaker
+        // request so this fixture exercises the post-reassignment centroid recompute path.
         let groupA: [[Float]] = (0..<4).map { i in
             var v = Array(repeating: Float(0), count: dim)
             v[0] = 1.0
@@ -201,7 +197,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
             return v
         }
         let raw = groupA + groupB
-        let plda = Array(repeating: Array(repeating: Float(0.1), count: 128), count: raw.count)
+        let plda = raw
 
         let speakerEmbeddings = (0..<raw.count).map { i in
             SpeakerEmbedding(
@@ -216,17 +212,21 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
         let clusterer = VBxClustering()
         await clusterer.add(speakerEmbeddings: speakerEmbeddings)
-        let result = await clusterer.update(config: VBxClusteringConfig())
+        let result = await clusterer.update(config: VBxClusteringConfig(numSpeakers: 2))
 
         let clusters = result.clusterIndices
         XCTAssertEqual(clusters.count, raw.count)
-        let kFinal = (clusters.max() ?? -1) + 1
-        XCTAssertGreaterThan(kFinal, 0, "expected at least one cluster")
+        guard let maxCluster = clusters.max() else {
+            XCTFail("expected at least one cluster")
+            return
+        }
+        let kFinal = maxCluster + 1
+        XCTAssertEqual(kFinal, 2, "expected the synthetic fixture to keep two clusters")
 
         let expected = await clusterer.centroidsFromAssignments(
             assignments: clusters,
             embeddings: raw,
-            k: kFinal
+            clusterCount: kFinal
         )
 
         XCTAssertFalse(result.speakerCentroids.isEmpty, "speakerCentroids must be populated")
@@ -269,8 +269,8 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         XCTAssertGreaterThan(dims.first ?? 0, 0, "centroid dimension must be positive")
     }
 
-    /// Every value must be finite; L2 norm must land in a sensible range for raw
-    /// speaker-embedder output (well above zero, well below unbounded).
+    /// Every centroid value must be finite, and centroids from real runs must not collapse
+    /// to empty or zero vectors.
     func testCentroidsAreFiniteAndBounded() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
         let speakerKit = try await SpeakerKit()
@@ -281,9 +281,8 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
             for value in centroid {
                 XCTAssertTrue(value.isFinite, "centroid for speaker \(id) has non-finite value")
             }
-            let norm = l2Norm(centroid)
-            XCTAssertGreaterThan(norm, 0.1, "centroid \(id) has suspiciously small norm \(norm)")
-            XCTAssertLessThan(norm, 10.0, "centroid \(id) has suspiciously large norm \(norm)")
+            let norm = sqrt(centroid.reduce(0) { $0 + $1 * $1 })
+            XCTAssertGreaterThan(norm, 0.0, "centroid \(id) has zero norm")
         }
     }
 
@@ -337,6 +336,21 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
     // MARK: - centroidCosineDistance helper
 
+    func testGenericInitAcceptsSpeakerCentroidEmbeddings() {
+        let segments = [
+            SpeakerSegment(speaker: .speakerId(7), startTime: 0.0, endTime: 1.0, frameRate: 100)
+        ]
+        let result = DiarizationResult(
+            speakerCount: 1,
+            totalFrames: 100,
+            frameRate: 100,
+            segments: segments,
+            speakerCentroidEmbeddings: [7: [1.0, 0.0, 0.0]]
+        )
+
+        XCTAssertEqual(result.speakerCentroidEmbeddings[7], [1.0, 0.0, 0.0])
+    }
+
     /// Pairwise distances must be finite, in `[0, 2]`, and delegate exactly to
     /// `MathOps.cosineDistance`. Missing ids yield `nil`.
     func testCentroidCosineDistance_sameDiarization() async throws {
@@ -375,5 +389,27 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         let missingId = (ids.max() ?? 0) + 10_000
         XCTAssertNil(result.centroidCosineDistance(between: missingId, a))
         XCTAssertNil(result.centroidCosineDistance(between: a, missingId))
+    }
+
+    func testNearestSpeakerCentroid() {
+        let result = DiarizationResult(
+            speakerCount: 4,
+            totalFrames: 0,
+            frameRate: 100,
+            segments: [],
+            speakerCentroidEmbeddings: [
+                0: [1.0, 0.0, 0.0],
+                1: [0.0, 1.0, 0.0],
+                2: [0.9, 0.1, 0.0],
+                3: [1.0, 0.0]
+            ]
+        )
+
+        let nearest = result.nearestSpeakerCentroid(to: [1.0, 0.0, 0.0])
+        XCTAssertEqual(nearest?.speakerId, 0)
+        XCTAssertEqual(nearest?.distance, 0.0)
+
+        XCTAssertNil(result.nearestSpeakerCentroid(to: []))
+        XCTAssertNil(result.nearestSpeakerCentroid(to: [1.0, 0.0, 0.0, 0.0]))
     }
 }

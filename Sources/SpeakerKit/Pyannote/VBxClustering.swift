@@ -28,8 +28,7 @@ actor VBxClustering: Clusterer {
             _speakerEmbeddings[clusterIndex].clusterId = clusterId
         }
 
-        // expose centroids keyed by the final (post-reassignment) clusterId so downstream
-        // consumers see a centroid that matches the actual membership of each speakerId.
+        // Key centroids by the final clusterId so each entry matches its speakerId membership.
         let distinctClusterIds = Set(clusters.filter { $0 >= 0 })
         var centroidMap: [Int: [Float]] = [:]
         centroidMap.reserveCapacity(distinctClusterIds.count)
@@ -58,6 +57,7 @@ actor VBxClustering: Clusterer {
     ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [[Float]]) {
         let trainableEmbeddings = embeddings.filter { $0.nonOverlappedFrameRatio > config.minActiveRatio }
         let embeddingsFloats = trainableEmbeddings.map { $0.embedding }
+        let allEmbeddingsFloats = embeddings.map { $0.embedding }
 
         let pldaEmbeddingsFloats = trainableEmbeddings.map { $0.pldaEmbedding ?? [] }
 
@@ -98,6 +98,7 @@ actor VBxClustering: Clusterer {
 
         let clusterAssignments = speakerWeights.isEmpty ? clusters : MathOps.argmax(speakerWeights, axis: 0)
         var centroids = calculateCentroids(speakerWeights: speakerWeights, embeddings: embeddingsFloats)
+        // These centroids seed cluster reassignment; returned centroids are recomputed below.
 
         let autoSpeakerCount = centroids.count
         Logging.debug("VBx clustering completed with \(autoSpeakerCount) speakers")
@@ -107,11 +108,14 @@ actor VBxClustering: Clusterer {
         if let requestedSpeakers = config.numSpeakers, autoSpeakerCount != requestedSpeakers {
             Logging.debug("K-Means correction: VBx gave \(autoSpeakerCount) speakers, requested \(requestedSpeakers)")
             let kAssignments = ClusterAlgorithms.kMeans(embeddings: embeddingsNormalized, clusterCount: requestedSpeakers)
-            centroids = centroidsFromAssignments(assignments: kAssignments, embeddings: embeddingsFloats, k: requestedSpeakers)
+            centroids = centroidsFromAssignments(
+                assignments: kAssignments,
+                embeddings: embeddingsFloats,
+                clusterCount: requestedSpeakers
+            )
         }
 
         if !centroids.isEmpty {
-            let allEmbeddingsFloats = embeddings.map { $0.embedding }
             clusters = clusterReassignment(embeddings: allEmbeddingsFloats, centroids: centroids)
             Logging.debug("Cluster reassignment completed")
         } else {
@@ -119,11 +123,14 @@ actor VBxClustering: Clusterer {
             // from those AHC assignments so clusterReassignment can cover all N embeddings to match path above.
             let numClusters = (clusterAssignments.max() ?? -1) + 1
             let fallbackCentroids = numClusters > 0
-                ? centroidsFromAssignments(assignments: clusterAssignments, embeddings: embeddingsFloats, k: numClusters)
+                ? centroidsFromAssignments(
+                    assignments: clusterAssignments,
+                    embeddings: embeddingsFloats,
+                    clusterCount: numClusters
+                )
                 : []
 
             if !fallbackCentroids.isEmpty {
-                let allEmbeddingsFloats = embeddings.map { $0.embedding }
                 clusters = clusterReassignment(embeddings: allEmbeddingsFloats, centroids: fallbackCentroids)
                 Logging.debug("Cluster reassignment from AHC fallback completed")
             } else {
@@ -132,16 +139,14 @@ actor VBxClustering: Clusterer {
             }
         }
 
-        // Recompute centroids from the final, post-reassignment cluster membership so the
-        // surfaced centroid for speaker k is the arithmetic mean of the embeddings currently
-        // labelled k across all three paths (VBx weighted, kMeans correction, AHC fallback).
-        let allEmbeddingsFloats = embeddings.map { $0.embedding }
+        // Returned centroids are the arithmetic mean of embeddings under the final assignment,
+        // uniform across all paths (VBx weighted, kMeans correction, AHC fallback).
         let numFinalClusters = (clusters.max() ?? -1) + 1
         let finalCentroids: [[Float]] = numFinalClusters > 0
             ? centroidsFromAssignments(
                 assignments: clusters,
                 embeddings: allEmbeddingsFloats,
-                k: numFinalClusters
+                clusterCount: numFinalClusters
             )
             : []
 
@@ -199,17 +204,17 @@ actor VBxClustering: Clusterer {
         return clusterIndices
     }
 
-    func centroidsFromAssignments(assignments: [Int], embeddings: [[Float]], k: Int) -> [[Float]] {
+    func centroidsFromAssignments(assignments: [Int], embeddings: [[Float]], clusterCount: Int) -> [[Float]] {
         guard !embeddings.isEmpty, !embeddings[0].isEmpty else { return [] }
         let dim = embeddings[0].count
-        var sums = Array(repeating: Array(repeating: Float(0), count: dim), count: k)
-        var counts = Array(repeating: 0, count: k)
+        var sums = Array(repeating: Array(repeating: Float(0), count: dim), count: clusterCount)
+        var counts = Array(repeating: 0, count: clusterCount)
         for (i, assignment) in assignments.enumerated() {
             guard i < embeddings.count else { continue }
             counts[assignment] += 1
             for d in 0..<dim { sums[assignment][d] += embeddings[i][d] }
         }
-        return (0..<k).map { ki in
+        return (0..<clusterCount).map { ki in
             let count = counts[ki]
             guard count > 0 else { return sums[ki] }
             return sums[ki].map { $0 / Float(count) }
