@@ -172,6 +172,63 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         assertVectorsEqual(centroids[2], [0.0, 0.0, 0.0])
     }
 
+    /// `centroidSource` controls whether the surfaced centroid mean includes all final
+    /// assignment members or only the trainable subset used to seed clustering.
+    func testCentroidsFromFinalAssignmentsHonoursCentroidSource() async {
+        let embeddings = [
+            SpeakerEmbedding(
+                embedding: [1.0, 0.0],
+                activeFrames: [1.0],
+                windowIndex: 0,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [3.0, 0.0],
+                activeFrames: [1.0],
+                windowIndex: 1,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 10.0],
+                activeFrames: [1.0],
+                windowIndex: 2,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 20.0],
+                activeFrames: [1.0],
+                windowIndex: 3,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0
+            )
+        ]
+        let assignments = [0, 0, 1, 1]
+        let clusterer = VBxClustering()
+
+        let finalAssignmentCentroids = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments,
+            embeddings: embeddings,
+            source: .finalAssignment,
+            minActiveRatio: 0.2,
+            clusterCount: 2
+        )
+        assertVectorsEqual(finalAssignmentCentroids[0], [2.0, 0.0])
+        assertVectorsEqual(finalAssignmentCentroids[1], [0.0, 15.0])
+
+        let trainableOnlyCentroids = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments,
+            embeddings: embeddings,
+            source: .trainableOnly,
+            minActiveRatio: 0.2,
+            clusterCount: 2
+        )
+        assertVectorsEqual(trainableOnlyCentroids[0], [1.0, 0.0])
+        assertVectorsEqual(trainableOnlyCentroids[1], [0.0, 10.0])
+    }
+
     // MARK: - Clusterer-level invariant: value matches post-reassignment mean
 
     /// For any embedding input that drives VBxClustering end-to-end, the surfaced
@@ -334,7 +391,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         }
     }
 
-    // MARK: - centroidCosineDistance helper
+    // MARK: - centroid helpers
 
     func testGenericInitAcceptsSpeakerCentroidEmbeddings() {
         let segments = [
@@ -365,7 +422,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
         for i in 0..<ids.count {
             for j in (i + 1)..<ids.count {
-                guard let distance = result.centroidCosineDistance(between: ids[i], ids[j]) else {
+                guard let distance = result.centroidCosineDistance(between: ids[i], and: ids[j]) else {
                     XCTFail("distance must not be nil for existing ids \(ids[i]), \(ids[j])")
                     continue
                 }
@@ -379,7 +436,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         // its own maths.
         let a = ids[0]
         let b = ids[1]
-        let helperValue = result.centroidCosineDistance(between: a, b)
+        let helperValue = result.centroidCosineDistance(between: a, and: b)
         let directValue = MathOps.cosineDistance(
             result.speakerCentroidEmbeddings[a] ?? [],
             result.speakerCentroidEmbeddings[b] ?? []
@@ -387,13 +444,13 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         XCTAssertEqual(helperValue, directValue)
 
         let missingId = (ids.max() ?? 0) + 10_000
-        XCTAssertNil(result.centroidCosineDistance(between: missingId, a))
-        XCTAssertNil(result.centroidCosineDistance(between: a, missingId))
+        XCTAssertNil(result.centroidCosineDistance(between: missingId, and: a))
+        XCTAssertNil(result.centroidCosineDistance(between: a, and: missingId))
     }
 
     func testNearestSpeakerCentroid() {
         let result = DiarizationResult(
-            speakerCount: 4,
+            speakerCount: 5,
             totalFrames: 0,
             frameRate: 100,
             segments: [],
@@ -401,10 +458,12 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
                 0: [1.0, 0.0, 0.0],
                 1: [0.0, 1.0, 0.0],
                 2: [0.9, 0.1, 0.0],
-                3: [1.0, 0.0]
+                3: [1.0, 0.0],
+                4: [1.0, 0.0, 0.0]
             ]
         )
 
+        // speakers 0 and 4 tie at distance 0; the deterministic tie-break returns the lowest speakerId.
         let nearest = result.nearestSpeakerCentroid(to: [1.0, 0.0, 0.0])
         XCTAssertEqual(nearest?.speakerId, 0)
         XCTAssertEqual(nearest?.distance, 0.0)

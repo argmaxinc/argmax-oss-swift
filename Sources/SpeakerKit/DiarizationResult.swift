@@ -35,11 +35,13 @@ public struct DiarizationResult: Sendable {
     /// space (unnormalised, pre-PLDA). Useful for linking the same speaker across independent
     /// `diarize(...)` calls without re-running the embedder.
     ///
-    /// Each centroid is the arithmetic mean of the final per-window embeddings assigned to that
-    /// `speakerId` after clustering and cluster reassignment, so the centroid reflects the
-    /// speaker's actual membership in this result.
+    /// By default, each centroid is the arithmetic mean of the final per-window embeddings
+    /// assigned to that `speakerId` after clustering and cluster reassignment, so the centroid
+    /// reflects the speaker's actual membership in this result. Pyannote callers may set
+    /// `PyannoteDiarizationOptions.centroidSource` to `.trainableOnly` to mean-pool only the
+    /// trainable subset under those final assignments.
     ///
-    /// Compare centroids with cosine distance via `centroidCosineDistance(between:_:)` or
+    /// Compare centroids with cosine distance via `centroidCosineDistance(between:and:)` or
     /// `nearestSpeakerCentroid(to:)`, matching the convention used by
     /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. SpeakerKit does not define a
     /// universal "same speaker" threshold for comparing centroids across independent runs;
@@ -142,7 +144,7 @@ public struct DiarizationResult: Sendable {
     ///   ``speakerCentroidEmbeddings``, the centroids have different dimensions, or either
     ///   vector is empty. Zero-magnitude centroids (unreachable in real diarization runs)
     ///   yield `MathOps.cosineDistance`'s sentinel of `1.0`.
-    public func centroidCosineDistance(between a: Int, _ b: Int) -> Float? {
+    public func centroidCosineDistance(between a: Int, and b: Int) -> Float? {
         guard let lhs = speakerCentroidEmbeddings[a],
               let rhs = speakerCentroidEmbeddings[b],
               lhs.count == rhs.count, !lhs.isEmpty else { return nil }
@@ -153,7 +155,7 @@ public struct DiarizationResult: Sendable {
     ///
     /// This is a pure nearest-neighbour lookup over ``speakerCentroidEmbeddings``. It does not
     /// apply a same-speaker threshold; callers should interpret the returned distance according
-    /// to their own calibration.
+    /// to their own calibration. Ties resolve deterministically to the lowest `speakerId`.
     ///
     /// - Returns: The nearest compatible centroid, or `nil` when `embedding` is empty, no
     ///   centroid exists, or all stored centroids have different dimensions.
@@ -161,7 +163,10 @@ public struct DiarizationResult: Sendable {
         guard !embedding.isEmpty else { return nil }
 
         var nearest: (speakerId: Int, distance: Float)?
-        for (speakerId, centroid) in speakerCentroidEmbeddings where centroid.count == embedding.count {
+        for speakerId in speakerCentroidEmbeddings.keys.sorted() {
+            guard let centroid = speakerCentroidEmbeddings[speakerId], centroid.count == embedding.count else {
+                continue
+            }
             let distance = MathOps.cosineDistance(embedding, centroid)
             if nearest == nil || distance < (nearest?.distance ?? .infinity) {
                 nearest = (speakerId, distance)

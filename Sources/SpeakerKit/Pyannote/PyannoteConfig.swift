@@ -119,12 +119,25 @@ public class PyannoteConfig: SpeakerKitConfig, @unchecked Sendable {
 
 // MARK: - Diarization Options
 
+public enum SpeakerCentroidSource: Sendable {
+    /// Mean of all embeddings under the final post-reassignment speaker labels.
+    case finalAssignment
+
+    /// Mean of the trainable subset under the final post-reassignment speaker labels.
+    ///
+    /// This excludes embeddings whose `nonOverlappedFrameRatio` does not pass the clustering
+    /// `minActiveRatio` filter, matching the subset used to seed VBx/k-means clustering.
+    /// Speakers with no trainable embeddings are omitted from the returned centroid map.
+    case trainableOnly
+}
+
 public struct PyannoteDiarizationOptions: DiarizationOptions {
     public var numberOfSpeakers: Int?
     public var minActiveOffset: Float?
     public var clusterDistanceThreshold: Float?
     public var minClusterSize: Int?
     public var useExclusiveReconciliation: Bool
+    public var centroidSource: SpeakerCentroidSource
     /// Optional seek boundaries in seconds; pairs define [start, end] clips. Empty means process full audio.
     public var clipTimestamps: [Float]
 
@@ -134,6 +147,7 @@ public struct PyannoteDiarizationOptions: DiarizationOptions {
         clusterDistanceThreshold: Float? = nil,
         minClusterSize: Int? = nil,
         useExclusiveReconciliation: Bool = true,
+        centroidSource: SpeakerCentroidSource = .finalAssignment,
         clipTimestamps: [Float] = []
     ) {
         self.numberOfSpeakers = numberOfSpeakers
@@ -141,6 +155,7 @@ public struct PyannoteDiarizationOptions: DiarizationOptions {
         self.clusterDistanceThreshold = clusterDistanceThreshold
         self.minClusterSize = minClusterSize
         self.useExclusiveReconciliation = useExclusiveReconciliation
+        self.centroidSource = centroidSource
         self.clipTimestamps = clipTimestamps
     }
 }
@@ -208,4 +223,3 @@ public struct PyannoteDiarizationTimings: DiarizationTimings, CustomStringConver
         """
     }
 }
-
