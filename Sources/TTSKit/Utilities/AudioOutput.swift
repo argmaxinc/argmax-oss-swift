@@ -479,12 +479,20 @@ public class AudioOutput: @unchecked Sendable {
     /// Resets all buffering, fade, and timing state. After calling this,
     /// configure the buffer threshold via `setBufferDuration(_:)`.
     ///
-    /// - Parameter deferEngineStart: When `true`, the audio engine is created and
-    ///   connected but not started. The engine will start automatically on the first
-    ///   `enqueueAudioChunk` call. This avoids the render thread contending with
-    ///   model predictions during the critical time-to-first-buffer path.
+    /// - Parameters:
+    ///   - deferEngineStart: When `true`, the audio engine is created and
+    ///     connected but not started. The engine will start automatically on the first
+    ///     `enqueueAudioChunk` call. This avoids the render thread contending with
+    ///     model predictions during the critical time-to-first-buffer path.
+    ///   - preserveExistingAudioSession: When `true` on iOS, reuses the caller's
+    ///     current `AVAudioSession` category/mode/options without modification.
+    ///     Routing, speaker-vs-receiver behavior, and engine compatibility are
+    ///     then fully determined by the host app's existing session setup.
     /// - Throws: `TTSError` if the audio engine fails to start.
-    public func startPlayback(deferEngineStart: Bool = false) throws {
+    public func startPlayback(
+        deferEngineStart: Bool = false,
+        preserveExistingAudioSession: Bool = false
+    ) throws {
         pendingFrames.removeAll()
         pendingDuration = 0
         bufferThresholdMet = false
@@ -496,12 +504,14 @@ public class AudioOutput: @unchecked Sendable {
         scheduledAudioDuration = 0
         engineStartDeferred = false
 
-        // On iOS, AVAudioEngine requires an active audio session with a playback
-        // category. Without this, engine.start() may silently fail or route to
-        // the wrong output (e.g., airpods instead of main speaker).
+        // On iOS, AVAudioEngine requires an active audio session configured for
+        // playback. Callers that need to fully preserve a host-managed session
+        // can opt out and accept responsibility for routing and compatibility.
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [])
+        if !preserveExistingAudioSession {
+            try session.setCategory(.playback, mode: .default, options: [])
+        }
         try session.setActive(true)
         #endif
 
