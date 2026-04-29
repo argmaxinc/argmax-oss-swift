@@ -127,7 +127,7 @@ open class TTSKit: @unchecked Sendable {
         self.config = config
         self.seed = config.seed
 
-        await Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
+        Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
 
         setupPipeline(for: config.model, config: config)
 
@@ -582,22 +582,9 @@ open class TTSKit: @unchecked Sendable {
     /// Register a custom log sink for all `Logging` output from TTSKit.
     ///
     /// Mirrors `WhisperKit.loggingCallback(_:)`. Pass `nil` to restore the default
-    /// print-based logger. If you need to guarantee the update has completed before proceeding, prefer the async variant
-    /// `updateLoggingCallback(_:)`.
-    /// - Note: This method dispatches the update on a high priority task.
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `updateLoggingCallback(_ callback:) async` instead.")
-    open func loggingCallback(_ callback: Logging.LoggingCallback?) {
-        Task(priority: .high) {
-            await Logging.updateCallback(callback)
-        }
-    }
-
-    /// Register a custom log sink for all `Logging` output from TTSKit.
-    ///
-    /// Mirrors `WhisperKit.loggingCallback(_:)`. Pass `nil` to restore the default
     /// print-based logger.
-    open func updateLoggingCallback(_ callback: Logging.LoggingCallback?) async {
-        await Logging.updateCallback(callback)
+    open func loggingCallback(_ callback: Logging.LoggingCallback?) {
+        Logging.updateCallback(callback)
     }
 
     // MARK: - Prompt cache management

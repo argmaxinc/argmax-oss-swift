@@ -11,7 +11,7 @@ import XCTest
 
 final class UnitTests: XCTestCase {
     override func setUp() async throws {
-        await Logging.updateLogLevel(.debug)
+        Logging.updateLogLevel(.debug)
     }
 
     // MARK: - Model Loading Test

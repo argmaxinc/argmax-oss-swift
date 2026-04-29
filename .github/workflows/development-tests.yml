@@ -14,12 +14,12 @@ jobs:
       cancel-in-progress: true
     uses: ./.github/workflows/unit-tests.yml
     with:
-      ios-version: "26.4"
+      ios-version: "26.4.1"
       ios-device: "iPhone 17"
       watchos-version: "26.4"
-      visionos-version: "26.4"
+      visionos-version: "26.4.1"
       macos-runner: "macos-26"
-      xcode-version: "26.4"
+      xcode-version: "26.4.1"
 
   check-approvals:
     runs-on: ubuntu-latest
@@ -51,12 +51,18 @@ jobs:
     strategy:
       matrix:
         include:
+          - os: macos-14
+            ios-version: "17.2"
+            ios-device: "iPhone 15"
+            watchos-version: "10.2"
+            visionos-version: "1.0"
+            xcode-version: "16.1"
           - os: macos-15
             ios-version: "18.5"
             ios-device: "iPhone 16"
             watchos-version: "11.5"
             visionos-version: "2.5"
-            xcode-version: "26.0"
+            xcode-version: "16.4"
     uses: ./.github/workflows/unit-tests.yml
     with:
       macos-runner: ${{ matrix.os }}

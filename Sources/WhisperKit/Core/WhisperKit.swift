@@ -69,7 +69,7 @@ open class WhisperKit {
         tokenizerFolder = config.tokenizerFolder ?? config.downloadBase
         useBackgroundDownloadSession = config.useBackgroundDownloadSession
         currentTimings = TranscriptionTimings()
-        await Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
+        Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
 
         try await setupModels(
             model: config.model,
@@ -520,17 +520,8 @@ open class WhisperKit {
     }
 
     /// Pass in your own logging callback here
-    /// - Note: This method dispatches the update on a high priority task.
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `updateLoggingCallback(_ callback:) async` instead.")
     open func loggingCallback(_ callback: Logging.LoggingCallback?) {
-        Task(priority: .high) {
-            await Logging.updateCallback(callback)
-        }
-    }
-
-    /// Pass in your own logging callback here
-    open func updateLoggingCallback(_ callback: Logging.LoggingCallback?) async {
-        await Logging.updateCallback(callback)
+        Logging.updateCallback(callback)
     }
 
     // MARK: - Detect language
@@ -569,7 +560,7 @@ open class WhisperKit {
             throw WhisperError.tokenizerUnavailable()
         }
 
-        let options = DecodingOptions(verbose: await Logging.isLoggingEnabled)
+        let options = DecodingOptions(verbose: Logging.isLoggingEnabled)
         let decoderInputs = try textDecoder.prepareDecoderInputs(withPrompt: [tokenizer.specialTokens.startOfTranscriptToken])
 
         // Detect language using up to the first 30 seconds

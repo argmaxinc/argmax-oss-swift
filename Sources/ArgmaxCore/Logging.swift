@@ -61,8 +61,8 @@ public final class Logging: Sendable {
         var loggingCallback: LoggingCallback?
     }
 
-    // Internal state is guarded by `lock`; the class is `@unchecked Sendable`
-    // because all mutation/observation funnels through `lock.withLock`.
+    // All mutable state is guarded by `lock` (itself `Sendable`);
+    // every other stored property is a `let`-bound `Sendable` value.
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.argmax.argmaxcore",
@@ -109,11 +109,14 @@ public final class Logging: Sendable {
     /// Logs a message at the specified `OSLogType`.
     ///
     /// Respects the current `logLevel` and routes through `loggingCallback` if set.
-    public func log(_ items: Any..., separator: String = " ", terminator: String = "\n", type: OSLogType) {
+    public func log(_ items: Any..., separator: String = " ", terminator: String? = nil, type: OSLogType) {
         let (level, callback) = lock.withLock { ($0.logLevel, $0.loggingCallback) }
         let messageLevel = LogLevel(osLogType: type)
         guard level != .none, level <= messageLevel else { return }
-        let message = items.map { "\($0)" }.joined(separator: separator) + terminator
+        var message = items.map { "\($0)" }.joined(separator: separator)
+        if let terminator {
+            message += terminator
+        }
         if let callback {
             callback(message)
         } else {
@@ -133,15 +136,15 @@ public final class Logging: Sendable {
         shared.isLoggingEnabled(for: level)
     }
 
-    public static func debug(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+    public static func debug(_ items: Any..., separator: String = " ", terminator: String? = nil) {
         shared.log(items, separator: separator, terminator: terminator, type: .debug)
     }
 
-    public static func info(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+    public static func info(_ items: Any..., separator: String = " ", terminator: String? = nil) {
         shared.log(items, separator: separator, terminator: terminator, type: .info)
     }
 
-    public static func error(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+    public static func error(_ items: Any..., separator: String = " ", terminator: String? = nil) {
         shared.log(items, separator: separator, terminator: terminator, type: .error)
     }
 }
@@ -157,29 +160,16 @@ private extension Logging.LogLevel {
     }
 }
 
-// MARK: - Back-compat shims for the actor-based API
+// MARK: - Static mutators
 
 public extension Logging {
     /// Update the global log level. Thread-safe.
-    ///
-    /// Async variant is preserved so code written against pre-1.0 swift-6 previews
-    /// (which exposed an actor-backed `updateLogLevel(_:) async`) keeps compiling.
     static func updateLogLevel(_ level: LogLevel) {
-        shared.logLevel = level
-    }
-
-    @available(*, deprecated, message: "Assign directly to `Logging.shared.logLevel` — the update is now synchronous.")
-    static func updateLogLevel(_ level: LogLevel) async {
         shared.logLevel = level
     }
 
     /// Update the logging callback. Thread-safe.
     static func updateCallback(_ callback: LoggingCallback?) {
-        shared.loggingCallback = callback
-    }
-
-    @available(*, deprecated, message: "Assign directly to `Logging.shared.loggingCallback` — the update is now synchronous.")
-    static func updateCallback(_ callback: LoggingCallback?) async {
         shared.loggingCallback = callback
     }
 }

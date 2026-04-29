@@ -66,7 +66,7 @@ open class TranscribeTask {
         Logging.debug("Starting pipeline at: \(Date())")
 
         var options = decodeOptions ?? DecodingOptions()
-        options.verbose = await Logging.isLoggingEnabled
+        options.verbose = Logging.isLoggingEnabled
 
         var detectedLanguage: String?
 
@@ -100,8 +100,6 @@ open class TranscribeTask {
         Logging.debug("Prefill prompt: \(decoderInputs.initialPrompt.map { tokenizer.convertIdToToken($0) ?? "" })")
 
         // MARK: - Main decoder loop
-
-        var fallbackCount = 0
 
         // Process seek clips
         let seekClips = options.prepareSeekClips(contentFrames: contentFrames)
