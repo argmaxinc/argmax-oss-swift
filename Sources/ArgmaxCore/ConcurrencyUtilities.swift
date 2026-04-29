@@ -86,6 +86,18 @@ public struct PropertyLock<Value: Codable & Sendable>: Sendable, Codable {
     }
 }
 
+// MARK: - Weak Sendable Wrapper
+
+/// Wraps a weak reference so it can be captured in a `@Sendable` closure.
+///
+/// Use when a class instance is non-Sendable but you need to reference it
+/// (typically the `[weak self]` pattern) inside a Sendable callback.
+/// The caller is responsible for ensuring no actual data race occurs at access sites.
+public final class WeakSendableWrapper<T: AnyObject>: @unchecked Sendable {
+    public weak var value: T?
+    public init(_ value: T?) { self.value = value }
+}
+
 // MARK: - Early Stop Actor
 
 /// An actor that provides thread-safe early stopping functionality using UUIDs as keys.

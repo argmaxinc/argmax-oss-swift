@@ -424,6 +424,20 @@ public extension TextDecoding {
             keySlice.withUnsafeBytes { keySlicePointer in
                 valueTensor.withUnsafeMutableBytes { valueTensorPointer, valueTargetStrides in
                     valueSlice.withUnsafeBytes { valueSlicePointer in
+                        // Hoist base addresses out of the parallel loop so they're
+                        // computed once. Each iteration writes to a disjoint slice
+                        // (offsets computed from j), so concurrent access is safe
+                        // even though the pointer types aren't Sendable.
+                        guard
+                            let keyDestBaseAddress = keyTensorPointer.baseAddress,
+                            let keySrcBaseAddress = keySlicePointer.baseAddress,
+                            let valDestBaseAddress = valueTensorPointer.baseAddress,
+                            let valSrcBaseAddress = valueSlicePointer.baseAddress
+                        else { return }
+                        nonisolated(unsafe) let keyDestBase = keyDestBaseAddress
+                        nonisolated(unsafe) let keySrcBase = keySrcBaseAddress
+                        nonisolated(unsafe) let valDestBase = valDestBaseAddress
+                        nonisolated(unsafe) let valSrcBase = valSrcBaseAddress
                         // Assuming batch size is always 1
                         DispatchQueue.concurrentPerform(iterations: tensorShape[1]) { j in
                             // Slice size is 3 for prefill and 1 for decode loops
@@ -431,18 +445,18 @@ public extension TextDecoding {
                                 // Equivalent to:
                                 // `tensor[0, j, 0, k + index] = slice[0, j, 0, k + index]`
                                 let keyDestIndex = j * keyTargetStrides[1] + (index + k) * keyTargetStrides[3]
-                                let keyDest = keyTensorPointer.baseAddress! + keyDestIndex * bytesPerSample
+                                let keyDest = keyDestBase + keyDestIndex * bytesPerSample
 
                                 let keySliceIndex = j * sliceStrides[1] + k * sliceStrides[3]
-                                let keySlice = keySlicePointer.baseAddress! + keySliceIndex * bytesPerSample
-                                memcpy(keyDest, keySlice, bytesPerSample)
+                                let keySrc = keySrcBase + keySliceIndex * bytesPerSample
+                                memcpy(keyDest, keySrc, bytesPerSample)
 
                                 let valDestIndex = j * valueTargetStrides[1] + (index + k) * valueTargetStrides[3]
-                                let valDest = valueTensorPointer.baseAddress! + valDestIndex * bytesPerSample
+                                let valDest = valDestBase + valDestIndex * bytesPerSample
 
                                 let valSliceIndex = j * sliceStrides[1] + k * sliceStrides[3]
-                                let valSlice = valueSlicePointer.baseAddress! + valSliceIndex * bytesPerSample
-                                memcpy(valDest, valSlice, bytesPerSample)
+                                let valSrc = valSrcBase + valSliceIndex * bytesPerSample
+                                memcpy(valDest, valSrc, bytesPerSample)
                             }
                         }
                     }
@@ -686,7 +700,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
         let samplingStartTime = Date()
 
-        let sampleResult = tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
+        let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
         nextToken = sampleResult.tokens.last!
         logProbs = sampleResult.logProbs
@@ -838,7 +852,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let samplingStartTime = Date()
 
-            let sampleResult = tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
+            let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
             nextToken = sampleResult.tokens.last!
             let nextTokenLogProb = sampleResult.logProbs.last!

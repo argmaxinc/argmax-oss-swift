@@ -782,8 +782,12 @@ open class WhisperKit {
                     let batchedDecodeOptions = decodeOptionsArray[audioIndex]
 
                     // Add a new task to the task group for each audio array
+                    let weakSelf = WeakSendableWrapper(self)
                     taskGroup.addTask {
                         do {
+                            guard let self = weakSelf.value else {
+                                return [(index: audioIndex, result: .failure(WhisperError.transcriptionFailed("WhisperKit instance was deallocated")))]
+                            }
                             let transcribeResult: [TranscriptionResult] = try await self.transcribe(
                                 audioArray: audioArray,
                                 decodeOptions: batchedDecodeOptions,

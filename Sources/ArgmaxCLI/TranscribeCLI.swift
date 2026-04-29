@@ -188,7 +188,9 @@ struct TranscribeCLI: AsyncParsableCommand {
             let smoothingFactor = 0.1 // For exponential moving average
 
             // Start the progress bar task
+            let weakWhisperKit = WeakSendableWrapper(whisperKit)
             progressBarTask = Task {
+                guard let whisperKit = weakWhisperKit.value else { return }
                 while await progressState.getIsTranscribing() {
                     let progress = whisperKit.progress.fractionCompleted
                     let currentTime = Date()

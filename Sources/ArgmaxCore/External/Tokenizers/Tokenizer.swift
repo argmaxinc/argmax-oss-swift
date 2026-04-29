@@ -155,31 +155,34 @@ protocol PreTrainedTokenizerModel: TokenizingModel {
 }
 
 enum TokenizerModel {
-    static let knownTokenizers: [String: PreTrainedTokenizerModel.Type] = [
-        "BertTokenizer": BertTokenizer.self,
-        "CodeGenTokenizer": BPETokenizer.self,
-        "CodeLlamaTokenizer": BPETokenizer.self,
-        "CohereTokenizer": BPETokenizer.self,
-        "DistilbertTokenizer": BertTokenizer.self,
-        "DistilBertTokenizer": BertTokenizer.self,
-        "FalconTokenizer": BPETokenizer.self,
-        "GemmaTokenizer": BPETokenizer.self,
-        "GPT2Tokenizer": BPETokenizer.self,
-        "LlamaTokenizer": BPETokenizer.self,
-        "RobertaTokenizer": BPETokenizer.self,
-        "T5Tokenizer": T5Tokenizer.self,
-        "TokenizersBackend": BPETokenizer.self,
-        "PreTrainedTokenizer": BPETokenizer.self,
-        "Qwen2Tokenizer": BPETokenizer.self,
-        "WhisperTokenizer": BPETokenizer.self,
-        "XLMRobertaTokenizer": UnigramTokenizer.self,
-    ]
+    // Argmax-modification: removed `static let knownTokenizers` — moved into `from(...)` to sidestep Sendable check under Swift 6 strict concurrency
 
     static func unknownToken(from tokenizerConfig: Config) -> String? {
         tokenizerConfig.unkToken.content.string() ?? tokenizerConfig.unkToken.string()
     }
 
     static func from(tokenizerConfig: Config, tokenizerData: Config, addedTokens: [String: Int], strict: Bool = true) throws -> TokenizingModel {
+        // Argmax-modification: moved from `static let` on TokenizerModel to a local — sidesteps Sendable check on the static dictionary under Swift 6 strict concurrency
+        let knownTokenizers: [String: PreTrainedTokenizerModel.Type] = [
+            "BertTokenizer": BertTokenizer.self,
+            "CodeGenTokenizer": BPETokenizer.self,
+            "CodeLlamaTokenizer": BPETokenizer.self,
+            "CohereTokenizer": BPETokenizer.self,
+            "DistilbertTokenizer": BertTokenizer.self,
+            "DistilBertTokenizer": BertTokenizer.self,
+            "FalconTokenizer": BPETokenizer.self,
+            "GemmaTokenizer": BPETokenizer.self,
+            "GPT2Tokenizer": BPETokenizer.self,
+            "LlamaTokenizer": BPETokenizer.self,
+            "RobertaTokenizer": BPETokenizer.self,
+            "T5Tokenizer": T5Tokenizer.self,
+            "TokenizersBackend": BPETokenizer.self,
+            "PreTrainedTokenizer": BPETokenizer.self,
+            "Qwen2Tokenizer": BPETokenizer.self,
+            "WhisperTokenizer": BPETokenizer.self,
+            "XLMRobertaTokenizer": UnigramTokenizer.self,
+        ]
+
         guard let tokenizerClassName = tokenizerConfig.tokenizerClass.string() else {
             throw TokenizerError.missingTokenizerClassInConfig
         }
@@ -187,8 +190,8 @@ enum TokenizerModel {
         // Some tokenizer_class entries use a Fast suffix
         let tokenizerName = tokenizerClassName.replacingOccurrences(of: "Fast", with: "")
         // Fallback to BPETokenizer if class is not explicitly registered
-        let tokenizerClass = TokenizerModel.knownTokenizers[tokenizerName] ?? BPETokenizer.self
-        if TokenizerModel.knownTokenizers[tokenizerName] == nil {
+        let tokenizerClass = knownTokenizers[tokenizerName] ?? BPETokenizer.self
+        if knownTokenizers[tokenizerName] == nil {
             if strict {
                 throw TokenizerError.unsupportedTokenizer(tokenizerName)
             } else {
