@@ -1005,6 +1005,42 @@ open class TTSKit: @unchecked Sendable {
         playbackStrategy: PlaybackStrategy = .auto,
         callback: SpeechCallback = nil
     ) async throws -> SpeechResult {
+        try await play(
+            text: text,
+            voice: voice,
+            language: language,
+            options: options,
+            playbackStrategy: playbackStrategy,
+            preserveExistingAudioSession: false,
+            callback: callback
+        )
+    }
+
+    /// Generate speech and stream it through the audio output in real time.
+    ///
+    /// Generates speech and plays it back.
+    ///
+    /// - Parameters:
+    ///   - text: The text to synthesize.
+    ///   - voice: Voice/speaker identifier.
+    ///   - language: Language identifier.
+    ///   - options: Sampling and generation options.
+    ///   - playbackStrategy: Controls how audio is buffered before playback begins.
+    ///   - preserveExistingAudioSession: When `true` on iOS, playback reuses the
+    ///     host app's current audio session configuration instead of forcing
+    ///     `.playback`.
+    ///   - callback: Optional per-step callback.
+    /// - Returns: A `SpeechResult` with the complete audio and timing breakdown.
+    /// - Throws: `TTSError` on generation failure or task cancellation.
+    open func play(
+        text: String,
+        voice: String? = nil,
+        language: String? = nil,
+        options: GenerationOptions = GenerationOptions(),
+        playbackStrategy: PlaybackStrategy = .auto,
+        preserveExistingAudioSession: Bool = false,
+        callback: SpeechCallback = nil
+    ) async throws -> SpeechResult {
         var playOptions = options
 
         let audioOut = audioOutput
@@ -1022,7 +1058,9 @@ open class TTSKit: @unchecked Sendable {
                 text: text, voice: voice, language: language,
                 options: playOptions, callback: callback
             )
-            try audioOut.startPlayback()
+            try audioOut.startPlayback(
+                preserveExistingAudioSession: preserveExistingAudioSession
+            )
             audioOut.setBufferDuration(0)
             audioOut.enqueueAudioChunk(result.audio)
             await audioOut.stopPlayback(waitForCompletion: true)
@@ -1032,7 +1070,10 @@ open class TTSKit: @unchecked Sendable {
         // Streaming requires sequential generation to preserve chunk order.
         playOptions.concurrentWorkerCount = 1
 
-        try audioOut.startPlayback(deferEngineStart: true)
+        try audioOut.startPlayback(
+            deferEngineStart: true,
+            preserveExistingAudioSession: preserveExistingAudioSession
+        )
         switch playbackStrategy {
             case .stream: audioOut.setBufferDuration(0)
             case let .buffered(secs): audioOut.setBufferDuration(secs)
@@ -1134,6 +1175,7 @@ open class TTSKit: @unchecked Sendable {
         language: Qwen3Language = .english,
         options: GenerationOptions = GenerationOptions(),
         playbackStrategy: PlaybackStrategy = .auto,
+        preserveExistingAudioSession: Bool = false,
         callback: SpeechCallback = nil
     ) async throws -> SpeechResult {
         try await play(
@@ -1142,6 +1184,7 @@ open class TTSKit: @unchecked Sendable {
             language: language.rawValue,
             options: options,
             playbackStrategy: playbackStrategy,
+            preserveExistingAudioSession: preserveExistingAudioSession,
             callback: callback
         )
     }
