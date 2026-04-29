@@ -239,6 +239,13 @@ open class TTSKitConfig {
     /// `nil` loads when `modelFolder` is non-nil, matching WhisperKit's default.
     public var load: Bool?
 
+    // MARK: - Playback
+
+    /// Preserve the host app's existing iOS audio session configuration during playback startup.
+    /// When `true`, `TTSKit` only activates the shared `AVAudioSession` instead of forcing
+    /// it to `.playback`.
+    public var preserveExistingAudioSession: Bool
+
     // MARK: - Generation
 
     /// Optional seed for reproducible generation.
@@ -288,6 +295,7 @@ open class TTSKitConfig {
         download: Bool = true,
         prewarm: Bool? = nil,
         load: Bool? = nil,
+        preserveExistingAudioSession: Bool = false,
         seed: UInt64? = nil
     ) {
         self.model = model
@@ -314,6 +322,7 @@ open class TTSKitConfig {
         self.download = download
         self.prewarm = prewarm
         self.load = load
+        self.preserveExistingAudioSession = preserveExistingAudioSession
         self.seed = seed
     }
 
