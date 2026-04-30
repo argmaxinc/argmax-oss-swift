@@ -758,7 +758,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         let prefilledIndex = decoderInputs.cacheLength[0].intValue
         let initialPromptIndex = decoderInputs.initialPrompt.count
         var currentTokens: [Int] = decoderInputs.initialPrompt
-        var nextToken: Int = decoderInputs.initialPrompt.last!
+        guard let firstToken = decoderInputs.initialPrompt.last else {
+            throw WhisperError.decodingFailed("initialPrompt is empty")
+        }
+        var nextToken: Int = firstToken
         var logProbs: [Float] = Array(repeating: 0, count: currentTokens.count)
 
         // Logits filters
@@ -840,7 +843,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             let nonInferenceStartTime = Date()
 
             // Update predicted token as current
-            var logits = decoderOutput.logits!
+            guard let logits_ = decoderOutput.logits else {
+                throw WhisperError.decodingLogitsFailed("Decoder output logits are nil")
+            }
+            var logits = logits_
             for filter in logitsFilters {
                 logits = filter.filterLogits(logits, withTokens: currentTokens)
             }
