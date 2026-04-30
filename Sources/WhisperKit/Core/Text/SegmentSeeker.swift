@@ -4,9 +4,7 @@
 import Accelerate
 import CoreML
 import Foundation
-import Tokenizers
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public protocol SegmentSeeking {
     func findSeekPointAndSegments(
         decodingResult: DecodingResult,
@@ -34,7 +32,6 @@ public protocol SegmentSeeking {
     ) throws -> [TranscriptionSegment]?
 }
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 open class SegmentSeeker: SegmentSeeking {
     public init() {}
 
@@ -280,12 +277,19 @@ open class SegmentSeeker: SegmentSeeking {
         return (textIndices.reversed(), timeIndices.reversed())
     }
 
-    func mergePunctuations(alignment: [WordTiming], prepended: String, appended: String) -> [WordTiming] {
+    func mergePunctuations(
+        alignment: [WordTiming],
+        prepended: String = Constants.defaultPrependPunctuations,
+        appended: String = Constants.defaultAppendPunctuations
+    ) -> [WordTiming] {
+        guard !alignment.isEmpty else {
+            return []
+        }
         var prependedAlignment = [WordTiming]()
         var appendedAlignment = [WordTiming]()
 
         // Include the first word if it's not a prepended punctuation
-        if !alignment.isEmpty && !prepended.contains(alignment[0].word.trimmingCharacters(in: .whitespaces)) {
+        if !prepended.contains(alignment[0].word.trimmingCharacters(in: .whitespaces)) {
             prependedAlignment.append(alignment[0])
         }
 
@@ -300,7 +304,11 @@ open class SegmentSeeker: SegmentSeeking {
             {
                 currentWord.word = previousWord.word + currentWord.word
                 currentWord.tokens = previousWord.tokens + currentWord.tokens
-                prependedAlignment[prependedAlignment.count - 1] = currentWord
+                if prependedAlignment.isEmpty {
+                    prependedAlignment.append(currentWord)
+                } else {
+                    prependedAlignment[prependedAlignment.count - 1] = currentWord
+                }
             } else {
                 prependedAlignment.append(currentWord)
             }
@@ -391,7 +399,7 @@ open class SegmentSeeker: SegmentSeeking {
                 tokens: wordTokenArray,
                 start: wordStartTime,
                 end: wordEndTime,
-                probability: pow(10, probability)
+                probability: exp(probability)
             )
             wordTimings.append(wordTiming)
         }
@@ -405,8 +413,8 @@ open class SegmentSeeker: SegmentSeeking {
         tokenizer: WhisperTokenizer,
         seek: Int,
         segmentSize: Int,
-        prependPunctuations: String,
-        appendPunctuations: String,
+        prependPunctuations: String = Constants.defaultPrependPunctuations,
+        appendPunctuations: String = Constants.defaultAppendPunctuations,
         lastSpeechTimestamp: Float,
         options: DecodingOptions,
         timings: TranscriptionTimings
@@ -415,7 +423,6 @@ open class SegmentSeeker: SegmentSeeking {
         var wordTokenIds = [Int]()
         var filteredLogProbs = [Float]()
         var filteredIndices = [Int]()
-        var lastSpeechTimestamp = lastSpeechTimestamp
 
         // Iterate through each segment
         var indexOffset = 0
@@ -440,7 +447,7 @@ open class SegmentSeeker: SegmentSeeking {
             throw WhisperError.segmentingFailed("Invalid shape in alignmentWeights")
         }
 
-        let filteredAlignmentWeights = initMLMultiArray(shape: [filteredIndices.count, columnCount] as [NSNumber], dataType: alignmentWeights.dataType, initialValue: FloatType(0))
+        let filteredAlignmentWeights = try MLMultiArray(shape: [filteredIndices.count, columnCount] as [NSNumber], dataType: alignmentWeights.dataType, initialValue: FloatType(0))
 
         alignmentWeights.withUnsafeMutableBytes { weightsPointer, weightsStride in
             filteredAlignmentWeights.withUnsafeMutableBytes { filteredWeightsPointer, filteredWeightsStride in
@@ -455,6 +462,7 @@ open class SegmentSeeker: SegmentSeeking {
 
         Logging.debug("Alignment weights shape: \(filteredAlignmentWeights.shape)")
 
+        // Find alignment between text tokens and time indices
         var alignment = try findAlignment(
             wordTokenIds: wordTokenIds,
             alignmentWeights: filteredAlignmentWeights,
@@ -465,35 +473,73 @@ open class SegmentSeeker: SegmentSeeking {
 
         // TODO: This section is considered a "hack" in the source repo
         // Reference: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/timing.py#L305
-        var wordDurations = alignment.map { $0.end - $0.start }
+        let wordDurations = calculateWordDurationConstraints(alignment: alignment)
+        alignment = truncateLongWordsAtSentenceBoundaries(alignment, maxDuration: wordDurations.max)
+
+        // Process alignment for punctuations
+        if !alignment.isEmpty {
+            alignment = mergePunctuations(alignment: alignment, prepended: prependPunctuations, appended: appendPunctuations)
+        }
+
+        // Update segments based on more accurate word timings
+        let updatedSegments = updateSegmentsWithWordTimings(
+            segments: segments,
+            mergedAlignment: alignment,
+            seek: seek,
+            lastSpeechTimestamp: lastSpeechTimestamp,
+            constrainedMedianDuration: wordDurations.median,
+            maxDuration: wordDurations.max,
+            tokenizer: tokenizer
+        )
+
+        return updatedSegments
+    }
+
+    public func calculateWordDurationConstraints(alignment: [WordTiming]) -> (median: Float, max: Float) {
+        var wordDurations = alignment.map { $0.duration }
         wordDurations = wordDurations.filter { $0 > 0 }
 
         let medianDuration: Float = wordDurations.isEmpty ? 0.0 : wordDurations.sorted(by: <)[wordDurations.count / 2]
         let constrainedMedianDuration = min(0.7, medianDuration)
         let maxDuration = constrainedMedianDuration * 2
 
-        // Truncate long words at sentence boundaries
+        return (constrainedMedianDuration, maxDuration)
+    }
+
+    public func truncateLongWordsAtSentenceBoundaries(_ alignment: [WordTiming], maxDuration: Float) -> [WordTiming] {
         let sentenceEndMarks = [".", "。", "!", "！", "?", "？"]
-        if !wordDurations.isEmpty {
-            for i in 1..<alignment.count {
-                if alignment[i].end - alignment[i].start > maxDuration {
-                    if sentenceEndMarks.contains(alignment[i].word) {
-                        alignment[i].end = alignment[i].start + maxDuration
-                    } else if i > 0, sentenceEndMarks.contains(alignment[i - 1].word) {
-                        alignment[i].start = alignment[i].end - maxDuration
+        var truncatedAlignment = alignment
+
+        if !truncatedAlignment.isEmpty {
+            for i in 1..<truncatedAlignment.count {
+                if truncatedAlignment[i].duration > maxDuration {
+                    if sentenceEndMarks.contains(truncatedAlignment[i].word) {
+                        truncatedAlignment[i].end = truncatedAlignment[i].start + maxDuration
+                    } else if i > 0, sentenceEndMarks.contains(truncatedAlignment[i - 1].word) {
+                        truncatedAlignment[i].start = truncatedAlignment[i].end - maxDuration
                     }
                 }
             }
         }
 
-        // Process alignment for punctuations
-        let mergedAlignment = mergePunctuations(alignment: alignment, prepended: prependPunctuations, appended: appendPunctuations)
+        return truncatedAlignment
+    }
 
-        var wordIndex = 0
+    public func updateSegmentsWithWordTimings(
+        segments: [TranscriptionSegment],
+        mergedAlignment: [WordTiming],
+        seek: Int,
+        lastSpeechTimestamp: Float,
+        constrainedMedianDuration: Float,
+        maxDuration: Float,
+        tokenizer: WhisperTokenizer
+    ) -> [TranscriptionSegment] {
         let timeOffset = Float(seek) / Float(WhisperKit.sampleRate)
+        var wordIndex = 0
+        var lastSpeechTimestamp = lastSpeechTimestamp // Create a mutable copy, it will be updated below
         var updatedSegments = [TranscriptionSegment]()
 
-        for segment in segments {
+        for (segmentIndex, segment) in segments.enumerated() {
             var savedTokens = 0
             let textTokens = segment.tokens.filter { $0 < tokenizer.specialTokens.specialTokenBegin }
             var wordsInSegment = [WordTiming]()
@@ -507,10 +553,50 @@ open class SegmentSeeker: SegmentSeeking {
                     continue
                 }
 
-                let start = (timeOffset + timing.start).rounded(2)
+                // Retokenize the word if some tokens were filtered out
+                let word = timingTokens.count < timing.tokens.count ?
+                    tokenizer.decode(tokens: timingTokens) :
+                    timing.word
+
+                var start = (timeOffset + timing.start).rounded(2)
                 let end = (timeOffset + timing.end).rounded(2)
+
+                // Handle short duration words by moving their start time back if there's space
+                // There is most commonly space when there is timestamp tokens or merged punctuations between words
+                if end - start < constrainedMedianDuration / 4 {
+                    if wordsInSegment.count >= 1,
+                       let previousTiming = wordsInSegment.last
+                    {
+                        let previousEnd = previousTiming.end
+
+                        // If there's space between this word and the previous word
+                        if start > previousEnd {
+                            // Move the word back, using either median duration or space available
+                            // Eg: [[0.5 - 2.0], [3.0 - 3.0]] (two word timings with one second gap)
+                            // ->  [[0.5 - 2.0], [2.7 - 3.0]] (second word start moved back)
+                            // however, if there is no space, it will not be adjusted
+                            // Eg: [[0.5 - 2.0], [2.0 - 2.0]] (two word timings with no gap)
+                            // ->  [[0.5 - 2.0], [2.0 - 2.0]] (second word start not moved back)
+                            let spaceAvailable = start - previousEnd
+                            let desiredDuration = min(spaceAvailable, constrainedMedianDuration / 2)
+                            start = (start - desiredDuration).rounded(2)
+                        }
+                    } else if wordsInSegment.isEmpty,
+                              segmentIndex > 0,
+                              updatedSegments.count > segmentIndex - 1,
+                              start > updatedSegments[segmentIndex - 1].end
+                    {
+                        // First word of segment - check space from last segment
+                        // Eg: [[0.5 - 1.5], [1.5 - 2.0]], [[3.0 - 3.0]] (two segments with one second gap)
+                        // ->  [[0.5 - 1.5], [1.5 - 2.0]], [[2.7 - 3.0]] (first word start of new segment moved back)
+                        let spaceAvailable = start - updatedSegments[segmentIndex - 1].end
+                        let desiredDuration = min(spaceAvailable, constrainedMedianDuration / 2)
+                        start = (start - desiredDuration).rounded(2)
+                    }
+                }
+
                 let probability = timing.probability.rounded(2)
-                let wordTiming = WordTiming(word: timing.word,
+                let wordTiming = WordTiming(word: word,
                                             tokens: timingTokens,
                                             start: start,
                                             end: end,
@@ -526,32 +612,40 @@ open class SegmentSeeker: SegmentSeeking {
             // TODO: This section is considered a "hack" in the source repo
             // Reference: https://github.com/openai/whisper/blob/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/timing.py#L342
             // Truncate long words at segment boundaries
-            if let firstWord = wordsInSegment.first, let lastWord = wordsInSegment.last {
-                // Logic for the first word
-                if firstWord.end - lastSpeechTimestamp > constrainedMedianDuration * 4 &&
-                    (firstWord.end - firstWord.start > maxDuration ||
-                        (wordsInSegment.count > 1 && wordsInSegment[1].end - firstWord.start > maxDuration * 2))
+            if let firstWord = wordsInSegment.first {
+                // Ensure the first and second word after a pause is not longer than
+                // twice the median word duration.
+                let pauseLength = firstWord.end - lastSpeechTimestamp
+                let firstWordTooLong = firstWord.duration > maxDuration
+                let bothWordsTooLong = wordsInSegment.count > 1 && wordsInSegment[1].end - firstWord.start > maxDuration * 2
+                if pauseLength > constrainedMedianDuration * 4 &&
+                    (firstWordTooLong || bothWordsTooLong)
                 {
-                    if wordsInSegment.count > 1 && wordsInSegment[1].end - wordsInSegment[1].start > maxDuration {
+                    // First word or both words are too long
+                    if wordsInSegment.count > 1 && wordsInSegment[1].duration > maxDuration {
+                        // Second word is too long, find a good boundary to readjust the words
                         let boundary = max(wordsInSegment[1].end / 2, wordsInSegment[1].end - maxDuration)
                         wordsInSegment[0].end = boundary
                         wordsInSegment[1].start = boundary
                     }
-                    wordsInSegment[0].start = max(lastSpeechTimestamp, firstWord.end - maxDuration)
+                    // In either case, make sure the first word is not too long
+                    wordsInSegment[0].start = max(lastSpeechTimestamp, wordsInSegment[0].end - maxDuration)
                 }
 
                 // Prefer segment-level start timestamp if the first word is too long.
-                if segment.start < firstWord.end && segment.start - 0.5 > firstWord.start {
-                    wordsInSegment[0].start = max(0, min(firstWord.end - constrainedMedianDuration, segment.start))
+                if segment.start < wordsInSegment[0].end && segment.start - 0.5 > wordsInSegment[0].start {
+                    wordsInSegment[0].start = max(0, min(wordsInSegment[0].end - constrainedMedianDuration, segment.start))
                 } else {
-                    updatedSegment.start = firstWord.start
+                    updatedSegment.start = wordsInSegment[0].start
                 }
 
-                // Prefer segment-level end timestamp if the last word is too long.
-                if updatedSegment.end > lastWord.start && segment.end + 0.5 < lastWord.end {
-                    wordsInSegment[wordsInSegment.count - 1].end = max(lastWord.start + constrainedMedianDuration, segment.end)
-                } else {
-                    updatedSegment.end = lastWord.end
+                if let lastWord = wordsInSegment.last {
+                    // Prefer segment-level end timestamp if the last word is too long.
+                    if updatedSegment.end > lastWord.start && segment.end + 0.5 < lastWord.end {
+                        wordsInSegment[wordsInSegment.count - 1].end = max(lastWord.start + constrainedMedianDuration, segment.end)
+                    } else {
+                        updatedSegment.end = lastWord.end
+                    }
                 }
 
                 lastSpeechTimestamp = updatedSegment.end

@@ -25,6 +25,10 @@ Models
 **/*.m4a
 **/*.flac
 
+# Swift Client build artifacts
+Examples/ServeCLIClient/Swift/.build
+Examples/ServeCLIClient/Swift/.swiftpm
+
 ## Xcode
 # Build generated
 build/
@@ -67,3 +71,10 @@ fastlane/upload_folder
 !*.xcodeproj/xcshareddata/
 !*.xcworkspace/contents.xcworkspacedata
 /*.gcno
+
+# Swift build artifacts
+*.d
+*.o
+*.swiftdeps
+*.swiftmodule
+*.swiftdoc

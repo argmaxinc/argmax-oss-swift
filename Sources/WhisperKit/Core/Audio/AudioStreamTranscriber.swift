@@ -3,7 +3,6 @@
 
 import Foundation
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public extension AudioStreamTranscriber {
     struct State {
         public var isRecording: Bool = false
@@ -18,11 +17,12 @@ public extension AudioStreamTranscriber {
     }
 }
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-public typealias AudioStreamTranscriberCallback = (AudioStreamTranscriber.State, AudioStreamTranscriber.State) -> Void
+public typealias AudioStreamTranscriberCallback = @Sendable (
+    AudioStreamTranscriber.State,
+    AudioStreamTranscriber.State
+) -> Void
 
 /// Responsible for streaming audio from the microphone, processing it, and transcribing it in real-time.
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public actor AudioStreamTranscriber {
     private var state: AudioStreamTranscriber.State = .init() {
         didSet {
@@ -57,6 +57,7 @@ public actor AudioStreamTranscriber {
         self.transcribeTask = TranscribeTask(
             currentTimings: TranscriptionTimings(),
             progress: Progress(),
+            audioProcessor: audioProcessor,
             audioEncoder: audioEncoder,
             featureExtractor: featureExtractor,
             segmentSeeker: segmentSeeker,
@@ -195,7 +196,8 @@ public actor AudioStreamTranscriber {
         var options = decodingOptions
         options.clipTimestamps = [state.lastConfirmedSegmentEndSeconds]
         let checkWindow = compressionCheckWindow
-        return try await transcribeTask.run(audioArray: samples, decodeOptions: options) { [weak self] progress in
+        return try await transcribeTask
+            .run(audioArray: samples, decodeOptions: options) { [options] progress in
             Task { [weak self] in
                 await self?.onProgressCallback(progress)
             }
@@ -211,7 +213,7 @@ public actor AudioStreamTranscriber {
         let currentTokens = progress.tokens
         if currentTokens.count > compressionCheckWindow {
             let checkTokens: [Int] = currentTokens.suffix(compressionCheckWindow)
-            let compressionRatio = compressionRatio(of: checkTokens)
+            let compressionRatio = TextUtilities.compressionRatio(of: checkTokens)
             if compressionRatio > options.compressionRatioThreshold ?? 0.0 {
                 return false
             }

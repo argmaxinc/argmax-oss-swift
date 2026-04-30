@@ -3,7 +3,6 @@
 
 import CoreML
 import Foundation
-import Hub
 import UniformTypeIdentifiers
 import WhisperKit
 import XCTest
@@ -12,7 +11,6 @@ import XCTest
 import WatchKit
 #endif
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 class RegressionTests: XCTestCase {
     var audioFileURLs: [URL]?
     var remoteFileURLs: [URL]?
@@ -51,7 +49,6 @@ class RegressionTests: XCTestCase {
     let vadDecodingOptions = DecodingOptions(
         verbose: true,
         task: .transcribe,
-        concurrentWorkerCount: 16,
         chunkingStrategy: .vad
     )
 
@@ -140,15 +137,7 @@ class RegressionTests: XCTestCase {
         for (i, config) in testMatrix.enumerated() {
             do {
                 Logging.debug("Running test \(i + 1)/\(testMatrix.count) for \(config.model) with \(config.dataset) on \(device) using encoder compute: \(config.modelComputeOptions.audioEncoderCompute.description) and decoder compute: \(config.modelComputeOptions.textDecoderCompute.description)")
-                let expectation = XCTestExpectation(description: "Download test audio files for \(config.dataset) dataset")
-                downloadTestData(forDataset: config.dataset) { success in
-                    if success {
-                        expectation.fulfill()
-                    } else {
-                        XCTFail("Downloading audio file for testing failed")
-                    }
-                }
-                await fulfillment(of: [expectation], timeout: 300)
+                try await downloadTestData(forDataset: config.dataset)
                 let attachmentName = try await testAndMeasureModelPerformance(config: config, device: device)
                 attachments[config.dataset] = attachmentName
                 try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -243,7 +232,7 @@ class RegressionTests: XCTestCase {
             latencyStats: latencyStats
         )
 
-        let callback = { (result: TranscriptionProgress) -> Bool in
+        let callback: TranscriptionCallback = { result in
             Task {
                 await testState.update(with: result)
             }
@@ -284,7 +273,7 @@ class RegressionTests: XCTestCase {
             XCTFail("Tokens per second below expected for compute unit \(currentTPS), potential CPU fallback")
         }
 
-        let transcriptionResult = mergeTranscriptionResults(transcriptionResults)
+        let transcriptionResult = TranscriptionUtilities.mergeTranscriptionResults(transcriptionResults)
 
         // Store final measurements
         let (finalMemoryStats, finalLatencyStats) = await testState.processFinalMeasurements()
@@ -435,19 +424,11 @@ class RegressionTests: XCTestCase {
 
     // MARK: - Helper Methods
 
-    private func downloadTestDataIfNeeded() {
+    private func downloadTestDataIfNeeded() async throws {
         guard audioFileURLs == nil || metadataURL == nil || testWERURLs == nil else { return }
 
         for dataset in datasets {
-            let expectation = XCTestExpectation(description: "Download test audio files for \(dataset) dataset")
-            downloadTestData(forDataset: dataset) { success in
-                if success {
-                    expectation.fulfill()
-                } else {
-                    XCTFail("Downloading audio file for testing failed")
-                }
-            }
-            wait(for: [expectation], timeout: 300)
+            try await downloadTestData(forDataset: dataset)
         }
     }
 
@@ -476,38 +457,29 @@ class RegressionTests: XCTestCase {
         return regressionTestConfigMatrix
     }
 
-    private func downloadTestData(forDataset dataset: String, completion: @escaping (Bool) -> Void) {
-        Task {
-            do {
-                Logging.debug("Available models: \(modelsToTest)")
+    private func downloadTestData(forDataset dataset: String) async throws {
+        Logging.debug("Available models: \(modelsToTest)")
 
-                let testDatasetRepo = Hub.Repo(id: datasetRepo, type: .datasets)
-                let tempPath = FileManager.default.temporaryDirectory
-                let downloadBase = tempPath.appending(component: "huggingface")
-                let hubApi = HubApi(downloadBase: downloadBase)
-                let repoURL = try await hubApi.snapshot(from: testDatasetRepo, matching: ["\(dataset)/*"]) { progress in
-                    Logging.debug("Downloading \(dataset) dataset: \(progress)")
-                }.appending(path: dataset)
+        let testDatasetRepo = HubApiWrapper.Repo(id: datasetRepo, type: .datasets)
+        let tempPath = FileManager.default.temporaryDirectory
+        let downloadBase = tempPath.appending(component: "huggingface")
+        let hubApi = HubApiWrapper(downloadBase: downloadBase)
+        let repoURL = try await hubApi.snapshot(from: testDatasetRepo, matching: ["\(dataset)/*"]) { progress in
+            Logging.debug("Downloading \(dataset) dataset: \(progress)")
+        }.appending(path: dataset)
 
-                let downloadedFiles = try FileManager.default.contentsOfDirectory(atPath: repoURL.path())
-                var audioFileURLs: [URL] = []
-                for file in downloadedFiles {
-                    if file.hasSuffix(".mp3") {
-                        audioFileURLs.append(repoURL.appending(component: file))
-                    } else if file.hasSuffix(".json") {
-                        self.metadataURL = repoURL.appending(component: file)
-                    }
-                }
-                self.audioFileURLs = audioFileURLs
-
-                Logging.debug("Downloaded \(audioFileURLs.count) audio files.")
-
-                completion(true)
-            } catch {
-                XCTFail("Async setup failed with error: \(error)")
-                completion(false)
+        let downloadedFiles = try FileManager.default.contentsOfDirectory(atPath: repoURL.path())
+        var audioFileURLs: [URL] = []
+        for file in downloadedFiles {
+            if file.hasSuffix(".mp3") {
+                audioFileURLs.append(repoURL.appending(component: file))
+            } else if file.hasSuffix(".json") {
+                self.metadataURL = repoURL.appending(component: file)
             }
         }
+        self.audioFileURLs = audioFileURLs
+
+        Logging.debug("Downloaded \(audioFileURLs.count) audio files.")
     }
 
     private func getTranscript(filename: String) -> String? {
@@ -536,10 +508,10 @@ class RegressionTests: XCTestCase {
 
     private func getWERTestData() async -> (String?, String?) {
         do {
-            let testDataset = Hub.Repo(id: datasetRepo, type: .datasets)
+            let testDataset = HubApiWrapper.Repo(id: datasetRepo, type: .datasets)
             let tempPath = FileManager.default.temporaryDirectory
             let downloadBase = tempPath.appending(component: "huggingface")
-            let hubApi = HubApi(downloadBase: downloadBase)
+            let hubApi = HubApiWrapper(downloadBase: downloadBase)
             let testWERRepoURL = try await hubApi.snapshot(from: testDataset, matching: ["*.txt"])
             let testWERTextURLs = try FileManager.default.contentsOfDirectory(atPath: testWERRepoURL.path()).filter { $0.hasSuffix(".txt") }
             self.testWERURLs = testWERTextURLs.map { testWERRepoURL.appending(component: $0) }
@@ -633,23 +605,23 @@ class RegressionTests: XCTestCase {
         return Double(modelSize / (1024 * 1024)) // Convert to MB
     }
 
-    public func initWhisperKitTask(testConfig config: TestConfig, verbose: Bool, logLevel: Logging.LogLevel) -> Task<WhisperKit, Error> {
-        // Create the initialization task
-        let initializationTask = Task { () -> WhisperKit in
-            let whisperKit = try await WhisperKit(WhisperKitConfig(
-                model: config.model,
-                modelRepo: config.modelRepo,
-                modelToken: Self.getModelToken(),
-                computeOptions: config.modelComputeOptions,
-                verbose: verbose,
-                logLevel: logLevel,
-                prewarm: true,
-                load: true
-            ))
-            try Task.checkCancellation()
-            return whisperKit
-        }
-        return initializationTask
+    private static func initWhisperKit(
+        testConfig config: TestConfig,
+        verbose: Bool,
+        logLevel: Logging.LogLevel
+    ) async throws -> WhisperKit {
+        let whisperKit = try await WhisperKit(WhisperKitConfig(
+            model: config.model,
+            modelRepo: config.modelRepo,
+            modelToken: Self.getModelToken(),
+            computeOptions: config.modelComputeOptions,
+            verbose: verbose,
+            logLevel: logLevel,
+            prewarm: true,
+            load: true
+        ))
+        try Task.checkCancellation()
+        return whisperKit
     }
 
     func createWithMemoryCheck(
@@ -657,65 +629,88 @@ class RegressionTests: XCTestCase {
         verbose: Bool,
         logLevel: Logging.LogLevel
     ) async throws -> WhisperKit {
-        // Create the initialization task
-        let initializationTask = initWhisperKitTask(
-            testConfig: testConfig,
-            verbose: verbose,
-            logLevel: logLevel
-        )
-
-        // Start the memory monitoring task
-        let monitorTask = Task {
-            while true {
-                let remainingMemory = SystemMemoryCheckerAdvanced.getMemoryUsage().totalAvailableGB
-                Logging.debug(remainingMemory, "GB of memory left")
-
-                if remainingMemory <= 0.1 { // Cancel with 100MB remaining
-                    Logging.debug("Cancelling due to oom")
-                    // Cancel the initialization task
-                    initializationTask.cancel()
-
-                    // Throw an error to stop the monitor task
-                    throw WhisperError.modelsUnavailable("Memory limit exceeded during initialization")
+        return try await withThrowingTaskGroup(of: InitializationResult.self) { group in
+            group.addTask {
+                do {
+                    let whisperKit = try await Self.initWhisperKit(
+                        testConfig: testConfig,
+                        verbose: verbose,
+                        logLevel: logLevel
+                    )
+                    return .completed(WhisperKitWrapper(whisperKit))
+                } catch {
+                    return .failed(error.localizedDescription)
                 }
-
-                try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
             }
-        }
 
-        // Create a timeout task
-        let timeoutTask = Task {
-            try await Task.sleep(nanoseconds: 300_000_000_000) // 5 minutes
-            initializationTask.cancel()
-            monitorTask.cancel()
-            Logging.debug("Cancelling due to timeout")
-            throw WhisperError.modelsUnavailable("Initialization timed out")
-        }
+            group.addTask {
+                while !Task.isCancelled {
+                    let remainingMemory = SystemMemoryCheckerAdvanced.getMemoryUsage().totalAvailableGB
+                    Logging.debug("\(remainingMemory) GB of memory left")
 
-        do {
-            // Use withTaskCancellationHandler to ensure proper cleanup
-            return try await withTaskCancellationHandler(
-                operation: {
-                    // Await the initialization task
-                    let whisperKit = try await initializationTask.value
+                    if remainingMemory <= 0.1 { // Cancel with 100MB remaining
+                        Logging.debug("Cancelling due to oom")
+                        return .outOfMemory
+                    }
 
-                    // Cancel the monitor tasks after successful initialization
-                    monitorTask.cancel()
-                    timeoutTask.cancel()
-                    return whisperKit
-                },
-                onCancel: {
-                    initializationTask.cancel()
-                    monitorTask.cancel()
-                    timeoutTask.cancel()
+                    do {
+                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                    } catch {
+                        return .cancelled
+                    }
                 }
-            )
-        } catch {
-            initializationTask.cancel()
-            monitorTask.cancel()
-            timeoutTask.cancel()
-            Logging.debug(error)
-            throw error
+                return .cancelled
+            }
+
+            group.addTask {
+                do {
+                    try await Task.sleep(nanoseconds: 300_000_000_000) // 5 minutes
+                } catch {
+                    return .cancelled
+                }
+
+                Logging.debug("Cancelling due to timeout")
+                return .timedOut
+            }
+
+            if let signal = try await group.next() {
+                switch signal {
+                    case .completed(let wrapper):
+                        group.cancelAll()
+                        return wrapper.whisperKit
+                    case .failed(let errorDescription):
+                        group.cancelAll()
+                        throw WhisperError.modelsUnavailable(errorDescription)
+                    case .outOfMemory:
+                        group.cancelAll()
+                        throw WhisperError.modelsUnavailable("Memory limit exceeded during initialization")
+                    case .timedOut:
+                        group.cancelAll()
+                        throw WhisperError.modelsUnavailable("Initialization timed out")
+                    case .cancelled:
+                        group.cancelAll()
+                        throw WhisperError.modelsUnavailable("Initialization was cancelled")
+                }
+            }
+            throw WhisperError.modelsUnavailable("Initialization failed without a completion result")
         }
     }
+}
+
+// MARK: - Helper Types
+
+private final class WhisperKitWrapper: @unchecked Sendable {
+    let whisperKit: WhisperKit
+
+    init(_ whisperKit: WhisperKit) {
+        self.whisperKit = whisperKit
+    }
+}
+
+private enum InitializationResult: Sendable {
+    case completed(WhisperKitWrapper)
+    case failed(String)
+    case outOfMemory
+    case timedOut
+    case cancelled
 }

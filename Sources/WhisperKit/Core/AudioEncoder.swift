@@ -7,7 +7,6 @@ public protocol AudioEncoderOutputType {}
 extension MLMultiArray: AudioEncoderOutputType {}
 
 /// AudioEncoding protocol defines the requirements for an audio encoding implementation.
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public protocol AudioEncoding {
     /// The size of the embedding produced by the encoder.
     var embedSize: Int? { get }
@@ -19,7 +18,6 @@ public protocol AudioEncoding {
 }
 
 /// Backwards-compatible AudioEncoder implementation
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public class AudioEncoder: AudioEncoding, WhisperMLModel {
     public var model: MLModel?
 

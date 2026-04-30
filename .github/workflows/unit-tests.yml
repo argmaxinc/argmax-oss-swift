@@ -9,6 +9,12 @@ on:
       ios-device:
         required: true
         type: string
+      watchos-version:
+        required: true
+        type: string
+      visionos-version:
+          required: true
+          type: string
       macos-runner:
         required: true
         type: string
@@ -37,22 +43,22 @@ jobs:
             }
           - {
               name: "watchOS",
-              condition: "${{ inputs.macos-runner == 'macos-15' }}",
+              condition: "${{ inputs.macos-runner == 'macos-26' }}",
               clean-destination: "generic/platform=watchOS",
-              test-destination: "platform=watchOS Simulator,OS=11.1,name=Apple Watch Ultra 2 (49mm)",
+              test-destination: "platform=watchOS Simulator,OS=${{ inputs.watchos-version }},name=Apple Watch Ultra 3 (49mm)",
             }
           - {
               name: "visionOS",
-              condition: "${{ inputs.macos-runner == 'macos-15' }}",
+              condition: "${{ inputs.macos-runner == 'macos-26' }}",
               clean-destination: "generic/platform=visionOS",
-              test-destination: "platform=visionOS Simulator,name=Apple Vision Pro",
+              test-destination: "platform=visionOS Simulator,OS=${{ inputs.visionos-version }},name=Apple Vision Pro",
             }
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.run-config['name'] == 'visionOS' && 60 || 30 }}
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: ${{ inputs.xcode-version || 'latest-stable' }}
+          xcode-version: ${{ inputs.xcode-version || '26.4.1' }}
       - name: Setup environment
         run: make setup
       - name: Setup Cache
@@ -67,15 +73,17 @@ jobs:
       - name: Install and discover destinations
         if: ${{ matrix.run-config['condition'] == true }}
         run: |
-          if [[ "${{ matrix.run-config['name'] }}" != "macOS" ]]; then
+          echo "Simulators on runner:"
+          xcrun simctl list
+          if [[ "${{ matrix.run-config['name'] }}" == "visionOS" ]]; then
             xcodebuild -downloadPlatform ${{ matrix.run-config['name'] }}
           fi
           echo "Runtimes for testing:"
           xcrun simctl list runtimes
           echo "Destinations for testing:"
-          xcodebuild test-without-building -only-testing WhisperKitTests/UnitTests -scheme whisperkit-Package -showdestinations
+          xcodebuild test-without-building -testPlan UnitTestsPlan -scheme whisperkit-Package -showdestinations
       - name: Boot Simulator and Wait
-        if: ${{ matrix.run-config['condition'] == true }} && ${{ matrix.run-config['name'] != 'macOS' }} && ${{ inputs.macos-runner == 'macos-15' }}
+        if: ${{ matrix.run-config['condition'] == true }} && ${{ matrix.run-config['name'] != 'macOS' }} && ${{ inputs.macos-runner == 'macos-26' }}
         # Slower runners require some time to fully boot the simulator
         # Parse the simulator name from the destination string, boot it, and wait
         run: |
@@ -88,7 +96,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild clean build-for-testing -scheme whisperkit-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcpretty
-          xcodebuild test -only-testing WhisperKitTests/UnitTests -scheme whisperkit-Package -destination '${{ matrix.run-config['test-destination'] }}'
+          xcodebuild test -testPlan UnitTestsPlan -scheme whisperkit-Package -destination '${{ matrix.run-config['test-destination'] }}'
       - name: Upload Test Results
         if: failure()
         uses: actions/upload-artifact@v4

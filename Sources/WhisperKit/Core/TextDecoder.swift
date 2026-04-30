@@ -2,8 +2,8 @@
 //  Copyright © 2024 Argmax, Inc. All rights reserved.
 
 import Accelerate
+import ArgmaxCore
 import CoreML
-import Tokenizers
 
 public protocol TextDecoderTensorType {}
 public protocol TextDecoderInputType {}
@@ -49,13 +49,21 @@ public struct TextDecoderMLMultiArrayOutputType: TextDecoderOutputType {
     }
 }
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public protocol DecodingInputsType {
+    var initialPrompt: [Int] { get set }
+    var inputIds: MLMultiArray { get set }
+    var cacheLength: MLMultiArray { get set }
+
+    func reset(prefilledCacheSize: Int, maxTokenContext: Int)
+}
+
 public protocol TextDecoding {
     var tokenizer: WhisperTokenizer? { get set }
     var prefillData: WhisperMLModel? { get set }
     var isModelMultilingual: Bool { get set }
     var supportsWordTimestamps: Bool { get }
     var logitsSize: Int? { get }
+    var logitsFilters: [any LogitsFiltering]? { get set }
     var kvCacheEmbedDim: Int? { get }
     var kvCacheMaxSequenceLength: Int? { get }
     var windowSize: Int? { get }
@@ -65,6 +73,13 @@ public protocol TextDecoding {
         _ inputs: any TextDecoderInputType
     ) async throws -> TextDecoderOutputType?
 
+    func prepareDecoderInputs(withPrompt initialPrompt: [Int]) throws -> any DecodingInputsType
+
+    func prefillDecoderInputs(
+        _ decoderInputs: any DecodingInputsType,
+        withOptions options: DecodingOptions?
+    ) async throws -> any DecodingInputsType
+
     func prefillKVCache(
         withTask task: MLMultiArray,
         andLanguage language: MLMultiArray
@@ -72,10 +87,10 @@ public protocol TextDecoding {
 
     func decodeText(
         from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
+        using decoderInputs: any DecodingInputsType,
         sampler tokenSampler: TokenSampling,
         options decoderOptions: DecodingOptions,
-        callback: ((TranscriptionProgress) -> Bool?)?
+        callback: TranscriptionCallback?
     ) async throws -> DecodingResult
 
     @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
@@ -85,12 +100,12 @@ public protocol TextDecoding {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options decoderOptions: DecodingOptions,
-        callback: ((TranscriptionProgress) -> Bool?)?
+        callback: TranscriptionCallback?
     ) async throws -> [DecodingResult]
 
     func detectLanguage(
         from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
+        using decoderInputs: any DecodingInputsType,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
         temperature: FloatType
@@ -115,7 +130,6 @@ public protocol TextDecoding {
     )
 }
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public extension TextDecoding {
     @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
     func decodeText(
@@ -123,7 +137,7 @@ public extension TextDecoding {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options decoderOptions: DecodingOptions,
-        callback: ((TranscriptionProgress) -> Bool?)?
+        callback: TranscriptionCallback?
     ) async throws -> [DecodingResult] {
         let result: DecodingResult = try await decodeText(
             from: encoderOutput,
@@ -133,6 +147,60 @@ public extension TextDecoding {
             callback: callback
         )
         return [result]
+    }
+
+    // Add default conformance for protocol
+    func decodeText(
+        from encoderOutput: any AudioEncoderOutputType,
+        using decoderInputs: any DecodingInputsType,
+        sampler tokenSampler: TokenSampling,
+        options decoderOptions: DecodingOptions,
+        callback: TranscriptionCallback?
+    ) async throws -> DecodingResult {
+        let result: DecodingResult = try await decodeText(
+            from: encoderOutput,
+            using: decoderInputs,
+            sampler: tokenSampler,
+            options: decoderOptions,
+            callback: callback
+        )
+        return result
+    }
+
+    @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
+    func decodeText(
+        from encoderOutput: any AudioEncoderOutputType,
+        using decoderInputs: DecodingInputs,
+        sampler tokenSampler: TokenSampling,
+        options decoderOptions: DecodingOptions,
+        callback: TranscriptionCallback?
+    ) async throws -> DecodingResult {
+        let result: DecodingResult = try await decodeText(
+            from: encoderOutput,
+            using: decoderInputs,
+            sampler: tokenSampler,
+            options: decoderOptions,
+            callback: callback
+        )
+        return result
+    }
+
+    @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
+    func detectLanguage(
+        from encoderOutput: any AudioEncoderOutputType,
+        using decoderInputs: DecodingInputs,
+        sampler tokenSampler: TokenSampling,
+        options: DecodingOptions,
+        temperature: FloatType
+    ) async throws -> DecodingResult {
+        let result: DecodingResult = try await detectLanguage(
+            from: encoderOutput,
+            using: decoderInputs,
+            sampler: tokenSampler,
+            options: options,
+            temperature: temperature
+        )
+        return result
     }
 
     @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
@@ -153,7 +221,24 @@ public extension TextDecoding {
         return [result]
     }
 
-    func prepareDecoderInputs(withPrompt initialPrompt: [Int]) throws -> DecodingInputs {
+    func detectLanguage(
+        from encoderOutput: any AudioEncoderOutputType,
+        using decoderInputs: any DecodingInputsType,
+        sampler tokenSampler: TokenSampling,
+        options: DecodingOptions,
+        temperature: FloatType
+    ) async throws -> DecodingResult {
+        let result: DecodingResult = try await detectLanguage(
+            from: encoderOutput,
+            using: decoderInputs,
+            sampler: tokenSampler,
+            options: options,
+            temperature: temperature
+        )
+        return result
+    }
+
+    func prepareDecoderInputs(withPrompt initialPrompt: [Int]) throws -> any DecodingInputsType {
         let tokenShape = [NSNumber(value: 1), NSNumber(value: initialPrompt.count)]
 
         // Initialize MLMultiArray for tokens
@@ -181,15 +266,19 @@ public extension TextDecoding {
         let kvCacheMaxSequenceLengthValue = NSNumber(value: kvCacheMaxSequenceLength)
         let encoderOutputDimValue = NSNumber(value: encoderOutputDim)
 
-        let inputIds = initMLMultiArray(shape: [1], dataType: .int32, initialValue: Int32(0))
-        let cacheLength = initMLMultiArray(shape: [1], dataType: .int32, initialValue: Int32(0))
-        let keyCache = initMLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(0))
-        let valueCache = initMLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(0))
-        let alignmentWeights = initMLMultiArray(shape: [kvCacheMaxSequenceLengthValue, encoderOutputDimValue], dataType: .float16, initialValue: FloatType(0))
-        let kvCacheUpdateMask = initMLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .int32, initialValue: Int32(0))
-        let decoderKeyPaddingMask = initMLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(-10000))
+        let inputIds = try MLMultiArray(shape: [1], dataType: .int32, initialValue: Int32(0))
+        let cacheLength = try MLMultiArray(shape: [1], dataType: .int32, initialValue: Int32(0))
+        let keyCache = try MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(0))
+        let valueCache = try MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(0))
+        let alignmentWeights = try MLMultiArray(shape: [kvCacheMaxSequenceLengthValue, encoderOutputDimValue], dataType: .float16, initialValue: FloatType(0))
+        let kvCacheUpdateMask = try MLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .int32, initialValue: Int32(0))
+        let decoderKeyPaddingMask = try MLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(-10000))
         let prefillKeyCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
         let prefillValueCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
+
+        // Initialize default masks
+        kvCacheUpdateMask[0] = 1.0
+        decoderKeyPaddingMask[0] = 0.0
 
         let decoderInputs = DecodingInputs(
             initialPrompt: initialPrompt,
@@ -207,13 +296,18 @@ public extension TextDecoding {
         return decoderInputs
     }
 
-    func prefillDecoderInputs(_ decoderInputs: DecodingInputs, withOptions options: DecodingOptions?) async throws -> DecodingInputs {
+    func prefillDecoderInputs(
+        _ decoderInputs: any DecodingInputsType,
+        withOptions options: DecodingOptions?
+    ) async throws -> any DecodingInputsType {
         guard let tokenizer = tokenizer else {
             // Tokenizer required for prefill
             throw WhisperError.tokenizerUnavailable()
         }
 
-        let prefilledDecoderInputs = decoderInputs
+        guard let prefilledDecoderInputs = decoderInputs as? DecodingInputs else {
+            throw WhisperError.prepareDecoderInputsFailed("Unable to cast decoderInputs to DecodingInputs")
+        }
 
         // Setup prefill tokens based on task and language
         var prefillTokens: [Int] = [tokenizer.specialTokens.startOfTranscriptToken] // SOT
@@ -254,15 +348,15 @@ public extension TextDecoding {
         }
 
         prefilledDecoderInputs.initialPrompt = prefillTokens
-
+        var prefilledCacheSize = 0
         if options?.usePrefillCache ?? false,
            prefillData != nil,
            options?.promptTokens == nil // TODO: allow prefill cache to be used with prompt tokens, currently breaks if it starts at non-zero index
         {
             // Prefilling kv cache data requires non-nil task and language tokens, set defaults if not provided
             // Task tokens are remapped to 0->transcribe and 1->translate for the prefill lookup table
-            let task = MLMultiArray.from([taskToken == tokenizer.specialTokens.transcribeToken ? 0 : 1])
-            let lang = MLMultiArray.from([languageToken])
+            let task = try MLMultiArray.from([taskToken == tokenizer.specialTokens.transcribeToken ? 0 : 1])
+            let lang = try MLMultiArray.from([languageToken])
             guard let prefillOutput = try await self.prefillKVCache(withTask: task, andLanguage: lang) else {
                 Logging.error("Unable to prefill cache")
                 return prefilledDecoderInputs
@@ -278,7 +372,16 @@ public extension TextDecoding {
                                       valueSlice: prefilledDecoderInputs.prefillValueCache,
                                       insertAtIndex: prefillTokens.firstIndex(of: tokenizer.specialTokens.startOfTranscriptToken) ?? 0)
             prefilledDecoderInputs.cacheLength[0] = prefilledDecoderInputs.prefillKeyCache.shape[3]
+            prefilledCacheSize = prefilledDecoderInputs.cacheLength[0].intValue
         }
+
+        // Setup masks based on prefill values
+        prefilledCacheSize += 1 // Add 1 for initial masked cache update
+        for i in 0..<prefilledCacheSize {
+            prefilledDecoderInputs.kvCacheUpdateMask[i] = 0.0
+            prefilledDecoderInputs.decoderKeyPaddingMask[i] = 0.0
+        }
+        prefilledDecoderInputs.kvCacheUpdateMask[prefilledCacheSize - 1] = 1.0
 
         return prefilledDecoderInputs
     }
@@ -321,6 +424,20 @@ public extension TextDecoding {
             keySlice.withUnsafeBytes { keySlicePointer in
                 valueTensor.withUnsafeMutableBytes { valueTensorPointer, valueTargetStrides in
                     valueSlice.withUnsafeBytes { valueSlicePointer in
+                        // Hoist base addresses out of the parallel loop so they're
+                        // computed once. Each iteration writes to a disjoint slice
+                        // (offsets computed from j), so concurrent access is safe
+                        // even though the pointer types aren't Sendable.
+                        guard
+                            let keyDestBaseAddress = keyTensorPointer.baseAddress,
+                            let keySrcBaseAddress = keySlicePointer.baseAddress,
+                            let valDestBaseAddress = valueTensorPointer.baseAddress,
+                            let valSrcBaseAddress = valueSlicePointer.baseAddress
+                        else { return }
+                        nonisolated(unsafe) let keyDestBase = keyDestBaseAddress
+                        nonisolated(unsafe) let keySrcBase = keySrcBaseAddress
+                        nonisolated(unsafe) let valDestBase = valDestBaseAddress
+                        nonisolated(unsafe) let valSrcBase = valSrcBaseAddress
                         // Assuming batch size is always 1
                         DispatchQueue.concurrentPerform(iterations: tensorShape[1]) { j in
                             // Slice size is 3 for prefill and 1 for decode loops
@@ -328,18 +445,18 @@ public extension TextDecoding {
                                 // Equivalent to:
                                 // `tensor[0, j, 0, k + index] = slice[0, j, 0, k + index]`
                                 let keyDestIndex = j * keyTargetStrides[1] + (index + k) * keyTargetStrides[3]
-                                let keyDest = keyTensorPointer.baseAddress! + keyDestIndex * bytesPerSample
+                                let keyDest = keyDestBase + keyDestIndex * bytesPerSample
 
                                 let keySliceIndex = j * sliceStrides[1] + k * sliceStrides[3]
-                                let keySlice = keySlicePointer.baseAddress! + keySliceIndex * bytesPerSample
-                                memcpy(keyDest, keySlice, bytesPerSample)
+                                let keySrc = keySrcBase + keySliceIndex * bytesPerSample
+                                memcpy(keyDest, keySrc, bytesPerSample)
 
                                 let valDestIndex = j * valueTargetStrides[1] + (index + k) * valueTargetStrides[3]
-                                let valDest = valueTensorPointer.baseAddress! + valDestIndex * bytesPerSample
+                                let valDest = valDestBase + valDestIndex * bytesPerSample
 
                                 let valSliceIndex = j * sliceStrides[1] + k * sliceStrides[3]
-                                let valSlice = valueSlicePointer.baseAddress! + valSliceIndex * bytesPerSample
-                                memcpy(valDest, valSlice, bytesPerSample)
+                                let valSrc = valSrcBase + valSliceIndex * bytesPerSample
+                                memcpy(valDest, valSrc, bytesPerSample)
                             }
                         }
                     }
@@ -373,6 +490,53 @@ public extension TextDecoding {
             }
         }
     }
+}
+
+public class TextDecoderContextPrefill: WhisperMLModel {
+    public var model: MLModel?
+}
+
+open class TextDecoder: TextDecoding, WhisperMLModel {
+    public var model: MLModel?
+    public var tokenizer: WhisperTokenizer?
+    public var prefillData: WhisperMLModel?
+    public var isModelMultilingual: Bool = false
+    public var logitsFilters: [any LogitsFiltering]? = []
+    private let earlyStopActor = EarlyStopActor()
+    private var languageLogitsFilter: LanguageLogitsFilter?
+
+    public init() {}
+
+    public var supportsWordTimestamps: Bool {
+        return ModelUtilities.getModelOutputDimention(model, named: "alignment_heads_weights", position: 0) != nil
+    }
+
+    public var logitsSize: Int? {
+        return ModelUtilities.getModelOutputDimention(model, named: "logits", position: 2)
+    }
+
+    public var kvCacheEmbedDim: Int? {
+        return ModelUtilities.getModelInputDimention(model, named: "key_cache", position: 1)
+    }
+
+    public var kvCacheMaxSequenceLength: Int? {
+        return ModelUtilities.getModelInputDimention(model, named: "key_cache", position: 3)
+    }
+
+    public var windowSize: Int? {
+        return ModelUtilities.getModelInputDimention(model, named: "encoder_output_embeds", position: 3)
+    }
+
+    public var embedSize: Int? {
+        return ModelUtilities.getModelInputDimention(model, named: "encoder_output_embeds", position: 1)
+    }
+
+    /// Override default so we an unload the prefill data as well
+    public func unloadModel() {
+        model = nil
+        prefillData = nil
+        languageLogitsFilter = nil
+    }
 
     func debugCaches(decoderInputs: DecodingInputs, tokenIndex: Int, prefillSize: Int) {
         Logging.debug("--------------- DECODER INPUTS DEBUG ---------------")
@@ -395,53 +559,6 @@ public extension TextDecoding {
                                          i)
             Logging.debug(formattedString)
         }
-    }
-}
-
-public class TextDecoderContextPrefill: WhisperMLModel {
-    public var model: MLModel?
-}
-
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-open class TextDecoder: TextDecoding, WhisperMLModel {
-    public var model: MLModel?
-    public var tokenizer: WhisperTokenizer?
-    public var prefillData: WhisperMLModel?
-    public var isModelMultilingual: Bool = false
-    private let earlyStopActor = EarlyStopActor()
-    private var languageLogitsFilter: LanguageLogitsFilter?
-
-    public init() {}
-
-    public var supportsWordTimestamps: Bool {
-        return getModelOutputDimention(model, named: "alignment_heads_weights", position: 0) != nil
-    }
-
-    public var logitsSize: Int? {
-        return getModelOutputDimention(model, named: "logits", position: 2)
-    }
-
-    public var kvCacheEmbedDim: Int? {
-        return getModelInputDimention(model, named: "key_cache", position: 1)
-    }
-
-    public var kvCacheMaxSequenceLength: Int? {
-        return getModelInputDimention(model, named: "key_cache", position: 3)
-    }
-
-    public var windowSize: Int? {
-        return getModelInputDimention(model, named: "encoder_output_embeds", position: 3)
-    }
-
-    public var embedSize: Int? {
-        return getModelInputDimention(model, named: "encoder_output_embeds", position: 1)
-    }
-
-    /// Override default so we an unload the prefill data as well
-    public func unloadModel() {
-        model = nil
-        prefillData = nil
-        languageLogitsFilter = nil
     }
 
     public func predictLogits(
@@ -505,7 +622,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
     public func detectLanguage(
         from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
+        using decoderInputs: any DecodingInputsType,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
         temperature: FloatType
@@ -551,6 +668,9 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         guard let encoderOutput = encoderOutput as? MLMultiArray else {
             throw WhisperError.prepareDecoderInputsFailed("Input must be MLMultiArray")
         }
+        guard let decoderInputs = decoderInputs as? DecodingInputs else {
+            throw WhisperError.prepareDecoderInputsFailed("DecodingInputsType must be DecodingInputs")
+        }
         let predictedLogits = try await self.predictLogits(
             TextDecoderMLMultiArrayInputType(
                 inputIds: decoderInputs.inputIds,
@@ -580,7 +700,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
         let samplingStartTime = Date()
 
-        let sampleResult = tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
+        let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
         nextToken = sampleResult.tokens.last!
         logProbs = sampleResult.logProbs
@@ -623,10 +743,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
     public func decodeText(
         from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
+        using decoderInputs: any DecodingInputsType,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async throws -> DecodingResult {
         guard let tokenizer else {
             // Tokenizer required for decoding
@@ -636,42 +756,13 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         // Single loop variables
         var timings = TranscriptionTimings()
         let prefilledIndex = decoderInputs.cacheLength[0].intValue
-        let intialPromptIndex = decoderInputs.initialPrompt.count
+        let initialPromptIndex = decoderInputs.initialPrompt.count
         var currentTokens: [Int] = decoderInputs.initialPrompt
         var nextToken: Int = decoderInputs.initialPrompt.last!
         var logProbs: [Float] = Array(repeating: 0, count: currentTokens.count)
 
         // Logits filters
-        var logitsFilters: [any LogitsFiltering] = []
-        if options.suppressBlank {
-            logitsFilters.append(
-                SuppressBlankFilter(
-                    specialTokens: tokenizer.specialTokens,
-                    sampleBegin: prefilledIndex
-                )
-            )
-        }
-
-        if !options.suppressTokens.isEmpty {
-            logitsFilters.append(SuppressTokensFilter(suppressTokens: options.suppressTokens))
-        }
-
-        if !options.withoutTimestamps {
-            let maxInitialTimestampIndex: Int? =
-                if let maxInitialTimestamp = options.maxInitialTimestamp {
-                    Int(maxInitialTimestamp / WhisperKit.secondsPerTimeToken)
-                } else {
-                    nil
-                }
-            logitsFilters.append(
-                TimestampRulesFilter(
-                    specialTokens: tokenizer.specialTokens,
-                    sampleBegin: intialPromptIndex,
-                    maxInitialTimestampIndex: maxInitialTimestampIndex,
-                    isModelMultilingual: isModelMultilingual
-                )
-            )
-        }
+        let logitsFilters = createLogitsFilters(options: options, prefilledIndex: prefilledIndex, initialPromptIndex: initialPromptIndex, tokenizer: tokenizer)
 
         // MARK: Main loop
 
@@ -685,13 +776,28 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         for tokenIndex in prefilledIndex..<loopCount {
             let loopStart = Date()
 
-            let isPrefill = tokenIndex < intialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
+            let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
+            let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
             let isFirstToken = tokenIndex == prefilledIndex
 
             // Check if current index is part of the initial prompt
-            if tokenIndex < intialPromptIndex {
-                nextToken = currentTokens[tokenIndex]
-                Logging.debug("Forcing prompt tokenIndex: \(tokenIndex), token: \(nextToken), text: \(tokenizer.decode(tokens: [nextToken]))")
+            if tokenIndex < initialPromptIndex {
+                let isTimestampToken = currentTokens[tokenIndex] >= tokenizer.specialTokens.timeTokenBegin
+                let modelPredictedTimestamp = nextToken >= tokenizer.specialTokens.timeTokenBegin
+
+                // Force the token unless it's the last prefill token and both are timestamps
+                if !(isLastPrefillToken && isTimestampToken && modelPredictedTimestamp) {
+                    nextToken = currentTokens[tokenIndex]
+                    Logging.debug("Forcing prompt tokenIndex: \(tokenIndex), token: \(nextToken), text: \(tokenizer.decode(tokens: [nextToken]))")
+                } else {
+                    // Last prefill was a timestamp but the model predicted a timestamp
+                    currentTokens[tokenIndex] = nextToken
+                    Logging.debug("Skipping prompt tokenIndex: \(tokenIndex), token: \(nextToken), text: \(tokenizer.decode(tokens: [nextToken]))")
+                }
+            }
+
+            guard let decoderInputs = decoderInputs as? DecodingInputs else {
+                throw WhisperError.prepareDecoderInputsFailed("DecodingInputsType must be DecodingInputs")
             }
 
             // Set the current token as model input
@@ -746,7 +852,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let samplingStartTime = Date()
 
-            let sampleResult = tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
+            let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
             nextToken = sampleResult.tokens.last!
             let nextTokenLogProb = sampleResult.logProbs.last!
@@ -822,18 +928,17 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 let slicedTextTokens = options.skipSpecialTokens ? wordTokens : currentTokens
                 let currentTranscript = tokenizer.decode(tokens: slicedTextTokens)
                 let averageLogProb = logProbs.reduce(0, +) / Float(logProbs.count)
-                let compressionRatio = compressionRatio(of: currentTokens)
+                let compressionRatio = TextUtilities.compressionRatio(of: currentTokens)
 
                 let result = TranscriptionProgress(timings: timings, text: currentTranscript, tokens: currentTokens, avgLogprob: averageLogProb, compressionRatio: compressionRatio)
 
                 // Call the callback if it is provided on a background thread
                 if let callback = callback {
-                    Task.detached(priority: .low) { [weak self] in
-                        guard let self = self else { return }
+                    Task.detached(priority: .low) { [earlyStopActor] in
                         let shouldContinue = callback(result)
                         if let shouldContinue = shouldContinue, !shouldContinue, !isPrefill {
                             Logging.debug("Early stopping")
-                            await self.earlyStopActor.set(true, for: windowUUID)
+                            await earlyStopActor.set(true, for: windowUUID)
                         }
                     }
                 }
@@ -859,11 +964,14 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             Logging.error("Early stop flag not found for window: \(windowUUID)")
         }
 
-        let cache = DecodingCache(
-            keyCache: decoderInputs.keyCache,
-            valueCache: decoderInputs.valueCache,
-            alignmentWeights: hasAlignment ? decoderInputs.alignmentWeights : nil
-        )
+        var cache: DecodingCache?
+        if let inputs = decoderInputs as? DecodingInputs {
+            cache = DecodingCache(
+                keyCache: inputs.keyCache,
+                valueCache: inputs.valueCache,
+                alignmentWeights: hasAlignment ? inputs.alignmentWeights : nil
+            )
+        }
 
         // NOTE:
         // While `currentTokens` and `logProbs` are usually the same length
@@ -886,7 +994,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         }
 
         let wordTokens = filteredTokens.filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-        let finalCompressionRatio = compressionRatio(of: wordTokens)
+        let finalCompressionRatio = TextUtilities.compressionRatio(of: wordTokens)
 
         var temperature = options.temperature
         if let sampler = tokenSampler as? GreedyTokenSampler {
@@ -947,5 +1055,49 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             fallback: decodingFallback
         )
         return decodingResult
+    }
+    
+    internal func createLogitsFilters(
+        options: DecodingOptions,
+        prefilledIndex: Int,
+        initialPromptIndex: Int,
+        tokenizer: WhisperTokenizer
+    ) -> [any LogitsFiltering] {
+        // Start with custom logits filters
+        var allFilters: [any LogitsFiltering] = logitsFilters ?? []
+
+        // Add built-in filters based on options
+        if options.suppressBlank {
+            allFilters.append(
+                SuppressBlankFilter(
+                    specialTokens: tokenizer.specialTokens,
+                    sampleBegin: prefilledIndex
+                )
+            )
+        }
+
+        if !options.suppressTokens.isEmpty {
+            let filteredSuppressTokens = options.suppressTokens.filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+            allFilters.append(SuppressTokensFilter(suppressTokens: filteredSuppressTokens))
+        }
+
+        if !options.withoutTimestamps {
+            let maxInitialTimestampIndex: Int? =
+                if let maxInitialTimestamp = options.maxInitialTimestamp {
+                    Int(maxInitialTimestamp / WhisperKit.secondsPerTimeToken)
+                } else {
+                    nil
+                }
+            allFilters.append(
+                TimestampRulesFilter(
+                    specialTokens: tokenizer.specialTokens,
+                    sampleBegin: initialPromptIndex,
+                    maxInitialTimestampIndex: maxInitialTimestampIndex,
+                    isModelMultilingual: isModelMultilingual
+                )
+            )
+        }
+        
+        return allFilters
     }
 }

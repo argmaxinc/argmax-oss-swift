@@ -4,9 +4,8 @@
 import Foundation
 
 /// Voice activity detection based on energy threshold
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-final class EnergyVAD: VoiceActivityDetector {
-    var energyThreshold: Float
+public final class EnergyVAD: VoiceActivityDetector {
+    public let energyThreshold: Float
 
     /// Initialize a new EnergyVAD instance
     /// - Parameters:
@@ -14,7 +13,7 @@ final class EnergyVAD: VoiceActivityDetector {
     ///   - frameLength: Frame length in seconds
     ///   - frameOverlap: frame overlap in seconds, this will include `frameOverlap` length audio into the `frameLength` and is helpful to catch audio that starts exactly at chunk boundaries
     ///   - energyThreshold: minimal energy threshold
-    convenience init(
+    public convenience init(
         sampleRate: Int = WhisperKit.sampleRate,
         frameLength: Float = 0.1,
         frameOverlap: Float = 0.0,
@@ -29,7 +28,7 @@ final class EnergyVAD: VoiceActivityDetector {
         )
     }
 
-    required init(
+    public required init(
         sampleRate: Int = 16000,
         frameLengthSamples: Int,
         frameOverlapSamples: Int = 0,
@@ -39,7 +38,7 @@ final class EnergyVAD: VoiceActivityDetector {
         super.init(sampleRate: sampleRate, frameLengthSamples: frameLengthSamples, frameOverlapSamples: frameOverlapSamples)
     }
 
-    override func voiceActivity(in waveform: [Float]) -> [Bool] {
+    public override func voiceActivity(in waveform: [Float]) -> [Bool] {
         let chunkRatio = Double(waveform.count) / Double(frameLengthSamples)
 
         // Round up if uneven, the final chunk will not be a full `frameLengthSamples` long

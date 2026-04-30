@@ -5,7 +5,6 @@ import Foundation
 
 /// A base class for Voice Activity Detection (VAD), used to identify and separate segments of audio that contain human speech from those that do not.
 /// Subclasses must implement the `voiceActivity(in:)` method to provide specific voice activity detection functionality.
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 open class VoiceActivityDetector {
     /// The sample rate of the audio signal, in samples per second.
     public let sampleRate: Int
@@ -37,6 +36,14 @@ open class VoiceActivityDetector {
     /// - Returns: An array of `Bool` values where `true` indicates the presence of voice activity and `false` indicates silence.
     open func voiceActivity(in waveform: [Float]) -> [Bool] {
         fatalError("`voiceActivity` must be implemented by subclass")
+    }
+
+    /// Analyzes the provided audio waveform to determine which segments contain voice activity.
+    /// - Parameter waveform: An array of `Float` values representing the audio waveform.
+    /// - Returns: An array of `Bool` values where `true` indicates the presence of voice activity and `false` indicates silence.
+    /// - Throws: An error if voice activity detection fails.
+    open func voiceActivityAsync(in waveform: [Float]) async throws -> [Bool] {
+        return voiceActivity(in: waveform)
     }
 
     /// Calculates and returns a list of active audio chunks, each represented by a start and end index.
@@ -136,7 +143,7 @@ open class VoiceActivityDetector {
     func calculateNonSilentSeekClips(in waveform: [Float]) -> [(start: Int, end: Int)] {
         let clipTimestamps = voiceActivityClipTimestamps(in: waveform)
         let options = DecodingOptions(clipTimestamps: clipTimestamps)
-        let seekClips = prepareSeekClips(contentFrames: waveform.count, decodeOptions: options)
+        let seekClips = options.prepareSeekClips(contentFrames: waveform.count)
         return seekClips
     }
 

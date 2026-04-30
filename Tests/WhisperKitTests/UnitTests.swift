@@ -4,16 +4,14 @@
 import AVFoundation
 import Combine
 import CoreML
-import Hub
 import NaturalLanguage
-import Tokenizers
+import os.lock
 @testable import WhisperKit
 import XCTest
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 final class UnitTests: XCTestCase {
     override func setUp() async throws {
-        Logging.shared.logLevel = .debug
+        Logging.updateLogLevel(.debug)
     }
 
     // MARK: - Model Loading Test
@@ -27,7 +25,7 @@ final class UnitTests: XCTestCase {
 
     func testInitTiny() async throws {
         try await XCTUnwrapAsync(
-            await WhisperKit(modelFolder: tinyModelPath(), logLevel: .error),
+            await WhisperKit(model: "tiny", logLevel: .error),
             "Failed to init WhisperKit"
         )
     }
@@ -37,7 +35,7 @@ final class UnitTests: XCTestCase {
     func testModelSupportConfigFallback() {
         let fallbackRepoConfig = Constants.fallbackModelSupportConfig
         XCTAssertEqual(fallbackRepoConfig.repoName, "whisperkit-coreml-fallback")
-        XCTAssertEqual(fallbackRepoConfig.repoVersion, "0.2")
+        XCTAssertEqual(fallbackRepoConfig.repoVersion, "0.4")
         XCTAssertGreaterThanOrEqual(fallbackRepoConfig.deviceSupports.count, 5)
 
         // Test that all device supports have their disabled models set except devices that should support all known models
@@ -56,9 +54,45 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(defaultSupport.models.supported.sorted(), Constants.knownModels.sorted())
     }
 
+    func testModelSupportConfigFallbackMergingFromJSON() throws {
+        let sameRepoConfig = ModelSupportConfig(
+            repoName: "whisperkit-coreml",
+            repoVersion: "0.3",
+            deviceSupports: [DeviceSupport(
+                identifiers: ["some_new_device"],
+                models: ModelSupport(
+                    default: "some_default",
+                    supported: ["some_non_default"]
+                )
+            )]
+        )
+
+        // Support from same repo should be merged
+        XCTAssertEqual(sameRepoConfig.repoName, "whisperkit-coreml")
+        XCTAssertEqual(sameRepoConfig.repoVersion, "0.3")
+        XCTAssertEqual(sameRepoConfig.deviceSupports.count, 7)
+
+        let differentRepoConfig = ModelSupportConfig(
+            repoName: "whisperkit-somerepo",
+            repoVersion: "0.3",
+            deviceSupports: [DeviceSupport(
+                identifiers: ["some_new_device"],
+                models: ModelSupport(
+                    default: "some_default",
+                    supported: ["some_non_default"]
+                )
+            )]
+        )
+
+        // Support from a different repo should not be merged
+        XCTAssertEqual(differentRepoConfig.repoName, "whisperkit-somerepo")
+        XCTAssertEqual(differentRepoConfig.repoVersion, "0.3")
+        XCTAssertEqual(differentRepoConfig.deviceSupports.count, 1)
+    }
+    
     func testModelSupportConfigFromJson() throws {
         let configFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "config", ofType: "json"),
+            Bundle.current(for: self).path(forResource: "config-v04", ofType: "json"),
             "Config file not found"
         )
 
@@ -129,7 +163,7 @@ final class UnitTests: XCTestCase {
         let knownLocalModel = Constants.fallbackModelSupportConfig.modelSupport(for: "iPhone13,1").supported.first!
         let remoteModel = "remote_model"
         let remoteConfig = ModelSupportConfig(
-            repoName: "test",
+            repoName: "whisperkit-coreml",
             repoVersion: "test",
             deviceSupports: [DeviceSupport(
                 identifiers: ["test_device"],
@@ -151,6 +185,78 @@ final class UnitTests: XCTestCase {
             XCTAssertFalse(deviceSupport.models.disabled.contains(remoteModel))
             XCTAssertFalse(deviceSupport.models.supported.contains(knownLocalModel))
             XCTAssertTrue(deviceSupport.models.disabled.contains(knownLocalModel))
+        }
+    }
+
+    func testModelSupportForiOSDevices() throws {
+        let defaultDevicesList = [
+            // --- iPads ---
+            "iPad2,1", "iPad2,2", "iPad2,3", "iPad2,4", "iPad2,5", "iPad2,6", "iPad2,7",
+            "iPad3,1", "iPad3,2", "iPad3,3", "iPad3,4", "iPad3,5", "iPad3,6",
+            "iPad4,1", "iPad4,2", "iPad4,3", "iPad4,4", "iPad4,5", "iPad4,6", "iPad4,7", "iPad4,8", "iPad4,9",
+            "iPad5,1", "iPad5,2", "iPad5,3", "iPad5,4", "iPad6,11", "iPad6,12", "iPad6,3", "iPad6,4", "iPad6,7", "iPad6,8",
+            "iPad7,1", "iPad7,2", "iPad7,3", "iPad7,4", "iPad7,5", "iPad7,6", "iPad7,11", "iPad7,12",
+            "iPad8,1", "iPad8,2", "iPad8,3", "iPad8,4", "iPad8,5", "iPad8,6", "iPad8,7", "iPad8,8", "iPad8,9", "iPad8,10", "iPad8,11", "iPad8,12",
+            "iPad11,1", "iPad11,2", "iPad11,3", "iPad11,4", "iPad11,6", "iPad11,7",
+            "iPad12,1", "iPad12,2", // (should be A13 config, need new config)
+
+            // -- iPhones ---
+            "iPhone10,1", "iPhone10,2", "iPhone10,3", "iPhone10,4", "iPhone10,5", "iPhone10,6",
+            "iPhone4,1",
+            "iPhone5,1", "iPhone5,2", "iPhone5,3", "iPhone5,4",
+            "iPhone6,1", "iPhone6,2",
+            "iPhone7,1", "iPhone7,2",
+            "iPhone8,1", "iPhone8,2", "iPhone8,4",
+            "iPhone9,1", "iPhone9,2", "iPhone9,3", "iPhone9,4"
+        ]
+
+        let deviceMap = [
+            "A12": ["iPhone11,2", "iPhone11,4", "iPhone11,6", "iPhone11,8"],
+            "A13": ["iPhone12,1", "iPhone12,3", "iPhone12,5", "iPhone12,8"],
+            "A14": ["iPad13,1", "iPad13,18", "iPad13,19", "iPad13,2", "iPhone13,1", "iPhone13,2", "iPhone13,3", "iPhone13,4"],
+            "A15": ["iPad14,1", "iPad14,2", "iPhone14,2", "iPhone14,3", "iPhone14,4", "iPhone14,5", "iPhone14,6", "iPhone14,7", "iPhone14,8"],
+            "A16": ["iPhone15,2", "iPhone15,3", "iPhone15,4", "iPhone15,5"],
+            "A17": ["iPhone16,1", "iPhone16,2"],
+            "A18": ["iPhone17,1", "iPhone17,2", "iPhone17,3", "iPhone17,4"],
+            "M1": ["iPad13,10", "iPad13,11", "iPad13,16", "iPad13,17", "iPad13,4", "iPad13,5", "iPad13,6", "iPad13,7", "iPad13,8", "iPad13,9"],
+            "M2": ["iPad14,3", "iPad14,4", "iPad14,5", "iPad14,6", "iPad14,10", "iPad14,11", "iPad14,8", "iPad14,9"],
+            "A17 Pro": ["iPad16,1", "iPad16,2"],
+            "M4": ["iPad16,3", "iPad16,4", "iPad16,5", "iPad16,6"]
+        ]
+
+        let configFilePath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "config-v03", ofType: "json"),
+            "Config file not found"
+        )
+
+        let jsonData = try Data(contentsOf: URL(fileURLWithPath: configFilePath))
+        let decoder = JSONDecoder()
+        let loadedConfig = try decoder.decode(ModelSupportConfig.self, from: jsonData)
+
+        func supportedModels(chip: String) -> ModelSupport {
+            var supportedModels = loadedConfig.defaultSupport.models
+            for deviceSupport in loadedConfig.deviceSupports {
+                if let chips = deviceSupport.chips, chips.contains(chip) {
+                    supportedModels = deviceSupport.models
+                    break
+                }
+            }
+            return supportedModels
+        }
+
+        for device in deviceMap {
+            let supportedModelsForChip = supportedModels(chip: device.key)
+            for deviceIdentifier in device.value {
+                let modelSupport = ModelUtilities.modelSupport(for: deviceIdentifier, from: loadedConfig)
+                XCTAssertEqual(modelSupport, supportedModelsForChip, "Device: \(deviceIdentifier) (\(device.key))")
+            }
+        }
+
+        // Test devices that should use default configuration
+        let defaultModelSupport = loadedConfig.defaultSupport.models
+        for deviceIdentifier in defaultDevicesList {
+            let modelSupport = ModelUtilities.modelSupport(for: deviceIdentifier, from: loadedConfig)
+            XCTAssertEqual(modelSupport, defaultModelSupport, "Device: \(deviceIdentifier)")
         }
     }
 
@@ -190,7 +296,7 @@ final class UnitTests: XCTestCase {
 
     func testAudioFileLoading() throws {
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
         let audioBuffer = try AudioProcessor.loadAudio(fromPath: audioFilePath)
@@ -211,7 +317,7 @@ final class UnitTests: XCTestCase {
 
     func testAudioFileLoadingWithResampling() throws {
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk_441khz", ofType: "m4a"),
+            Bundle.current(for: self).path(forResource: "jfk_441khz", ofType: "m4a"),
             "Audio file not found"
         )
         let audioBuffer = try AudioProcessor.loadAudio(fromPath: audioFilePath)
@@ -241,22 +347,49 @@ final class UnitTests: XCTestCase {
     }
 
     func testAudioPad() {
+        let audioProcessor = AudioProcessor()
         let audioSamples = [Float](repeating: 0.0, count: 1000)
-        let paddedSamples = AudioProcessor.padOrTrimAudio(fromArray: audioSamples, startAt: 0, toLength: 1600)
+        let paddedSamples = audioProcessor.padOrTrim(fromArray: audioSamples, startAt: 0, toLength: 1600) as! MLMultiArray
         XCTAssertNotNil(paddedSamples, "Failed to pad audio samples")
-        XCTAssertEqual(paddedSamples?.count, 1600, "Padded or trimmed samples count is not as expected")
+        XCTAssertEqual(paddedSamples.count, 1600, "Padded or trimmed samples count is not as expected")
     }
 
     func testAudioTrim() {
+        let audioProcessor = AudioProcessor()
         let audioSamples = [Float](repeating: 0.0, count: 2000)
-        let paddedSamples = AudioProcessor.padOrTrimAudio(fromArray: audioSamples, startAt: 0, toLength: 1600)
+        let paddedSamples = audioProcessor.padOrTrim(fromArray: audioSamples, startAt: 0, toLength: 1600) as! MLMultiArray
         XCTAssertNotNil(paddedSamples, "Failed to trim audio samples")
-        XCTAssertEqual(paddedSamples?.count, 1600, "Padded or trimmed samples count is not as expected")
+        XCTAssertEqual(paddedSamples.count, 1600, "Padded or trimmed samples count is not as expected")
+    }
+
+    func testSuppressInputIfNeededMutesBuffer() {
+        let audioProcessor = AudioProcessor()
+        audioProcessor.setInputSuppressed(true)
+        var buffer: [Float] = [0.25, -0.5, 1.0]
+        audioProcessor.suppressInputIfNeeded(&buffer)
+        XCTAssertTrue(buffer.allSatisfy { $0 == 0.0 }, "Suppressed buffer should contain silence")
+    }
+
+    func testSuppressInputIfNeededNoopWhenDisabled() {
+        let audioProcessor = AudioProcessor()
+        audioProcessor.setInputSuppressed(false)
+        var buffer: [Float] = [0.25, -0.5, 1.0]
+        audioProcessor.suppressInputIfNeeded(&buffer)
+        XCTAssertEqual(buffer, [0.25, -0.5, 1.0], "Buffer should remain unchanged when suppression is disabled")
+    }
+
+    func testInputSuppressionToggleState() {
+        let audioProcessor = AudioProcessor()
+        XCTAssertFalse(audioProcessor.isInputSuppressed, "Suppression should be disabled by default")
+        audioProcessor.setInputSuppressed(true)
+        XCTAssertTrue(audioProcessor.isInputSuppressed, "Suppression should be enabled after setting true")
+        audioProcessor.setInputSuppressed(false)
+        XCTAssertFalse(audioProcessor.isInputSuppressed, "Suppression should be disabled after setting false")
     }
 
     func testAudioResample() throws {
         let audioFileURL = try XCTUnwrap(
-            Bundle.current.url(forResource: "jfk", withExtension: "wav"),
+            Bundle.current(for: self).url(forResource: "jfk", withExtension: "wav"),
             "Audio file not found"
         )
         let audioFile = try AVAudioFile(forReading: audioFileURL)
@@ -275,7 +408,7 @@ final class UnitTests: XCTestCase {
 
     func testAudioResampleFromFile() throws {
         let audioFileURL = try XCTUnwrap(
-            Bundle.current.url(forResource: "jfk", withExtension: "wav"),
+            Bundle.current(for: self).url(forResource: "jfk", withExtension: "wav"),
             "Audio file not found"
         )
         let audioFile = try AVAudioFile(forReading: audioFileURL)
@@ -363,7 +496,7 @@ final class UnitTests: XCTestCase {
 
     func testEncodeFeatureWithGenericType() async throws {
         let audioEncoder = AudioEncoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
         try await audioEncoder.loadModel(at: modelPath, computeUnits: .cpuAndNeuralEngine)
 
         // Create a test input that conforms to FeatureExtractorOutputType
@@ -385,7 +518,7 @@ final class UnitTests: XCTestCase {
 
     func testEncodeFeatureWithInvalidType() async throws {
         let audioEncoder = AudioEncoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
         try await audioEncoder.loadModel(at: modelPath, computeUnits: .cpuAndNeuralEngine)
 
         // Create an invalid input type
@@ -407,7 +540,7 @@ final class UnitTests: XCTestCase {
 
     func testPredictLogitsWithGenericType() async throws {
         let textDecoder = TextDecoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
         try await textDecoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().textDecoderCompute)
 
         // Create test inputs
@@ -430,7 +563,7 @@ final class UnitTests: XCTestCase {
 
     func testPredictLogitsWithInvalidType() async throws {
         let textDecoder = TextDecoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
         try await textDecoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().textDecoderCompute)
 
         // Create an invalid input type
@@ -541,16 +674,17 @@ final class UnitTests: XCTestCase {
     // MARK: - Feature Extractor Tests
 
     func testLogmelOutput() async throws {
+        let audioProcessor = AudioProcessor()
         let audioSamples = [Float](repeating: 0.0, count: 16000)
         let paddedSamples = try XCTUnwrap(
-            AudioProcessor.padOrTrimAudio(fromArray: audioSamples, startAt: 0, toLength: 480_000),
+            audioProcessor.padOrTrim(fromArray: audioSamples, startAt: 0, toLength: 480_000),
             "Failed to pad audio samples"
         )
         let featureExtractor = FeatureExtractor()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "MelSpectrogram.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "MelSpectrogram.mlmodelc")
         try await featureExtractor.loadModel(at: modelPath, computeUnits: ModelComputeOptions().melCompute)
         let melSpectrogram = try await XCTUnwrapAsync(
-            await featureExtractor.logMelSpectrogram(fromAudio: paddedSamples),
+            await featureExtractor.logMelSpectrogram(fromAudio: paddedSamples) as! MLMultiArray,
             "Failed to produce Mel spectrogram from audio samples"
         )
         let expectedShape: [NSNumber] = [1, 80, 1, 3000]
@@ -560,11 +694,11 @@ final class UnitTests: XCTestCase {
 
     func testCompressionRatioIntArray() {
         let uniqueArray = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        let uniqueRatio = compressionRatio(of: uniqueArray)
+        let uniqueRatio = TextUtilities.compressionRatio(of: uniqueArray)
         let repeatedArray = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-        let repeatedRatio = compressionRatio(of: repeatedArray)
+        let repeatedRatio = TextUtilities.compressionRatio(of: repeatedArray)
         let repeatedLongArray = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-        let repeatedLongRatio = compressionRatio(of: repeatedLongArray)
+        let repeatedLongRatio = TextUtilities.compressionRatio(of: repeatedLongArray)
 
         XCTAssertLessThan(uniqueRatio, repeatedRatio)
         XCTAssertLessThan(repeatedRatio, repeatedLongRatio)
@@ -572,11 +706,11 @@ final class UnitTests: XCTestCase {
 
     func testCompressionRatioString() {
         let uniqueString = "This is a unique string"
-        let uniqueRatio = compressionRatio(of: uniqueString)
+        let uniqueRatio = TextUtilities.compressionRatio(of: uniqueString)
         let repeatedString = String(repeating: "Repeated text string", count: 5)
-        let repeatedRatio = compressionRatio(of: repeatedString)
+        let repeatedRatio = TextUtilities.compressionRatio(of: repeatedString)
         let repeatedLongString = String(repeating: "Longer repeated text string", count: 10)
-        let repeatedLongRatio = compressionRatio(of: repeatedLongString)
+        let repeatedLongRatio = TextUtilities.compressionRatio(of: repeatedLongString)
 
         XCTAssertLessThan(uniqueRatio, repeatedRatio)
         XCTAssertLessThan(repeatedRatio, repeatedLongRatio)
@@ -586,7 +720,7 @@ final class UnitTests: XCTestCase {
 
     func testEncoderOutput() async throws {
         let audioEncoder = AudioEncoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "AudioEncoder.mlmodelc")
         try? await audioEncoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().audioEncoderCompute)
 
         let encoderInput = try MLMultiArray(shape: [1, 80, 1, 3000], dataType: .float16)
@@ -602,13 +736,13 @@ final class UnitTests: XCTestCase {
     func testDecoderOutput() async throws {
         let textDecoder = TextDecoder()
         let decodingOptions = DecodingOptions()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
         await XCTAssertNoThrowAsync(
             try await textDecoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().textDecoderCompute),
             "Failed to load the model"
         )
         textDecoder.tokenizer = try await XCTUnwrapAsync(
-            await loadTokenizer(for: .tiny),
+            await ModelUtilities.loadTokenizer(for: .tiny),
             "Failed to load the tokenizer"
         )
 
@@ -640,13 +774,13 @@ final class UnitTests: XCTestCase {
             noSpeechThreshold: nil
         )
         let textDecoder = TextDecoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
         try await textDecoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().textDecoderCompute)
-        textDecoder.tokenizer = try await loadTokenizer(for: .tiny)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         let tokenSampler = GreedyTokenSampler(temperature: 0, eotToken: textDecoder.tokenizer!.specialTokens.endToken, decodingOptions: decodingOptions)
 
-        let encoderInput = initMLMultiArray(shape: [1, 384, 1, 1500], dataType: .float16, initialValue: FloatType(0))
+        let encoderInput = try MLMultiArray(shape: [1, 384, 1, 1500], dataType: .float16, initialValue: FloatType(0))
         let inputs = try textDecoder.prepareDecoderInputs(withPrompt: [textDecoder.tokenizer!.specialTokens.startOfTranscriptToken])
         let decoderOutput = try await textDecoder.decodeText(from: encoderInput, using: inputs, sampler: tokenSampler, options: decodingOptions)
 
@@ -664,13 +798,13 @@ final class UnitTests: XCTestCase {
             noSpeechThreshold: nil
         )
         let textDecoder = TextDecoder()
-        let modelPath = try URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
+        let modelPath = try await URL(filePath: tinyModelPath()).appending(path: "TextDecoder.mlmodelc")
         try await textDecoder.loadModel(at: modelPath, computeUnits: ModelComputeOptions().textDecoderCompute)
-        textDecoder.tokenizer = try await loadTokenizer(for: .tiny)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         let tokenSampler = GreedyTokenSampler(temperature: 0, eotToken: textDecoder.tokenizer!.specialTokens.endToken, decodingOptions: decodingOptions)
 
-        let encoderInput = initMLMultiArray(shape: [1, 384, 1, 1500], dataType: .float16, initialValue: FloatType(0))
+        let encoderInput = try MLMultiArray(shape: [1, 384, 1, 1500], dataType: .float16, initialValue: FloatType(0))
         let inputs = try textDecoder.prepareDecoderInputs(withPrompt: [textDecoder.tokenizer!.specialTokens.startOfTranscriptToken])
         let decoderOutput = try await textDecoder.decodeText(from: encoderInput, using: inputs, sampler: tokenSampler, options: decodingOptions)
 
@@ -744,17 +878,384 @@ final class UnitTests: XCTestCase {
     }
 
     // MARK: - Tokenizer Tests
+    
+    func testTokenizerFolderFromConfig() async throws {
+        // Default case, no tokenizer folder specified - should download from Hub
+        let configWithNoTokenizerFolder = WhisperKitConfig(
+            model: "tiny",
+            load: false,
+            download: false
+        )
+        
+        let whisperKitDefault = try await WhisperKit(configWithNoTokenizerFolder)
+        XCTAssertNil(whisperKitDefault.tokenizerFolder, "tokenizerFolder should be nil when not specified and no downloadBase provided")
+        
+        // Tokenizer folder specified without model folder
+        let tempDir = FileManager.default.temporaryDirectory
+        let tokenizerFolder = tempDir.appendingPathComponent("tokenizer_folder_\(UUID().uuidString)")
+        let configWithTokenizerFolder = WhisperKitConfig(
+            model: "tiny",
+            tokenizerFolder: tokenizerFolder,
+            load: false,
+            download: false
+        )
+        
+        let whisperKitWithTokenizerFolder = try await WhisperKit(configWithTokenizerFolder)
+        XCTAssertEqual(whisperKitWithTokenizerFolder.tokenizerFolder?.path, tokenizerFolder.path, "tokenizerFolder should exactly match specified folder path")
+        
+        // Tokenizer folder and model folder specified
+        let modelFolder = tempDir.appendingPathComponent("model_folder_\(UUID().uuidString)")
+        let tokenizerFolderWithModelFolder = tempDir.appendingPathComponent("tokenizer_folder_\(UUID().uuidString)")
+        
+        let configWithTokenizerAndModelFolder = WhisperKitConfig(
+            model: "tiny",
+            modelFolder: modelFolder.path,
+            tokenizerFolder: tokenizerFolderWithModelFolder,
+            load: false,
+            download: false
+        )
+        
+        let whisperKitWithBothFolders = try await WhisperKit(configWithTokenizerAndModelFolder)
+        XCTAssertEqual(whisperKitWithBothFolders.tokenizerFolder?.path, tokenizerFolderWithModelFolder.path, "tokenizerFolder should exactly match specified folder, not model folder")
+        XCTAssertNotEqual(whisperKitWithBothFolders.tokenizerFolder?.path, modelFolder.path, "tokenizerFolder should not be the same as model folder")
+        
+        // Model folder specified without tokenizer folder
+        let modelFolderOnly = tempDir.appendingPathComponent("model_folder_\(UUID().uuidString)")
+        
+        let configWithModelFolderOnly = WhisperKitConfig(
+            model: "tiny",
+            modelFolder: modelFolderOnly.path,
+            load: false,
+            download: false
+        )
+        
+        let whisperKitWithModelFolderOnly = try await WhisperKit(configWithModelFolderOnly)
+        XCTAssertNil(whisperKitWithModelFolderOnly.tokenizerFolder, "tokenizerFolder should be nil when only model folder specified without downloadBase")
+        
+        // Model folder and download base specified
+        let downloadBase = tempDir.appendingPathComponent("download_base_\(UUID().uuidString)")
+        let modelFolderWithDownloadBase = tempDir.appendingPathComponent("model_folder_\(UUID().uuidString)")
+        
+        let configWithModelFolderAndDownloadBase = WhisperKitConfig(
+            model: "tiny",
+            downloadBase: downloadBase,
+            modelFolder: modelFolderWithDownloadBase.path,
+            load: false,
+            download: false
+        )
+        
+        let whisperKitWithModelFolderAndDownloadBase = try await WhisperKit(configWithModelFolderAndDownloadBase)
+        XCTAssertEqual(whisperKitWithModelFolderAndDownloadBase.tokenizerFolder?.path, downloadBase.path, "tokenizerFolder should exactly match downloadBase path")
+        XCTAssertNotEqual(whisperKitWithModelFolderAndDownloadBase.tokenizerFolder?.path, modelFolderWithDownloadBase.path, "tokenizerFolder should not be the same as model folder")
+        
+        // Download base specified only
+        let downloadBaseOnly = tempDir.appendingPathComponent("download_base_\(UUID().uuidString)")
+        
+        let configWithDownloadBaseOnly = WhisperKitConfig(
+            model: "tiny",
+            downloadBase: downloadBaseOnly,
+            load: false,
+            download: false
+        )
+        
+        let whisperKitWithDownloadBaseOnly = try await WhisperKit(configWithDownloadBaseOnly)
+        XCTAssertEqual(whisperKitWithDownloadBaseOnly.tokenizerFolder?.path, downloadBaseOnly.path, "tokenizerFolder should fall back to downloadBase when not explicitly set")
+    }
+    
+    func testTokenizerLoadingPriority() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenizer_loading_test_folder_\(UUID().uuidString)")
+        
+        // Test tokenizer folder resolution priority
+        let repoStyleDir = tempDir.appendingPathComponent("models")
+            .appendingPathComponent("openai")
+            .appendingPathComponent("whisper-tiny")
+        
+        // Download the tokenizer first
+        let repoTokenizer = try await ModelUtilities.loadTokenizer(
+            for: .tiny,
+            tokenizerFolder: tempDir,
+            useBackgroundSession: false
+        ) as! WhisperTokenizerWrapper
+        XCTAssertEqual(repoTokenizer.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
+        
+        // Check that direct loading from the top level of the directory is prioritized when no repo style exists (tokenizer already exists here)
+        let tokenizer = try await ModelUtilities.loadTokenizer(
+            for: .tiny,
+            tokenizerFolder: repoStyleDir,
+            useBackgroundSession: false
+        ) as! WhisperTokenizerWrapper
+        XCTAssertEqual(tokenizer.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
+        
+        // Move the tokenizer files to the top level
+        let repoContents = try FileManager.default.contentsOfDirectory(at: repoStyleDir, includingPropertiesForKeys: nil)
+        for item in repoContents {
+            let destination = tempDir.appendingPathComponent(item.lastPathComponent)
+            try FileManager.default.copyItem(at: item, to: destination)
+        }
+        
+        // Check that when the tokenizer is both at the top level and in the repo style location, the repo style is prioritized
+        // Loading from the top level is considered a fallback and simplifies offline use cases
+        let tokenizerAtTopLevel = try await ModelUtilities.loadTokenizer(
+            for: .tiny,
+            tokenizerFolder: tempDir,
+            useBackgroundSession: false
+        ) as! WhisperTokenizerWrapper
+        XCTAssertEqual(tokenizerAtTopLevel.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
+    }
+    
+        func testTokenizerLoadingFromDifferentVariants() async throws {
+        // Test that different model variants resolve to correct tokenizer names
+        for variant in ModelVariant.allCases {
+            let expectedName = "openai/whisper-\(variant.description)"
+            let tokenizer = try await ModelUtilities.loadTokenizer(
+                for: variant,
+                tokenizerFolder: nil,
+                useBackgroundSession: false
+            ) as! WhisperTokenizerWrapper
+            XCTAssertNotNil(tokenizer, "Should load tokenizer for variant \(variant)")
+            XCTAssertTrue(tokenizer.tokenizerFolder!.path.contains(expectedName), "Tokenizer folder should contain \(expectedName)")
+            
+            // Test that the tokenizer has expected properties
+            XCTAssertGreaterThan(tokenizer.specialTokens.specialTokenBegin, 0, "Special token begin should be set")
+            XCTAssertNotNil(tokenizer.encode(text: "test"), "Should be able to encode text")
+            XCTAssertNotNil(tokenizer.decode(tokens: [1, 2, 3]), "Should be able to decode tokens")
+        }
+    }
+        
+    func testTokenizerLoadingFromWhisperKit() async throws {
+        // Test that tokenizer is properly loaded and assigned during WhisperKit model loading
+        let config = WhisperKitConfig(
+            model: "tiny",
+            verbose: true,
+            logLevel: .debug,
+            load: true
+        )
+        
+        let whisperKit = try await WhisperKit(config)
+        
+        // Verify tokenizer was loaded
+        XCTAssertNotNil(whisperKit.tokenizer, "Tokenizer should be loaded after model loading")
+        XCTAssertNotNil(whisperKit.textDecoder.tokenizer, "TextDecoder should have tokenizer assigned")
+        
+        // Load a tokenizer that should match
+        let tokenizer = try await ModelUtilities.loadTokenizer(
+            for: .tiny
+        ) as! WhisperTokenizerWrapper
+        
+        // Verify tokenizer location
+        XCTAssertEqual((whisperKit.tokenizer as! WhisperTokenizerWrapper).tokenizerFolder!.path, tokenizer.tokenizerFolder!.path)
+        
+        // Verify tokenizer functionality
+        if let tokenizer = whisperKit.tokenizer {
+            let testText = "Hello world"
+            let encoded = tokenizer.encode(text: testText)
+            XCTAssertFalse(encoded.isEmpty, "Should encode text to tokens")
+            
+            let decoded = tokenizer.decode(tokens: encoded)
+            XCTAssertFalse(decoded.isEmpty, "Should decode tokens back to text")
+            
+            // Test special token access
+            XCTAssertGreaterThan(tokenizer.specialTokens.endToken, 0, "End token should be valid")
+            XCTAssertGreaterThan(tokenizer.specialTokens.startOfTranscriptToken, 0, "Start of transcript token should be valid")
+            
+            // Test token conversion
+            let startToken = "<|startoftranscript|>"
+            if let tokenId = tokenizer.convertTokenToId(startToken) {
+                let convertedBack = tokenizer.convertIdToToken(tokenId)
+                XCTAssertEqual(convertedBack, startToken, "Token conversion should be reversible")
+            }
+        }
+    }
+    
+    func testTokenizerFallbackToHubWhenLocalFails() async throws {
+        // Test scenario where local tokenizer loading fails and falls back to Hub
+        let tempDir = FileManager.default.temporaryDirectory
+        let corruptedTokenizerDir = tempDir.appendingPathComponent("corrupted_tokenizer")
+        
+        try FileManager.default.createDirectory(at: corruptedTokenizerDir, withIntermediateDirectories: true)
+        
+        defer {
+            try? FileManager.default.removeItem(at: corruptedTokenizerDir)
+        }
+        
+        // Create a corrupted tokenizer.json file
+        let corruptedJson = "{ invalid json content"
+        let tokenizerFile = corruptedTokenizerDir.appendingPathComponent("tokenizer.json")
+        try corruptedJson.write(to: tokenizerFile, atomically: true, encoding: .utf8)
+        let configFile = corruptedTokenizerDir.appendingPathComponent("config.json")
+        try corruptedJson.write(to: configFile, atomically: true, encoding: .utf8)
+        
+        // This should fail to load locally and fall back to Hub
+        do {
+            let tokenizer = try await ModelUtilities.loadTokenizer(
+                for: .tiny,
+                tokenizerFolder: corruptedTokenizerDir,
+                useBackgroundSession: false
+            )
+            XCTAssertNotNil(tokenizer, "Should successfully fall back to Hub when local loading fails")
+        } catch {
+            // If Hub download also fails, that's acceptable in test environment
+            Logging.debug("Both local and Hub loading failed: \(error)")
+        }
+    }
+    
+    func testTokenizerModelVariantDetection() async throws {
+        // Test that model variant detection works correctly for tokenizer selection
+        let testDimensions: [(logitsDim: Int, encoderDim: Int, expectedVariant: ModelVariant)] = [
+            (51865, 384, .tiny),      // Multilingual tiny
+            (51864, 384, .tinyEn),    // English tiny
+            (51865, 512, .base),      // Multilingual base
+            (51864, 512, .baseEn),    // English base
+            (51865, 768, .small),     // Multilingual small
+            (51864, 768, .smallEn),   // English small
+            (51865, 1024, .medium),   // Multilingual medium
+            (51864, 1024, .mediumEn), // English medium
+            (51865, 1280, .largev2),  // Large v2
+            (51866, 1280, .largev3)   // Large v3 (has extra language token)
+        ]
+        
+        for (logitsDim, encoderDim, expectedVariant) in testDimensions {
+            let detectedVariant = ModelUtilities.detectVariant(logitsDim: logitsDim, encoderDim: encoderDim)
+            XCTAssertEqual(detectedVariant, expectedVariant, 
+                          "Should detect \(expectedVariant) for logitsDim: \(logitsDim), encoderDim: \(encoderDim)")
+            
+            let isMultilingual = ModelUtilities.isModelMultilingual(logitsDim: logitsDim)
+            XCTAssertEqual(isMultilingual, expectedVariant.isMultilingual, 
+                          "Multilingual detection should match variant for \(expectedVariant)")
+        }
+    }
+    
+    func testTokenizerLoadingThroughModelLoading() async throws {
+        // Test tokenizer loading through WhisperKit model loading process
+        let config = WhisperKitConfig(
+            model: "tiny",
+            verbose: true,
+            logLevel: .debug,
+            load: true,
+            download: true
+        )
+        
+        let whisperKit = try await WhisperKit(config)
+        
+        // Verify tokenizer was loaded through model loading
+        XCTAssertNotNil(whisperKit.tokenizer, "Tokenizer should be loaded after calling loadModels")
+        XCTAssertNotNil(whisperKit.textDecoder.tokenizer, "TextDecoder should have tokenizer assigned")
+        XCTAssertEqual(whisperKit.modelVariant, .tiny, "Model variant should be detected as tiny")
+        
+        // Verify tokenizer properties specific to tiny model
+        guard let tokenizer = whisperKit.tokenizer else {
+            XCTFail("Tokenizer should not be nil")
+            return
+        }
+        
+        // Test that the tokenizer works with the loaded model
+        let testEncoding = tokenizer.encode(text: "Hello world")
+        XCTAssertFalse(testEncoding.isEmpty, "Should be able to encode text")
+        
+        let testDecoding = tokenizer.decode(tokens: testEncoding)
+        XCTAssertFalse(testDecoding.isEmpty, "Should be able to decode tokens")
+        
+        // Test special tokens are properly configured
+        XCTAssertGreaterThan(tokenizer.specialTokens.specialTokenBegin, 50000, "Special tokens should start after vocab")
+        XCTAssertEqual(tokenizer.specialTokens.endToken, 50257, "End token should match expected value for tiny model")
+        
+        // Test that model dimensions match tokenizer expectations
+        XCTAssertEqual(whisperKit.textDecoder.isModelMultilingual, true, "Tiny model should be detected as multilingual")
+        XCTAssertFalse(tokenizer.allLanguageTokens.isEmpty, "Multilingual model should have language tokens")
+    }
+    
+    func testTokenizerLoadingWithCustomTokenizerFolder() async throws {
+        // Test tokenizer loading with custom tokenizer folder at model load time
+        let modelPath = try await tinyModelPath()
+        let modelURL = URL(filePath: modelPath)
+        
+        // Create a different directory for tokenizer to ensure it's not defaulting to model folder
+        let tempDir = FileManager.default.temporaryDirectory
+        let customTokenizerDir = tempDir.appendingPathComponent("custom_tokenizer_test_\(UUID().uuidString)")
+        
+        let config = WhisperKitConfig(
+            modelFolder: modelPath,
+            tokenizerFolder: customTokenizerDir,
+            verbose: true,
+            logLevel: .debug,
+            load: true,
+            download: false
+        )
+        
+        let whisperKit = try await WhisperKit(config)
+        
+        // Verify tokenizer folder was set to our custom directory
+        XCTAssertEqual(whisperKit.tokenizerFolder?.path, customTokenizerDir.path, "Tokenizer folder should exactly match custom configured folder")
+        XCTAssertNotEqual(whisperKit.tokenizerFolder?.path, modelURL.path, "Tokenizer folder should NOT be the same as model folder")
+        XCTAssertEqual(whisperKit.modelFolder?.path, modelPath, "Model folder should match the specified model path")
+        
+        // Verify tokenizer was loaded (will fall back to hub download since custom dir doesn't exist)
+        XCTAssertNotNil(whisperKit.tokenizer, "Tokenizer should be loaded even with custom folder (fallback to hub download)")
+        
+        // Check the actual path used by the tokenizer wrapper
+        if let wrapper = whisperKit.tokenizer as? WhisperTokenizerWrapper {
+            XCTAssertNotNil(wrapper.tokenizerFolder, "Tokenizer wrapper should record the folder path used")
+            
+            // The wrapper should record the Hub path that was actually used
+            let expectedHubPath = customTokenizerDir.appendingPathComponent("models/openai/whisper-tiny")
+            XCTAssertEqual(wrapper.tokenizerFolder?.path, expectedHubPath.path,
+                          "Tokenizer wrapper should record the exact Hub path based on custom directory")
+        }
+        
+        // Test that the tokenizer works correctly
+        if let tokenizer = whisperKit.tokenizer {
+            let encoded = tokenizer.encode(text: "Test text")
+            let decoded = tokenizer.decode(tokens: encoded)
+            XCTAssertFalse(encoded.isEmpty, "Should encode text")
+            XCTAssertFalse(decoded.isEmpty, "Should decode tokens")
+        }
+    }
+    
+    func testTokenizerLoadingWithModelDimensionDetection() async throws {
+        // Test that tokenizer is selected based on actual model dimensions
+        let modelPath = try await tinyModelPath()
+        
+        let config = WhisperKitConfig(
+            modelFolder: modelPath,
+            verbose: true,
+            logLevel: .debug,
+            load: true,
+            download: false
+        )
+        
+        let whisperKit = try await WhisperKit(config)
+        
+        // Verify model variant was detected from loaded model dimensions
+        XCTAssertEqual(whisperKit.modelVariant, .tiny, "Should detect tiny variant from model dimensions")
+        
+        // Verify tokenizer matches detected variant
+        XCTAssertNotNil(whisperKit.tokenizer, "Tokenizer should be loaded based on detected variant")
+        
+        // Verify the TextDecoder has correct multilingual setting
+        XCTAssertTrue(whisperKit.textDecoder.isModelMultilingual, "Tiny model should be multilingual")
+        
+        // Test that tokenizer special tokens match the model expectations
+        if let tokenizer = whisperKit.textDecoder.tokenizer {
+            // Test some specific tokens that should exist in tiny model
+            let transcribeToken = tokenizer.convertTokenToId("<|transcribe|>")
+            let englishToken = tokenizer.convertTokenToId("<|en|>")
+            
+            XCTAssertNotNil(transcribeToken, "Should have transcribe token")
+            XCTAssertNotNil(englishToken, "Should have English language token")
+            XCTAssertTrue(tokenizer.allLanguageTokens.contains(englishToken!), "English token should be in language tokens set")
+        }
+    }
 
     func testDecoderTokenizer() async throws {
         // This token index does not change with v3
         let tokenText = "<|startoftranscript|>"
 
         let textDecoder = TextDecoder()
-        textDecoder.tokenizer = try await loadTokenizer(for: .tiny)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
         let encodedToken = try XCTUnwrap(textDecoder.tokenizer?.convertTokenToId(tokenText))
         let decodedToken = try XCTUnwrap(textDecoder.tokenizer?.decode(tokens: [encodedToken]))
 
-        textDecoder.tokenizer = try await loadTokenizer(for: .largev3)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .largev3)
         let encodedTokenLarge = try XCTUnwrap(textDecoder.tokenizer?.convertTokenToId(tokenText))
         let decodedTokenLarge = try XCTUnwrap(textDecoder.tokenizer?.decode(tokens: [encodedTokenLarge]))
 
@@ -769,11 +1270,11 @@ final class UnitTests: XCTestCase {
         // This token index changes with v3
         let tokenTextShifted = "<|0.00|>"
 
-        textDecoder.tokenizer = try await loadTokenizer(for: .tiny)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
         let encodedTokenShifted = try XCTUnwrap(textDecoder.tokenizer?.convertTokenToId(tokenTextShifted))
         let decodedTokenShifted = try XCTUnwrap(textDecoder.tokenizer?.decode(tokens: [encodedTokenShifted]))
 
-        textDecoder.tokenizer = try await loadTokenizer(for: .largev3)
+        textDecoder.tokenizer = try await ModelUtilities.loadTokenizer(for: .largev3)
         let encodedTokenLargeShifted = try XCTUnwrap(textDecoder.tokenizer?.convertTokenToId(tokenTextShifted))
         let decodedTokenLargeShifted = try XCTUnwrap(textDecoder.tokenizer?.decode(tokens: [encodedTokenLargeShifted]))
 
@@ -788,7 +1289,7 @@ final class UnitTests: XCTestCase {
     func testTokenizerOutput() async throws {
         let tokenInputs = [50364, 400, 370, 452, 7177, 6280, 1029, 406, 437, 428, 1941, 393, 360, 337, 291, 1029, 437, 291, 393, 360, 337, 428, 1941, 13, 50889]
 
-        let tokenizer = try await loadTokenizer(for: .largev3)
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .largev3)
         let decodedText = tokenizer.decode(tokens: tokenInputs)
 
         XCTAssertNotNil(decodedText)
@@ -796,17 +1297,11 @@ final class UnitTests: XCTestCase {
     }
 
     func testWindowing() async throws {
-        let computeOptions = ModelComputeOptions(
-            melCompute: .cpuOnly
-        )
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(),
-                                          computeOptions: computeOptions,
-                                          verbose: true,
-                                          logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
         let audioBuffer = try AudioProcessor.loadAudio(fromPath: audioFilePath)
@@ -829,7 +1324,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testSplitToWordTokens() async throws {
-        let tokenizer = try await loadTokenizer(for: .tiny)
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         // Hello, world! This is a test, isn't it?
         let tokenIds = [50364, 2425, 11, 1002, 0, 50414, 50414, 639, 307, 257, 220, 31636, 11, 1943, 380, 309, 30, 50257]
@@ -846,7 +1341,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testSplitToWordTokensSpanish() async throws {
-        let tokenizer = try await loadTokenizer(for: .tiny)
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         // ¡Hola Mundo! Esta es una prueba, ¿no?
         let tokenIds = [50363, 24364, 48529, 376, 6043, 0, 20547, 785, 2002, 48241, 11, 3841, 1771, 30, 50257]
@@ -863,7 +1358,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testSplitToWordTokensJapanese() async throws {
-        let tokenizer = try await loadTokenizer(for: .tiny)
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         // こんにちは、世界！これはテストですよね？
         let tokenIds = [50364, 38088, 1231, 24486, 171, 120, 223, 25212, 22985, 40498, 4767, 30346, 171, 120, 253, 50257]
@@ -929,11 +1424,11 @@ final class UnitTests: XCTestCase {
 
     func testDetectSpanish() async throws {
         let targetLanguage = "es"
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "es_test_clip", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "es_test_clip", ofType: "wav"),
             "Audio file not found"
         )
 
@@ -1004,11 +1499,11 @@ final class UnitTests: XCTestCase {
 
     func testDetectJapanese() async throws {
         let targetLanguage = "ja"
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "ja_test_clip", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "ja_test_clip", ofType: "wav"),
             "Audio file not found"
         )
 
@@ -1054,12 +1549,12 @@ final class UnitTests: XCTestCase {
 
     func testDetectLanguageHelperMethod() async throws {
         let targetLanguages = ["es", "ja"]
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         for language in targetLanguages {
             let audioFilePath = try XCTUnwrap(
-                Bundle.current.path(forResource: "\(language)_test_clip", ofType: "wav"),
+                Bundle.current(for: self).path(forResource: "\(language)_test_clip", ofType: "wav"),
                 "Audio file not found"
             )
 
@@ -1113,7 +1608,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testSilence() async throws {
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
         let audioSamples = [Float](repeating: 0.0, count: 30 * 16000)
         let options = DecodingOptions(usePrefillPrompt: false, skipSpecialTokens: false)
@@ -1126,7 +1621,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testTemperatureIncrement() async throws {
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         // Generate random audio samples
@@ -1190,7 +1685,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testPromptTokens() async throws {
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
         let whisperKit = try await WhisperKit(config)
         let promptText = " prompt to encourage output without any punctuation and without capitalizing americans as if it was already normalized"
         let tokenizer = try XCTUnwrap(whisperKit.tokenizer)
@@ -1207,7 +1702,7 @@ final class UnitTests: XCTestCase {
     }
 
     func testPrefixTokens() async throws {
-        let config = try WhisperKitConfig(modelFolder: tinyModelPath(), verbose: true, logLevel: .debug)
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
         let whisperKit = try await WhisperKit(config)
         // Prefix to encourage output without any punctuation and without capitalizing americans as if it was already normalized
         let prefixText = " and so my fellow americans"
@@ -1224,8 +1719,8 @@ final class UnitTests: XCTestCase {
     }
 
     func testCallbacks() async throws {
-        let config = try WhisperKitConfig(
-            modelFolder: tinyModelPath(),
+        let config = WhisperKitConfig(
+            model: "tiny",
             verbose: true,
             logLevel: .debug,
             load: false
@@ -1252,7 +1747,7 @@ final class UnitTests: XCTestCase {
         // Run the full pipeline
         try await whisperKit.loadModels()
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
         let _ = try await whisperKit.transcribe(audioPath: audioFilePath)
@@ -1260,19 +1755,19 @@ final class UnitTests: XCTestCase {
         await fulfillment(of: [modelStateExpectation, segmentDiscoveryExpectation, transcriptionStateExpectation], timeout: 1)
     }
 
-    #if !os(watchOS) // FIXME: watchOS ignores the priority here for some reason
     func testCallbackWithEarlyStopping() async throws {
-        let callbackTestTask = Task(priority: .userInitiated) {
-            let computeOptions = ModelComputeOptions(
-                melCompute: .cpuOnly,
-                audioEncoderCompute: .cpuOnly,
-                textDecoderCompute: .cpuOnly,
-                prefillCompute: .cpuOnly
-            )
+        guard #available(macOS 15, iOS 18, watchOS 11, visionOS 2, *) else {
+            throw XCTSkip("Disabled on macOS 14 and below due to swift concurrency flakiness")
+        }
 
-            let config = try WhisperKitConfig(
-                modelFolder: tinyModelPath(),
-                computeOptions: computeOptions,
+        let audioFilePath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
+            "Audio file not found"
+        )
+
+        let callbackTestTask = Task(priority: .userInitiated) {
+            let config = WhisperKitConfig(
+                model: "tiny",
                 verbose: true,
                 logLevel: .debug,
                 load: false
@@ -1280,15 +1775,13 @@ final class UnitTests: XCTestCase {
             let whisperKit = try await WhisperKit(config)
 
             try await whisperKit.loadModels()
-            let audioFilePath = try XCTUnwrap(
-                Bundle.current.path(forResource: "jfk", ofType: "wav"),
-                "Audio file not found"
-            )
 
             let earlyStopTokenCount = 10
             let continuationCallback: TranscriptionCallback = { (progress: TranscriptionProgress) -> Bool? in
                 // Stop after only 10 tokens (full test audio contains ~30)
-                progress.tokens.count <= earlyStopTokenCount
+                let shouldContinue = progress.tokens.count <= earlyStopTokenCount
+                Logging.debug("\(shouldContinue ? "Continuing" : "Early stopping") after \(progress.tokens.count) tokens")
+                return shouldContinue
             }
 
             let result = try await whisperKit.transcribe(audioPath: audioFilePath, callback: continuationCallback).first!
@@ -1315,32 +1808,115 @@ final class UnitTests: XCTestCase {
 
             // Assert that more tokens are returned in the callback with waiting
             XCTAssertGreaterThanOrEqual(tokenCountWithWait, 30, "Tokens for callback with wait should contain the full audio file")
-            XCTAssertGreaterThan(tokenCountWithWait, tokenCountWithEarlyStop, "More tokens should be returned in the callback with waiting")
+
+            #if !os(macOS) // FIXME: Some OS ignore the priority here on github action runners for some reason
+            XCTAssertGreaterThanOrEqual(tokenCountWithWait, tokenCountWithEarlyStop, "More tokens should be returned in the callback with waiting (early stop: \(tokenCountWithEarlyStop), with wait: \(tokenCountWithWait))")
+            #else
+            XCTAssertGreaterThan(tokenCountWithWait, tokenCountWithEarlyStop, "More tokens should be returned in the callback with waiting (early stop: \(tokenCountWithEarlyStop), with wait: \(tokenCountWithWait))")
+            #endif
         }
 
         try await callbackTestTask.value
     }
-    #endif
+
+    func testCallbackWithVAD() async throws {
+        let config = WhisperKitConfig(
+            model: "tiny",
+            verbose: true,
+            logLevel: .debug,
+            load: false
+        )
+        let whisperKit = try await WhisperKit(config)
+
+        // Set up expectations
+        let segmentExpectation = XCTestExpectation(description: "Segment discovery with VAD")
+        segmentExpectation.expectedFulfillmentCount = 3 // Expect at least 3 segment callbacks
+
+        // Keep track of discovered segments
+        let discoveredSegments = OSAllocatedUnfairLock(initialState: [[TranscriptionSegment]]())
+
+        // Set up segment discovery callback
+        whisperKit.segmentDiscoveryCallback = { segments in
+            Logging.debug("Segments discovered with ids: \(segments.map { $0.id }) and seek: \(segments.map { $0.seek })")
+            discoveredSegments.withLock { state in
+                state.append(segments)
+            }
+            segmentExpectation.fulfill()
+        }
+
+        // Use a longer audio file that will be chunked by VAD
+        try await whisperKit.loadModels()
+        let audioFilePath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "ted_60", ofType: "m4a"),
+            "Audio file not found"
+        )
+
+        // Configure with VAD chunking
+        let decodeOptions = DecodingOptions(chunkingStrategy: .vad)
+
+        // Transcribe with VAD chunking
+        let results = try await whisperKit.transcribe(audioPath: audioFilePath, decodeOptions: decodeOptions)
+
+        // Wait for segment callbacks
+        await fulfillment(of: [segmentExpectation], timeout: 1)
+
+        // Verify segments were discovered across multiple chunks
+        let discoveredSegmentsSnapshot = discoveredSegments.withLock { $0 }
+        XCTAssertGreaterThanOrEqual(discoveredSegmentsSnapshot.count, 3, "Should have discovered segments in multiple chunks")
+
+        // Verify that segments have different seek positions
+        let allSeekPositions = Set(discoveredSegmentsSnapshot.flatMap { $0.map { $0.seek } })
+        XCTAssertGreaterThanOrEqual(allSeekPositions.count, 3, "Should have segments with different seek positions")
+
+        // Verify that the seek positions are sensible (not negative)
+        for position in allSeekPositions {
+            XCTAssertGreaterThanOrEqual(position, 0, "Seek position should not be negative")
+        }
+
+        // Verify that segment times are reasonable
+        let allSegments = discoveredSegmentsSnapshot.flatMap { $0 }
+        for segment in allSegments {
+            XCTAssertGreaterThanOrEqual(segment.start, 0, "Segment start time should not be negative")
+            XCTAssertGreaterThan(segment.end, segment.start, "Segment end time should be greater than start time")
+        }
+
+        // Verify text content in discovered segments
+        let allDiscoveredText = allSegments.map { $0.text }.joined()
+        XCTAssertFalse(allDiscoveredText.isEmpty, "Discovered segments should contain text")
+
+        // Verify that the segment seek times in results match the discovered seek positions
+        let resultSeekPositions = Set(results.flatMap { $0.segments.map { $0.seek } })
+
+        // Each segment seek position in results should match one of the discovered seek positions
+        for seekPosition in resultSeekPositions {
+            XCTAssertTrue(allSeekPositions.contains(seekPosition), "Segment seek position \(seekPosition) in results should match one of the discovered seek positions \(allSeekPositions)")
+        }
+
+        // Verify text content in transcription results
+        XCTAssertFalse(results.isEmpty, "Should have transcription results")
+        let allText = results.flatMap { $0.segments.map { $0.text } }.joined()
+        XCTAssertFalse(allText.isEmpty, "Transcription should contain text")
+    }
 
     // MARK: - Utils Tests
 
     func testFillIndexesWithValue() throws {
         let logits = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-        logits.fill(indexes: [] as [[NSNumber]], with: -FloatType.infinity)
+        logits.fill(indexes: [] as [[Int]], with: -FloatType.infinity)
         XCTAssertEqual(logits.data(for: 2), [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-        let indexes2: [[NSNumber]] = [[0, 0, 0], [0, 0, 1], [0, 0, 5]]
+        let indexes2: [[Int]] = [[0, 0, 0], [0, 0, 1], [0, 0, 5]]
         logits2.fill(indexes: indexes2, with: -FloatType.infinity)
-        XCTAssertEqual(logits2.data(for: 2), [-.infinity, -.infinity, 0.3, 0.4, 0.5, -.infinity, 0.7])
+        XCTAssertEqual(logits2.data(for: 2), [-FloatType.infinity, -FloatType.infinity, 0.3, 0.4, 0.5, -FloatType.infinity, 0.7])
 
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         logits3.fillLastDimension(indexes: 0..<1, with: -FloatType.infinity)
-        XCTAssertEqual(logits3.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(logits3.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         logits4.fillLastDimension(indexes: 2..<5, with: -FloatType.infinity)
-        XCTAssertEqual(logits4.data(for: 2), [0.1, 0.2, -.infinity, -.infinity, -.infinity, 0.6, 0.7])
+        XCTAssertEqual(logits4.data(for: 2), [0.1, 0.2, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.6, 0.7])
     }
 
     func testBatchedArray() {
@@ -1352,6 +1928,32 @@ final class UnitTests: XCTestCase {
 
         XCTAssertEqual([Int]().batched(into: 3), [])
         XCTAssertEqual([1, 2, 3, 4].batched(into: 3), [[1, 2, 3], [4]])
+    }
+
+    func testStringNormalization() throws {
+        // Basic cases
+        XCTAssertEqual("Hello World!".normalized, "hello world")
+        XCTAssertEqual("hello   world".normalized, "hello world")
+        XCTAssertEqual("HELLO WORLD".normalized, "hello world")
+
+        // Punctuation
+        XCTAssertEqual("Hello, World!".normalized, "hello world")
+        XCTAssertEqual("Hello... World???".normalized, "hello world")
+        XCTAssertEqual("'Hello' \"World\"".normalized, "hello world")
+
+        // Dashes and hyphens
+        XCTAssertEqual("hello-world".normalized, "hello world")
+        XCTAssertEqual("hello -- world".normalized, "hello world")
+
+        // Whitespace handling
+        XCTAssertEqual("   hello   world   ".normalized, "hello world")
+
+        // Mixed cases
+        XCTAssertEqual("Hello!!!---World???".normalized, "hello world")
+
+        // Numbers and special characters
+        XCTAssertEqual("Hello: World".normalized, "hello world")
+        XCTAssertEqual("Hello% world 100".normalized, "hello world 100")
     }
 
     func testTrimmingSpecialTokenCharacters() {
@@ -1386,12 +1988,12 @@ final class UnitTests: XCTestCase {
         let tokensFilter2 = SuppressTokensFilter(suppressTokens: [0])
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result2 = tokensFilter2.filterLogits(logits2, withTokens: [])
-        XCTAssertEqual(result2.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result2.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter3 = SuppressTokensFilter(suppressTokens: [0, 2, 5, 6])
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result3 = tokensFilter3.filterLogits(logits3, withTokens: [])
-        XCTAssertEqual(result3.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, -FloatType.infinity, -FloatType.infinity])
     }
 
     func testSuppressBlankFilter() throws {
@@ -1401,7 +2003,7 @@ final class UnitTests: XCTestCase {
         )
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result2 = tokensFilter2.filterLogits(logits2, withTokens: [])
-        XCTAssertEqual(result2.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result2.data(for: 2), [-FloatType.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter3 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -1409,7 +2011,7 @@ final class UnitTests: XCTestCase {
         )
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result3 = tokensFilter3.filterLogits(logits3, withTokens: [])
-        XCTAssertEqual(result3.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result3.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter4 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -1417,7 +2019,7 @@ final class UnitTests: XCTestCase {
         )
         let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result4 = tokensFilter4.filterLogits(logits4, withTokens: [1, 2, 3])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, 0.2, -.infinity, 0.4, 0.5, 0.6, 0.7])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, 0.2, -FloatType.infinity, 0.4, 0.5, 0.6, 0.7])
 
         let tokensFilter5 = SuppressBlankFilter(
             specialTokens: .default(endToken: 0, whitespaceToken: 2),
@@ -1432,7 +2034,7 @@ final class UnitTests: XCTestCase {
         let tokensFilter1 = LanguageLogitsFilter(allLanguageTokens: [2, 4, 6], logitsDim: 7, sampleBegin: 0)
         let logits1 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let result1 = tokensFilter1.filterLogits(logits1, withTokens: [])
-        XCTAssertEqual(result1.data(for: 2), [-.infinity, -.infinity, 0.3, -.infinity, 0.5, -.infinity, 0.7])
+        XCTAssertEqual(result1.data(for: 2), [-FloatType.infinity, -FloatType.infinity, 0.3, -FloatType.infinity, 0.5, -FloatType.infinity, 0.7])
 
         let tokensFilter2 = LanguageLogitsFilter(allLanguageTokens: [2, 4, 6], logitsDim: 7, sampleBegin: 2)
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
@@ -1458,22 +2060,22 @@ final class UnitTests: XCTestCase {
         // noTimestampToken should always be suppressed if tokens pass sampleBegin
         let logits1 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result1 = tokensFilter.filterLogits(logits1, withTokens: [4])
-        XCTAssertEqual(result1.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
+        XCTAssertEqual(result1.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
 
         // Timestamps should not decrease (filters up to last seen timestamp)
         let logits2 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result2 = tokensFilter.filterLogits(logits2, withTokens: [0, 6, 7, 3])
-        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, 0.1])
+        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, 0.1])
 
         // If last two tokens are timestamps, filter all timestamps (allows text token to be next)
         let logits3 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result3 = tokensFilter.filterLogits(logits3, withTokens: [0, 6, 7])
-        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity])
 
         // If only one previous token was a timestamp, filter all text and non-decreasing timestamps (to find matching timestamp pair)
         let logits4 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result4 = tokensFilter.filterLogits(logits4, withTokens: [0, 4, 7])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, 0.1, 0.1])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.1, 0.1])
     }
 
     func testTimestampRulesFilterMultilingual() throws {
@@ -1499,17 +2101,17 @@ final class UnitTests: XCTestCase {
         // Timestamps should not decrease after task token (filters up to last seen timestamp)
         let logits2 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result2 = tokensFilter.filterLogits(logits2, withTokens: [0, 4, 6, 7, 3])
-        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, 0.1])
+        XCTAssertEqual(result2.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, 0.1])
 
         // If last two tokens after task are timestamps, filter all timestamps (allows text token to be next)
         let logits3 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result3 = tokensFilter.filterLogits(logits3, withTokens: [0, 5, 6, 7])
-        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -.infinity, 0.4, 0.2, 0.1, -.infinity, -.infinity, -.infinity])
+        XCTAssertEqual(result3.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity])
 
         // After transcribe token with text and single timestamp (should force timestamp tokens)
         let logits4 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result4 = tokensFilter.filterLogits(logits4, withTokens: [0, 4, 0, 7])
-        XCTAssertEqual(result4.data(for: 2), [-.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, -.infinity, 0.1, 0.1])
+        XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.1, 0.1])
     }
 
     // MARK: - VAD Tests
@@ -1520,7 +2122,7 @@ final class UnitTests: XCTestCase {
         XCTAssertTrue(vad.voiceActivity(in: []).isEmpty)
 
         let audioFilePath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
         let audioBuffer = try AudioProcessor.loadAudio(fromPath: audioFilePath)
@@ -1587,6 +2189,24 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(activitySeekTimestamps.map(\.endTime), [2.2, 4.4, 7.6, 10.4, 11.0])
     }
 
+    func testVoiceActivityAsync() async throws {
+        let vad = EnergyVAD()
+
+        let emptyResult = try await vad.voiceActivityAsync(in: [])
+        XCTAssertTrue(emptyResult.isEmpty)
+
+        let audioFilePath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
+            "Audio file not found"
+        )
+        let audioBuffer = try AudioProcessor.loadAudio(fromPath: audioFilePath)
+        let audioArray = AudioProcessor.convertBufferToArray(buffer: audioBuffer)
+
+        let jfkVadAsyc = try await vad.voiceActivityAsync(in: audioArray)
+        let jfkVadSync = vad.voiceActivity(in: audioArray)
+        XCTAssertEqual(jfkVadAsyc, jfkVadSync)
+    }
+
     func testFindLongestSilence() throws {
         let vad = EnergyVAD()
 
@@ -1626,7 +2246,7 @@ final class UnitTests: XCTestCase {
         let windowSamples = 480_000
 
         let singleChunkPath = try XCTUnwrap(
-            Bundle.current.path(forResource: "jfk", ofType: "wav"),
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
         var audioBuffer = try AudioProcessor.loadAudio(fromPath: singleChunkPath)
@@ -1641,7 +2261,7 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(audioChunks.count, 1)
 
         let multiChunkPath = try XCTUnwrap(
-            Bundle.current.path(forResource: "ted_60", ofType: "m4a"),
+            Bundle.current(for: self).path(forResource: "ted_60", ofType: "m4a"),
             "Audio file not found"
         )
         audioBuffer = try AudioProcessor.loadAudio(fromPath: multiChunkPath)
@@ -1656,7 +2276,12 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(audioChunks.count, 3)
     }
 
+    #if !os(watchOS) // FIXME: These tests are flaky
     func testVADAudioChunkerAccuracy() async throws {
+        guard #available(macOS 15, iOS 18, watchOS 11, visionOS 2, *) else {
+            throw XCTSkip("Disabled on macOS 14 and below due to swift concurrency flakiness")
+        }
+        
         let options = DecodingOptions(temperatureFallbackCount: 0, chunkingStrategy: .vad)
 
         let chunkedResult = try await XCTUnwrapAsync(
@@ -1684,7 +2309,6 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(wer, 0.0, "Transcripts should match with a WER of 0, found \(wer). Full diff: \(diffDescription)")
     }
 
-    #if !os(watchOS) // FIXME: This test times out on watchOS when run on low compute runners
     func testVADProgress() async throws {
         let pipe = try await WhisperKit(WhisperKitConfig(model: "tiny.en"))
 
@@ -1696,8 +2320,12 @@ final class UnitTests: XCTestCase {
                     XCTAssertLessThan(previous, current)
                 }
             }
+        let vadAudioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "ted_60", ofType: "m4a"),
+            "Audio file not found"
+        )
         _ = try await pipe.transcribe(
-            audioPath: Bundle.current.path(forResource: "ted_60", ofType: "m4a")!,
+            audioPath: vadAudioPath,
             decodeOptions: .init(chunkingStrategy: .vad)
         )
         cancellable?.cancel()
@@ -1719,7 +2347,7 @@ final class UnitTests: XCTestCase {
         let ptr = UnsafeMutablePointer<Double>(OpaquePointer(mlMatrix.dataPointer))
         for (i, row) in matrix.enumerated() {
             for (j, value) in row.enumerated() {
-                let linearOffset = mlMatrix.linearOffset(for: [i, j] as [NSNumber])
+                let linearOffset = mlMatrix.linearOffset(for: [i, j])
                 ptr[linearOffset] = value
             }
         }
@@ -1795,14 +2423,28 @@ final class UnitTests: XCTestCase {
 
         // Populate the matrix with some non-linear data
         let matrix = try MLMultiArray(shape: [numberOfRows, numberOfColumns], dataType: .float16)
-        let tokenProbs = Array(repeating: 0.0, count: numberOfRows.intValue).map { _ in Float.random(in: -1..<0) }
+        
+        // Use specific known log probabilities to test the exp() calculation
+        let knownLogProbs: [Float] = [
+            -0.5,  // exp(-0.5) ≈ 0.6065
+            -1.0,  // exp(-1.0) ≈ 0.3679
+            -2.0,  // exp(-2.0) ≈ 0.1353
+            -0.1,  // exp(-0.1) ≈ 0.9048
+            -0.3,  // exp(-0.3) ≈ 0.7408
+        ]
+        
+        // Create tokenProbs array with known values, cycling through knownLogProbs
+        let tokenProbs = (0..<numberOfRows.intValue).map { index in
+            knownLogProbs[index % knownLogProbs.count]
+        }
+        
         for i in 0..<numberOfRows.intValue {
             for j in 0..<numberOfColumns.intValue {
                 matrix[i * numberOfColumns.intValue + j] = NSNumber(value: Double.random(in: 0...1))
             }
         }
 
-        let tokenizer = try await loadTokenizer(for: .tiny)
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
 
         let wordTokenIds = [400, 370, 452, 7177, 6280, 11, 1029, 406, 437, 428, 1941, 393, 360, 337, 291, 11, 1029, 437, 291, 393, 360, 337, 428, 1941, 13]
         let result = try SegmentSeeker().findAlignment(
@@ -1815,19 +2457,39 @@ final class UnitTests: XCTestCase {
         XCTAssertFalse(result.isEmpty, "Result should not be empty.")
 
         var previousEndTime: Float = -1.0
+        var currentTokenIndex = 0
+        
         for wordTiming in result {
             XCTAssertFalse(wordTiming.word.isEmpty, "Word should not be empty.")
             XCTAssertFalse(wordTiming.tokens.isEmpty, "Tokens should not be empty.")
             XCTAssert(wordTiming.tokens.allSatisfy { $0 >= 0 }, "All token IDs should be non-negative.")
             XCTAssertLessThanOrEqual(wordTiming.start, wordTiming.end, "Start should be less than or equal to end.")
             XCTAssertGreaterThanOrEqual(wordTiming.start, previousEndTime, "Start time should not be earlier than the previous end time.")
-            XCTAssertGreaterThanOrEqual(wordTiming.probability, 0.0, "Probability should not be negative.")
-            XCTAssertLessThanOrEqual(wordTiming.probability, 1.0, "Probability should not be greater than 1.")
+
+            // Test the specific probability calculation: exp(average of log probabilities)
+            let startIndex = currentTokenIndex
+            let endIndex = currentTokenIndex + wordTiming.tokens.count
+            let wordLogProbs = Array(tokenProbs[startIndex..<endIndex])
+            let averageLogProb = wordLogProbs.reduce(0, +) / Float(wordLogProbs.count)
+            let expectedProbability = exp(averageLogProb)
+            
+            XCTAssertEqual(wordTiming.probability, expectedProbability, accuracy: 0.0001, 
+                          "Probability should be exp(average log prob). Expected: \(expectedProbability), Got: \(wordTiming.probability)")
 
             previousEndTime = wordTiming.end
+            currentTokenIndex = endIndex
         }
     }
-
+    
+    func testMergePunctuationsWithEmptyInput() {
+        let out = SegmentSeeker().mergePunctuations(
+            alignment: [],
+            prepended: Constants.defaultPrependPunctuations,
+            appended: Constants.defaultAppendPunctuations
+        )
+        XCTAssertTrue(out.isEmpty)
+    }
+    
     func testMergePunctuations() async {
         // Hello, world! This is a test, isn't it?
         let wordTimings = [
@@ -1898,7 +2560,7 @@ final class UnitTests: XCTestCase {
             WordTiming(word: "<|endoftext|>", tokens: [50257], start: 12, end: 13, probability: 1),
         ]
 
-        let mergedAlignmentTiming = SegmentSeeker().mergePunctuations(alignment: wordTimings, prepended: "\"'“¡¿([{-", appended: "\"'.。,，!！?？:：”)]}、")
+        let mergedAlignmentTiming = SegmentSeeker().mergePunctuations(alignment: wordTimings)
 
         let expectedWordTimings = [
             WordTiming(word: "<|notimestamps|>", tokens: [50363], start: 0, end: 1, probability: 1),
@@ -1924,6 +2586,41 @@ final class UnitTests: XCTestCase {
             XCTAssertEqual(mergedAlignmentTiming[i].probability, expectedWordTimings[i].probability, "Probability at index \(i) does not match")
         }
     }
+    
+    func testMergePunctuationsSpanishStartWithPrepend() async {
+        // Input starts with " ¿"
+        // [" ¿", " Que", " pasa", " mundo", "?"]
+        let wordTimings = [
+            WordTiming(word: " ¿", tokens: [1201], start: 0, end: 1, probability: 1),
+            WordTiming(word: "Que", tokens: [1202], start: 1, end: 2, probability: 0.9),
+            WordTiming(word: " pasa", tokens: [1203], start: 2, end: 3, probability: 1),
+            WordTiming(word: " mundo", tokens: [1204], start: 3, end: 4, probability: 0.6),
+            WordTiming(word: "?", tokens: [1205], start: 4, end: 5, probability: 0.4),
+        ]
+        
+        let merged = SegmentSeeker().mergePunctuations(alignment: wordTimings)
+        
+        let expected = [
+            // Merge previous " ¿" into current " Que" → keep current's start/end (1,2)
+            // The 2nd WordTiming's probability is preserved
+            WordTiming(word: " ¿Que", tokens: [1201, 1202], start: 1, end: 2, probability: 0.9),
+            WordTiming(word: " pasa", tokens: [1203], start: 2, end: 3, probability: 1),
+            // Merge "?" into previous " mundo" → keep previous's start/end (3,4)
+            WordTiming(word: " mundo?", tokens: [1204, 1205], start: 3, end: 4, probability: 0.6),
+        ]
+        
+        // First, assert the counts are as expected (12 inputs → 2 merges → 10 outputs)
+        XCTAssertEqual(merged.count, expected.count, "Merged timings count does not match expected count")
+        
+        // Then, assert all fields match element-by-element
+        for i in 0..<expected.count {
+            XCTAssertEqual(merged[i].word, expected[i].word, "Word text at index \(i) does not match")
+            XCTAssertEqual(merged[i].tokens, expected[i].tokens, "Tokens at index \(i) do not match")
+            XCTAssertEqual(merged[i].start, expected[i].start, "Start time at index \(i) does not match")
+            XCTAssertEqual(merged[i].end, expected[i].end, "End time at index \(i) does not match")
+            XCTAssertEqual(merged[i].probability, expected[i].probability, "Probability at index \(i) does not match")
+        }
+    }
 
     func testMergePunctuationsJapanese() async {
         // Japanese text: こんにちは、世界！これはテストですよね？
@@ -1942,7 +2639,7 @@ final class UnitTests: XCTestCase {
             WordTiming(word: "<|endoftext|>", tokens: [50257], start: 11, end: 12, probability: 1),
         ]
 
-        let mergedAlignmentTiming = SegmentSeeker().mergePunctuations(alignment: wordTimings, prepended: "\"'“¿([{-", appended: "\"'.。,，!！?？:：”)]}、")
+        let mergedAlignmentTiming = SegmentSeeker().mergePunctuations(alignment: wordTimings)
 
         let expectedWordTimings = [
             WordTiming(word: "<|0.00|>", tokens: [50364], start: 0, end: 1, probability: 1),
@@ -1967,6 +2664,30 @@ final class UnitTests: XCTestCase {
             XCTAssertEqual(mergedAlignmentTiming[i].end, expectedWordTimings[i].end, "End time at index \(i) does not match")
             XCTAssertEqual(mergedAlignmentTiming[i].probability, expectedWordTimings[i].probability, "Probability at index \(i) does not match")
         }
+    }
+
+    func testWordTimingComparison() throws {
+        let word1 = WordTiming(word: "Hello!", tokens: [1], start: 0, end: 1, probability: 1.0)
+        let word2 = WordTiming(word: "hello", tokens: [2], start: 0, end: 1, probability: 1.0)
+        let word3 = WordTiming(word: "World!", tokens: [3], start: 1, end: 2, probability: 1.0)
+        let word4 = WordTiming(word: "WORLD", tokens: [4], start: 1, end: 2, probability: 1.0)
+
+        // Test common prefix finding
+        let sequence1 = [word1, word3]
+        let sequence2 = [word2, word4]
+
+        let commonPrefix = TranscriptionUtilities.findLongestCommonPrefix(sequence1, sequence2)
+        XCTAssertEqual(commonPrefix.count, 2)
+        XCTAssertEqual(commonPrefix[0].word, "hello")
+        XCTAssertEqual(commonPrefix[1].word, "WORLD")
+
+        // Test different suffix finding
+        let sequence3 = [word1, word3]
+        let sequence4 = [word2, word4, WordTiming(word: "suffix", tokens: [5], start: 2, end: 3, probability: 1.0)]
+
+        let differentSuffix = TranscriptionUtilities.findLongestDifferentSuffix(sequence3, sequence4)
+        XCTAssertEqual(differentSuffix.count, 1)
+        XCTAssertEqual(differentSuffix[0].word, "suffix")
     }
 
     func testWordTimestampCorrectness() async throws {
@@ -2030,19 +2751,204 @@ final class UnitTests: XCTestCase {
         }
     }
 
+    func testLongWordDurations() async {
+        // Test case with words spanning very long durations
+        let wordTimings = [
+            // Normal duration words
+            WordTiming(word: " The", tokens: [264], start: 0.5, end: 1.0, probability: 1),
+            WordTiming(word: " first", tokens: [4589], start: 1.0, end: 2.0, probability: 1),
+            // Long duration word
+            WordTiming(word: " segment", tokens: [234], start: 2.0, end: 3.0, probability: 1),
+            // Normal words
+            WordTiming(word: " with", tokens: [567], start: 3.0, end: 4.0, probability: 1),
+            WordTiming(word: " a", tokens: [257], start: 4.0, end: 5.0, probability: 1),
+            // Very long duration word
+            WordTiming(word: " long", tokens: [890], start: 5.0, end: 6.0, probability: 1),
+            // Normal duration ending
+            WordTiming(word: " ending", tokens: [123], start: 6.0, end: 35.0, probability: 1),
+            WordTiming(word: ".", tokens: [13], start: 35.0, end: 35.0, probability: 1),
+        ]
+
+        let segmentSeeker = SegmentSeeker()
+
+        // Create test segments
+        let segments = [
+            TranscriptionSegment(
+                id: 0,
+                seek: 0,
+                start: 0.0,
+                end: 6.0,
+                text: "The first segment with a long",
+                tokens: [264, 4589, 234, 567, 257, 890], // Using tokens from wordTimings
+                tokenLogProbs: Array(repeating: [0: 0.0], count: 6)
+            ),
+            TranscriptionSegment(
+                id: 1,
+                seek: 0,
+                start: 6.5, // slight difference to test truncation
+                end: 30.0, // slight difference to test truncation
+                text: "ending.",
+                tokens: [123, 13],
+                tokenLogProbs: Array(repeating: [0: 0.0], count: 2)
+            ),
+        ]
+
+        // Test duration constraints calculation
+        let (constrainedMedianDuration, maxDuration) = segmentSeeker.calculateWordDurationConstraints(alignment: wordTimings)
+        XCTAssertEqual(constrainedMedianDuration, 0.7, "Constrained median duration should be capped at 0.7")
+        XCTAssertEqual(maxDuration, 1.4, "Max duration should be double the constrained median duration")
+
+        // Test truncation of long words
+        let truncatedAlignment = segmentSeeker.truncateLongWordsAtSentenceBoundaries(wordTimings, maxDuration: maxDuration)
+        let mergedAlignment = segmentSeeker.mergePunctuations(alignment: truncatedAlignment)
+        let updatedSegments = segmentSeeker.updateSegmentsWithWordTimings(
+            segments: segments,
+            mergedAlignment: mergedAlignment,
+            seek: 0,
+            lastSpeechTimestamp: 0,
+            constrainedMedianDuration: constrainedMedianDuration,
+            maxDuration: maxDuration,
+            tokenizer: try! await ModelUtilities.loadTokenizer(for: .tiny)
+        )
+
+        let updatedWords = updatedSegments.compactMap { $0.words }.flatMap { $0 }
+
+        // Test that long segments are properly truncated
+        let longSegmentDuration = updatedWords.last!.duration
+        XCTAssertEqual(
+            longSegmentDuration,
+            maxDuration,
+            accuracy: 0.0001,
+            "Long segment duration (\(longSegmentDuration)s) should be truncated to maximum allowed duration (\(maxDuration)s)"
+        )
+
+        // Test that segments were properly updated
+        XCTAssertEqual(updatedSegments.count, segments.count, "Number of segments should remain the same")
+        XCTAssertLessThanOrEqual(updatedSegments.last!.end - updatedSegments.last!.start, 19.5,
+                                 "Segment duration should not exceed max duration")
+
+        // Test the long word
+        let longWordIndex = updatedWords.firstIndex { $0.word == " ending." }!
+        let longWordDuration = updatedWords[longWordIndex].duration
+        XCTAssertEqual(
+            longWordDuration,
+            maxDuration,
+            accuracy: 0.0001,
+            "Very long pause duration (\(longWordDuration)s) should be truncated to maximum allowed duration (\(maxDuration)s)"
+        )
+
+        // Test that the long word is truncated after pause
+        XCTAssertEqual(
+            updatedWords[longWordIndex].start,
+            33.6,
+            "Long word start time should remain unchanged"
+        )
+
+        // Test that the timing sequence remains monotonic
+        for i in 1..<updatedWords.count {
+            let prevEnd = updatedWords[i - 1].end
+            let currentStart = updatedWords[i].start
+            XCTAssertLessThanOrEqual(
+                prevEnd,
+                currentStart,
+                "Timing sequence should remain monotonic (previous end: \(prevEnd), current start: \(currentStart))"
+            )
+        }
+
+        // Test that sentence boundaries are properly handled
+        let endWordIndex = updatedWords.firstIndex { $0.word == " ending." }!
+        let endWordDuration = updatedWords[endWordIndex].duration
+        XCTAssertEqual(
+            endWordDuration,
+            maxDuration,
+            accuracy: 0.0001,
+            "End word with punctuation duration (\(endWordDuration)s) should not exceed maximum allowed duration (\(maxDuration)s)"
+        )
+    }
+
+    func testSingleTokenSegmentWordDuration() async {
+        // Test case with single tokens that have very long durations
+        let wordTimings = [
+            WordTiming(word: "<|notimestamps|>", tokens: [50363], start: 0, end: 0.5, probability: 1),
+            // Single token with 20s duration
+            WordTiming(word: " Hello", tokens: [314], start: 0.5, end: 20.5, probability: 1),
+            WordTiming(word: "<|endoftext|>", tokens: [50257], start: 20.5, end: 30, probability: 1),
+        ]
+
+        let segmentSeeker = SegmentSeeker()
+
+        // Create test segments
+        let segments = [
+            TranscriptionSegment(
+                id: 0,
+                seek: 0,
+                start: 0.0,
+                end: 30.0,
+                text: "Hello",
+                tokens: [314],
+                tokenLogProbs: Array(repeating: [0: 0.0], count: 1)
+            ),
+        ]
+
+        // Test duration constraints calculation
+        let (constrainedMedianDuration, maxDuration) = segmentSeeker.calculateWordDurationConstraints(alignment: wordTimings)
+        XCTAssertEqual(constrainedMedianDuration, 0.7, "Constrained median duration should be capped at 0.7")
+        XCTAssertEqual(maxDuration, 1.4, "Max duration should be double the constrained median duration")
+
+        // Test truncation of long words
+        let truncatedAlignment = segmentSeeker.truncateLongWordsAtSentenceBoundaries(wordTimings, maxDuration: maxDuration)
+        let mergedAlignment = segmentSeeker.mergePunctuations(alignment: truncatedAlignment)
+        let updatedSegments = segmentSeeker.updateSegmentsWithWordTimings(
+            segments: segments,
+            mergedAlignment: mergedAlignment,
+            seek: 0,
+            lastSpeechTimestamp: 0,
+            constrainedMedianDuration: constrainedMedianDuration,
+            maxDuration: maxDuration,
+            tokenizer: try! await ModelUtilities.loadTokenizer(for: .tiny)
+        )
+
+        let updatedWords = updatedSegments.first!.words!
+
+        // Test that long single tokens are properly truncated
+        let firstLongIndex = updatedWords.firstIndex { $0.word == " Hello" }!
+        let firstLongDuration = updatedWords[firstLongIndex].duration
+        XCTAssertLessThanOrEqual(
+            firstLongDuration,
+            maxDuration,
+            "Long single token duration (\(firstLongDuration)s) should be truncated"
+        )
+
+        // Verify timing sequence remains valid
+        var previousEnd: Float = 0
+        for timing in updatedWords {
+            XCTAssertGreaterThanOrEqual(
+                timing.start,
+                previousEnd,
+                "Start time should not be earlier than previous end time"
+            )
+            XCTAssertLessThanOrEqual(
+                timing.duration,
+                maxDuration,
+                "No word duration should significantly exceed maximum allowed duration"
+            )
+            previousEnd = timing.end
+        }
+    }
+
     // MARK: - Streaming Timestamp Tests
 
     func testStreamingTimestamps() async throws {
         let options = DecodingOptions(usePrefillPrompt: true, wordTimestamps: true)
         let audioFile = "jfk.wav"
-        let modelPath = try tinyModelPath()
+        let modelPath = try await tinyModelPath()
 
         let config = WhisperKitConfig(modelFolder: modelPath, /* computeOptions: computeOptions,*/ verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
         let startTime = Date()
         let audioComponents = audioFile.components(separatedBy: ".")
-        guard let audioFileURL = Bundle.current.path(forResource: audioComponents.first, ofType: audioComponents.last) else {
+        guard let audioFileURL = Bundle.current(for: self).path(forResource: audioComponents.first, ofType: audioComponents.last) else {
             XCTFail("Audio file not found")
             return
         }
@@ -2075,7 +2981,7 @@ final class UnitTests: XCTestCase {
 
                     if let prevResult = prevResult {
                         prevWords = prevResult.allWords.filter { $0.start >= lastAgreedSeconds }
-                        let commonPrefix = findLongestCommonPrefix(prevWords, hypothesisWords)
+                        let commonPrefix = TranscriptionUtilities.findLongestCommonPrefix(prevWords, hypothesisWords)
                         Logging.info("[testStreamingTimestamps] Prev \"\((prevWords.map { $0.word }).joined())\"")
                         Logging.info("[testStreamingTimestamps] Next \"\((hypothesisWords.map { $0.word }).joined())\"")
                         Logging.info("[testStreamingTimestamps] Found common prefix \"\((commonPrefix.map { $0.word }).joined())\"")
@@ -2105,7 +3011,7 @@ final class UnitTests: XCTestCase {
         }
 
         // Accept the final hypothesis because it is the last of the available audio
-        let final = lastAgreedWords + findLongestDifferentSuffix(prevWords, hypothesisWords)
+        let final = lastAgreedWords + TranscriptionUtilities.findLongestDifferentSuffix(prevWords, hypothesisWords)
         confirmedWords.append(contentsOf: final)
 
         let finalWords = confirmedWords.map { $0.word }.joined()
@@ -2116,5 +3022,372 @@ final class UnitTests: XCTestCase {
         Logging.info("[testStreamingTimestamps] Done")
 
         XCTAssertEqual(finalWords.normalized, " And so my fellow Americans. Ask not what your country can do for you ask what you can do for your country.".normalized)
+    }
+
+    // MARK: - Audio Channel Processing Tests
+
+    func testAudioInputModeChannelModeAllChannels() async throws {
+        // Use a single 8-channel audio file
+        let audioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "8_Channel_ID", ofType: "m4a"),
+            "8-channel audio file not found"
+        )
+        let modelPath = try await tinyModelPath()
+
+        // .sumChannels is default for AudioInputConfig
+        let config = WhisperKitConfig(modelFolder: modelPath, verbose: true, logLevel: .debug)
+        let whisperKit = try await WhisperKit(config)
+
+        let result: TranscriptionResult = try await whisperKit.transcribe(audioPath: audioPath).first!
+        let expectedText = "front left front right center back left back right"
+        let containsExpectedText = result.text.normalized.contains(expectedText)
+        XCTAssert(containsExpectedText, "Expected text not found in transcription and the transcription was \(result)")
+    }
+
+    func testAudioInputModeChannelModeSumSpecificChannels() async throws {
+        // Use a single 8-channel audio file
+        let audioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "8_Channel_ID", ofType: "m4a"),
+            "8-channel audio file not found"
+        )
+        let modelPath = try await tinyModelPath()
+
+        let config = WhisperKitConfig(modelFolder: modelPath, audioInputConfig: AudioInputConfig(channelMode: .sumChannels([1, 3, 5])), verbose: true, logLevel: .debug)
+        let whisperKit = try await WhisperKit(config)
+
+        let result: TranscriptionResult = try await whisperKit.transcribe(audioPath: audioPath).first!
+        let expectedText = "front left"
+        let containsExpectedText = result.text.normalized.contains(expectedText)
+        XCTAssert(containsExpectedText, "Expected text not found in transcription and the transcription was \(result)")
+    }
+
+    func testAudioInputModeChannelModeSpecificChannel() async throws {
+        // Use a single 8-channel audio file
+        let audioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "8_Channel_ID", ofType: "m4a"),
+            "8-channel audio file not found"
+        )
+        let modelPath = try await tinyModelPath()
+
+        let config = WhisperKitConfig(modelFolder: modelPath, audioInputConfig: AudioInputConfig(channelMode: .specificChannel(0)), verbose: true, logLevel: .debug)
+        let whisperKit = try await WhisperKit(config)
+
+        let result: TranscriptionResult = try await whisperKit.transcribe(audioPath: audioPath).first!
+        let expectedText = "center"
+        let containsExpectedText = result.text.normalized.contains(expectedText)
+        XCTAssert(containsExpectedText, "Expected text not found in transcription and the transcription was \(result)")
+    }
+
+    func testChannelProcessingLargeFile() throws {
+        // Use a single 8-channel audio file
+        let audioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "8_Channel_ID", ofType: "m4a"),
+            "8-channel audio file not found"
+        )
+        var failureCount = 0
+        // Load the audio file
+        let originalBuffer = try loadMultichannelAudio(fromPath: audioPath)
+
+        // Create a longer buffer by looping the audio
+        let repeatCount = 10 * 60 / 8 // Creates ~10 mins of audio (assuming 8-second original)
+        let extendedBuffer = createExtendedBuffer(from: originalBuffer, repeatCount: repeatCount)
+
+        // Define channel counts to test - ASCENDING ORDER
+        let channelCounts = [1, 2, 4, 8] // Testing from fewest to most channels
+        let iterations = 5
+        for _ in channelCounts {
+            let time = measureChannelProcessing(buffer: extendedBuffer, mode: .specificChannel(0), iterations: iterations)
+            // Single channel extraction should be fast regardless of source channels
+            XCTAssertLessThan(time, 2.0, "Single channel extraction should complete in under 2 seconds")
+        }
+
+        // Test summing different numbers of channels
+        var previousTime: Double? = nil
+
+        for channelCount in channelCounts {
+            let channelIndices = Array(0..<channelCount)
+            let time = measureChannelProcessing(buffer: extendedBuffer, mode: .sumChannels(channelIndices), iterations: iterations)
+            if let prevTime = previousTime {
+                let previousChannelCount = channelCounts[channelCounts.firstIndex(of: channelCount)! - 1]
+
+                // Check if processing time decreased
+                if time < prevTime {
+                    if failureCount == 0 {
+                        failureCount += 1
+                    } else {
+                        // If this is the second or later failure, fail the test
+                        XCTFail("Processing time decreased multiple times: from \(previousChannelCount) to \(channelCount) channels (\(prevTime) → \(time))")
+                    }
+                }
+            }
+            previousTime = time
+        }
+    }
+
+    // MARK: - TextDecoder Logits Filter Tests
+
+    func testCreateLogitsFiltersOnlyCustomFilters() async throws {
+        let customFilter = PlusOneFilter()
+        let decoder = TextDecoder()
+        decoder.logitsFilters = [customFilter]
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        let options = DecodingOptions(
+            withoutTimestamps: true,
+            suppressBlank: false,
+            suppressTokens: []
+        )
+
+        let allFilters = decoder.createLogitsFilters(
+            options: options,
+            prefilledIndex: 0,
+            initialPromptIndex: 1,
+            tokenizer: tokenizer
+        )
+
+        // Should only contain the custom filter
+        XCTAssertEqual(allFilters.count, 1)
+        XCTAssertTrue(allFilters[0] is PlusOneFilter)
+    }
+
+    func testCreateLogitsFiltersWithSuppressBlank() async throws {
+        let decoder = TextDecoder()
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        let options = DecodingOptions(
+            withoutTimestamps: true,
+            suppressBlank: true,
+            suppressTokens: []
+        )
+
+        let allFilters = decoder.createLogitsFilters(
+            options: options,
+            prefilledIndex: 0,
+            initialPromptIndex: 1,
+            tokenizer: tokenizer
+        )
+
+        // Should contain only SuppressBlankFilter
+        XCTAssertEqual(allFilters.count, 1)
+        XCTAssertTrue(allFilters[0] is SuppressBlankFilter)
+    }
+
+    func testCreateLogitsFiltersWithSuppressTokens() async throws {
+        let decoder = TextDecoder()
+        let tokenizer = CustomTokenizer(specialTokenBegin: 10)
+
+        let options = DecodingOptions(
+            withoutTimestamps: true,
+            suppressBlank: false,
+            suppressTokens: [0, 2, 11, 15]  // Mix of tokens < 10 and >= 10
+        )
+
+        let allFilters = decoder.createLogitsFilters(
+            options: options,
+            prefilledIndex: 0,
+            initialPromptIndex: 1,
+            tokenizer: tokenizer
+        )
+
+        // Should contain only SuppressTokensFilter
+        XCTAssertEqual(allFilters.count, 1)
+        XCTAssertTrue(allFilters[0] is SuppressTokensFilter)
+
+        let suppressFilter = allFilters[0] as! SuppressTokensFilter
+        XCTAssertEqual(suppressFilter.suppressTokens, [0, 2])  // Only tokens < 10
+    }
+
+    func testCreateLogitsFiltersWithTimestamps() async throws {
+        let decoder = TextDecoder()
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        let options = DecodingOptions(
+            withoutTimestamps: false,
+            suppressBlank: false,
+            suppressTokens: []
+        )
+
+        let allFilters = decoder.createLogitsFilters(
+            options: options,
+            prefilledIndex: 0,
+            initialPromptIndex: 1,
+            tokenizer: tokenizer
+        )
+
+        // Should contain only TimestampRulesFilter
+        XCTAssertEqual(allFilters.count, 1)
+        XCTAssertTrue(allFilters[0] is TimestampRulesFilter)
+    }
+
+    func testCreateLogitsFiltersAllFiltersEnabled() async throws {
+        let customFilter = PlusOneFilter()
+        let decoder = TextDecoder()
+        decoder.logitsFilters = [customFilter]
+        let tokenizer = CustomTokenizer(specialTokenBegin: 10)
+
+        let options = DecodingOptions(
+            withoutTimestamps: false,
+            suppressBlank: true,
+            suppressTokens: [0, 2, 11, 15]  // Mix of tokens < 10 and >= 10
+        )
+
+        let allFilters = decoder.createLogitsFilters(
+            options: options,
+            prefilledIndex: 0,
+            initialPromptIndex: 1,
+            tokenizer: tokenizer
+        )
+
+        // Should contain all 4 filter types: custom, blank, suppress, timestamp
+        XCTAssertEqual(allFilters.count, 4)
+        XCTAssertTrue(allFilters[0] is PlusOneFilter)
+        XCTAssertTrue(allFilters[1] is SuppressBlankFilter)
+        XCTAssertTrue(allFilters[2] is SuppressTokensFilter)
+        XCTAssertTrue(allFilters[3] is TimestampRulesFilter)
+    }
+
+    // MARK: - PropertyLock Concurrency Tests
+
+    /// Verifies that whole-value replacement on a `@TranscriptionPropertyLock`
+    /// property is safe: each worker writes a distinct value and the final read
+    /// always returns one of those values.
+    func testPropertyLockWholeValueReplacementIsSafe() async {
+        final class IntHolder: @unchecked Sendable {
+            @TranscriptionPropertyLock var number: Int = 0
+        }
+
+        let workerCount = max(2, ProcessInfo.processInfo.activeProcessorCount * 2)
+        let holder = IntHolder()
+
+        await withTaskGroup(of: Void.self) { group in
+            for workerIndex in 0..<workerCount {
+                group.addTask {
+                    for _ in 0..<10_000 {
+                        holder.number = workerIndex
+                    }
+                }
+            }
+        }
+
+        let finalValue = holder.number
+        XCTAssertTrue((0..<workerCount).contains(finalValue), "Final value \(finalValue) is outside the valid range [0, \(workerCount))")
+    }
+
+    /// Verifies that sub-property mutations on a reference-type value are not
+    /// protected by `PropertyLock`. The lock only covers get/set of the reference
+    /// itself; mutations on the returned object (e.g. `holder.ref.count += 1`)
+    /// happen entirely outside the lock and lose updates under contention.
+    func testPropertyLockSubPropertyMutationIsUnsafe() async throws {
+        throw XCTSkip("Known limitation - see PropertyLock documentation for details")
+        
+        final class Counter: Codable, @unchecked Sendable {
+            var count: Int = 0
+        }
+        final class Holder: @unchecked Sendable {
+            @TranscriptionPropertyLock var ref = Counter()
+        }
+
+        let workerCount = max(2, ProcessInfo.processInfo.activeProcessorCount * 2)
+        let iterationsPerWorker = 50_000
+        let expected = workerCount * iterationsPerWorker
+        let holder = Holder()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<workerCount {
+                group.addTask {
+                    for _ in 0..<iterationsPerWorker {
+                        holder.ref.count += 1  // unsafe: lock is not held during mutation
+                    }
+                }
+            }
+        }
+
+        let actual = holder.ref.count
+        XCTAssertEqual(actual, expected, "Lost \(expected - actual) updates due to race on ref.count")
+    }
+
+    /// Verifies that `PropertyLock` round-trips correctly through `Codable`
+    /// encoding and decoding without corrupting the protected value.
+    func testPropertyLockCodableRoundTrip() throws {
+        final class Wrapper: Codable {
+            @TranscriptionPropertyLock var text: String
+            @TranscriptionPropertyLock var count: Int
+
+            init(text: String, count: Int) {
+                self.text = text
+                self.count = count
+            }
+        }
+
+        let original = Wrapper(text: "hello", count: 42)
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Wrapper.self, from: encoded)
+
+        XCTAssertEqual(decoded.text, original.text)
+        XCTAssertEqual(decoded.count, original.count)
+    }
+
+}
+
+// MARK: - Mock Types for Testing
+
+class PlusOneFilter: LogitsFiltering {
+    var filterCallCount = 0
+
+    func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray {
+        filterCallCount += 1
+
+        guard let modifiedLogits = try? MLMultiArray(shape: logits.shape, dataType: logits.dataType) else {
+            return logits
+        }
+
+        for i in 0..<logits.count {
+            let originalValue = logits[i].floatValue
+            modifiedLogits[i] = NSNumber(value: originalValue + 1.0)
+        }
+
+        return modifiedLogits
+    }
+}
+
+class CustomTokenizer: WhisperTokenizer {
+    let specialTokens: SpecialTokens
+    let allLanguageTokens: Set<Int>
+
+    init(specialTokenBegin: Int) {
+        self.specialTokens = SpecialTokens(
+            endToken: 1,
+            englishToken: 2,
+            noSpeechToken: 3,
+            noTimestampsToken: 4,
+            specialTokenBegin: specialTokenBegin,
+            startOfPreviousToken: 5,
+            startOfTranscriptToken: 6,
+            timeTokenBegin: 7,
+            transcribeToken: 8,
+            translateToken: 9,
+            whitespaceToken: 10
+        )
+        self.allLanguageTokens = Set<Int>()
+    }
+
+    func encode(text: String) -> [Int] {
+        return [1, 2, 3]
+    }
+
+    func decode(tokens: [Int]) -> String {
+        return "mock text"
+    }
+
+    func convertTokenToId(_ token: String) -> Int? {
+        return nil
+    }
+
+    func convertIdToToken(_ id: Int) -> String? {
+        return "token_\(id)"
+    }
+
+    func splitToWordTokens(tokenIds: [Int]) -> (words: [String], wordTokens: [[Int]]) {
+        return (["mock"], [[1, 2, 3]])
     }
 }

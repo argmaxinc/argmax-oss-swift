@@ -1,0 +1,11 @@
+generate:
+  - types
+  - server
+
+accessModifier: internal
+namingStrategy: idiomatic
+
+filter:
+  paths:
+    - /audio/transcriptions
+    - /audio/translations

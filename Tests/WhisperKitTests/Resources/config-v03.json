@@ -1,0 +1,192 @@
+{
+    "name": "whisperkit-coreml",
+    "version": "0.3",
+    "device_support": [
+        {
+            "chips": "A12, A13, S9, S10",
+            "identifiers": [
+                "iPhone11",
+                "iPhone12",
+                "Watch7",
+                "Watch8"
+            ],
+            "models": {
+                "default": "openai_whisper-tiny",
+                "supported": [
+                    "openai_whisper-tiny",
+                    "openai_whisper-tiny.en",
+                    "openai_whisper-base",
+                    "openai_whisper-base.en"
+                ]
+            }
+        },
+        {
+            "chips": "A14",
+            "identifiers": [
+                "iPhone13",
+                "iPad13,1",
+                "iPad13,2",
+                "iPad13,18",
+                "iPad13,19"
+            ],
+            "models": {
+                "default": "openai_whisper-base",
+                "supported": [
+                    "openai_whisper-tiny",
+                    "openai_whisper-tiny.en",
+                    "openai_whisper-base",
+                    "openai_whisper-base.en",
+                    "openai_whisper-small",
+                    "openai_whisper-small.en"
+                ]
+            }
+        },
+        {
+            "chips": "A15, A16, A17 Pro, A18",
+            "identifiers": [
+                "iPhone14",
+                "iPhone15",
+                "iPhone16",
+                "iPhone17",
+                "iPad14,1",
+                "iPad14,2",
+                "iPad15,7",
+                "iPad15,8",
+                "iPad16,1",
+                "iPad16,2"
+            ],
+            "models": {
+                "default": "openai_whisper-base",
+                "supported": [
+                    "openai_whisper-tiny",
+                    "openai_whisper-tiny.en",
+                    "openai_whisper-base",
+                    "openai_whisper-base.en",
+                    "openai_whisper-small",
+                    "openai_whisper-small.en",
+                    "openai_whisper-large-v2_949MB",
+                    "openai_whisper-large-v2_turbo_955MB",
+                    "openai_whisper-large-v3_947MB",
+                    "openai_whisper-large-v3_turbo_954MB",
+                    "distil-whisper_distil-large-v3_594MB",
+                    "distil-whisper_distil-large-v3_turbo_600MB",
+                    "openai_whisper-large-v3-v20240930_626MB",
+                    "openai_whisper-large-v3-v20240930_turbo_632MB"
+                ]
+            }
+        },
+        {
+            "chips": "M1",
+            "identifiers": [
+                "MacBookPro17,1",
+                "MacBookPro18,1",
+                "MacBookPro18,2",
+                "MacBookPro18,3",
+                "MacBookPro18,4",
+                "MacBookAir10,1",
+                "Macmini9,1",
+                "iMac21,1",
+                "iMac21,2",
+                "Mac13",
+                "iPad13,4",
+                "iPad13,5",
+                "iPad13,6",
+                "iPad13,7",
+                "iPad13,8",
+                "iPad13,9",
+                "iPad13,10",
+                "iPad13,11",
+                "iPad13,16",
+                "iPad13,17"
+            ],
+            "models": {
+                "default": "openai_whisper-large-v3-v20240930_626MB",
+                "supported": [
+                    "openai_whisper-tiny",
+                    "openai_whisper-tiny.en",
+                    "openai_whisper-base",
+                    "openai_whisper-base.en",
+                    "openai_whisper-small",
+                    "openai_whisper-small.en",
+                    "openai_whisper-large-v2",
+                    "openai_whisper-large-v2_949MB",
+                    "openai_whisper-large-v3",
+                    "openai_whisper-large-v3_947MB",
+                    "distil-whisper_distil-large-v3",
+                    "distil-whisper_distil-large-v3_594MB",
+                    "openai_whisper-large-v3-v20240930_626MB"
+                ]
+            }
+        },
+        {
+            "chips": "M2, M3, M4",
+            "identifiers": [
+                "Mac14",
+                "Mac15",
+                "Mac16",
+                "iPad14,3",
+                "iPad14,4",
+                "iPad14,5",
+                "iPad14,6",
+                "iPad14,8",
+                "iPad14,9",
+                "iPad14,10",
+                "iPad14,11",
+                "iPad15",
+                "iPad16"
+            ],
+            "models": {
+                "default": "openai_whisper-large-v3-v20240930",
+                "supported": [
+                    "openai_whisper-tiny",
+                    "openai_whisper-tiny.en",
+                    "openai_whisper-base",
+                    "openai_whisper-base.en",
+                    "openai_whisper-small",
+                    "openai_whisper-small.en",
+                    "openai_whisper-large-v2",
+                    "openai_whisper-large-v2_949MB",
+                    "openai_whisper-large-v2_turbo",
+                    "openai_whisper-large-v2_turbo_955MB",
+                    "openai_whisper-large-v3",
+                    "openai_whisper-large-v3_947MB",
+                    "openai_whisper-large-v3_turbo",
+                    "openai_whisper-large-v3_turbo_954MB",
+                    "distil-whisper_distil-large-v3",
+                    "distil-whisper_distil-large-v3_594MB",
+                    "distil-whisper_distil-large-v3_turbo",
+                    "distil-whisper_distil-large-v3_turbo_600MB",
+                    "openai_whisper-large-v3-v20240930",
+                    "openai_whisper-large-v3-v20240930_turbo",
+                    "openai_whisper-large-v3-v20240930_626MB",
+                    "openai_whisper-large-v3-v20240930_turbo_632MB"
+                ]
+            }
+        }
+    ],
+    "model_checksums": {
+        "distil-whisper_distil-large-v3": "9cd8271143b919402ae776c30b479565",
+        "distil-whisper_distil-large-v3_594MB": "ca532f45ddbf8a3d241132cc5cf41639",
+        "distil-whisper_distil-large-v3_turbo": "b8638452c6568dfe33a33bfcc2bc6aca",
+        "distil-whisper_distil-large-v3_turbo_600MB": "81746b4b1afbbb01a8ae9ea452460d88",
+        "openai_whisper-base.en": "fbcfd586f15e2952251b1d3257f18471",
+        "openai_whisper-base": "36e60501ad0f01c1a5719e83a1f63f20",
+        "openai_whisper-large-v2": "21b86c07318aeeef54598f15b7903979",
+        "openai_whisper-large-v2_949MB": "71bad4e1566749d1060eda42308d9fb4",
+        "openai_whisper-large-v2_turbo": "7734959b6550e7b5c2d732bf2b7acd23",
+        "openai_whisper-large-v2_turbo_955MB": "cb6411862a48ec75325572081f01e5b5",
+        "openai_whisper-large-v3-v20240930": "17ebd78ff7edfa59001b554e9cc4c021",
+        "openai_whisper-large-v3-v20240930_547MB": "c945dad68449ac3c78ecb2d561ac189d",
+        "openai_whisper-large-v3-v20240930_626MB": "578fe5a07f4eb7e4187c920bca571aa5",
+        "openai_whisper-large-v3-v20240930_turbo": "dfbf09ab741af1d5400ddbd07bb37dad",
+        "openai_whisper-large-v3-v20240930_turbo_632MB": "33954440dbd785ca1828afe25514f5a5",
+        "openai_whisper-large-v3": "a6f24dc72785722e9cea89e227856dfe",
+        "openai_whisper-large-v3_947MB": "ef6b0e9622a046ce2361b4c72307877f",
+        "openai_whisper-large-v3_turbo": "c550fbdea70c5784d322c0a427f8b5cd",
+        "openai_whisper-large-v3_turbo_954MB": "e639c4bb98d905064ef5dd38757dd9d1",
+        "openai_whisper-small.en": "38efe6a00706bbdb995795c67a836e5e",
+        "openai_whisper-small": "f1d21adb950bc9be5d5343bcdeccd23b",
+        "openai_whisper-tiny.en": "e1183fd55448923b1ce43a2da67aa21f",
+        "openai_whisper-tiny": "7147518a3d68ddbea0691e04cfffa4ff"
+    }
+}

@@ -11,14 +11,11 @@ public protocol FeatureExtractorOutputType {}
 extension MLMultiArray: FeatureExtractorOutputType {}
 
 public protocol FeatureExtracting {
-    associatedtype OutputType: FeatureExtractorOutputType
-
     var melCount: Int? { get }
     var windowSamples: Int? { get }
-    func logMelSpectrogram(fromAudio inputAudio: MLMultiArray) async throws -> OutputType?
+    func logMelSpectrogram(fromAudio inputAudio: any AudioProcessorOutputType) async throws -> (any FeatureExtractorOutputType)?
 }
 
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
     public var model: MLModel?
 
@@ -37,10 +34,13 @@ open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
         guard inputDescription.type == .multiArray else { return nil }
         guard let shapeConstraint = inputDescription.multiArrayConstraint else { return nil }
         let shape = shapeConstraint.shape.map { $0.intValue }
-        return shape[0]  // The audio input is a 1D array
+        return shape[0] // The audio input is a 1D array
     }
 
-    public func logMelSpectrogram(fromAudio inputAudio: MLMultiArray) async throws -> MLMultiArray? {
+    open func logMelSpectrogram(fromAudio inputAudio: any AudioProcessorOutputType) async throws -> (any FeatureExtractorOutputType)? {
+        guard let audioArray = inputAudio as? MLMultiArray else {
+            throw WhisperError.audioProcessingFailed("FeatureExtractor input must be MLMultiArray")
+        }
         guard let model else {
             throw WhisperError.modelsUnavailable()
         }
@@ -49,10 +49,9 @@ open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
         let interval = Logging.beginSignpost("ExtractAudioFeatures", signposter: Logging.FeatureExtractor.signposter)
         defer { Logging.endSignpost("ExtractAudioFeatures", interval: interval, signposter: Logging.FeatureExtractor.signposter) }
 
-        let modelInputs = MelSpectrogramInput(audio: inputAudio)
+        let modelInputs = MelSpectrogramInput(audio: audioArray)
         let outputFeatures = try await model.asyncPrediction(from: modelInputs, options: MLPredictionOptions())
         let output = MelSpectrogramOutput(features: outputFeatures)
         return output.melspectrogramFeatures
     }
-
 }
