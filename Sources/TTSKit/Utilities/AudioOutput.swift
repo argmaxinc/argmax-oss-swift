@@ -39,6 +39,8 @@ public class AudioOutput: @unchecked Sendable {
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var engineStartDeferred: Bool = false
+    var playbackCallback: PlaybackCallback = nil
+    public private(set) var isOutputSuppressed = false
 
     /// Pre-buffer threshold in seconds. `nil` means not yet configured - frames
     /// accumulate in `pendingFrames` until `setBufferDuration` is called.
@@ -110,6 +112,15 @@ public class AudioOutput: @unchecked Sendable {
             preconditionFailure("AVAudioFormat init failed for PCM Float32 \(newRate)Hz mono - this is an invariant violation")
         }
         audioFormat = format
+    }
+
+    /// Suppress or restore audible playback output.
+    ///
+    /// This updates the active engine immediately when playback is in progress and
+    /// also becomes the default for the next `startPlayback()` call.
+    public func setOutputSuppressed(_ isSuppressed: Bool) {
+        isOutputSuppressed = isSuppressed
+        audioEngine?.mainMixerNode.outputVolume = isSuppressed ? 0 : 1
     }
 
     /// Current playback position in seconds, based on the audio engine's render timeline.
@@ -521,6 +532,7 @@ public class AudioOutput: @unchecked Sendable {
 
         self.audioEngine = engine
         self.playerNode = player
+        setOutputSuppressed(isOutputSuppressed)
     }
 
     /// Enqueue a chunk of audio samples for playback.
@@ -672,7 +684,14 @@ public class AudioOutput: @unchecked Sendable {
         expectedPlaybackEnd = max(expectedPlaybackEnd, now) + bufferSeconds
         scheduledAudioDuration += bufferSeconds
 
-        player.scheduleBuffer(buffer)
+        if let playbackCallback = self.playbackCallback {
+            let playedSamples = samples
+            player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
+                playbackCallback(playedSamples)
+            }
+        } else {
+            player.scheduleBuffer(buffer)
+        }
     }
 
     /// Stop playback and tear down the audio engine.
