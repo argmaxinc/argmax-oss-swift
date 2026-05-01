@@ -158,27 +158,3 @@ public struct TranscriptionUtilities {
     }
 }
 
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TranscriptionUtilities.formatSegments(_:withTimestamps:)` instead.")
-public func formatSegments(_ segments: [TranscriptionSegment], withTimestamps: Bool = true) -> [String] {
-    return TranscriptionUtilities.formatSegments(segments, withTimestamps: withTimestamps)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TranscriptionUtilities.findLongestCommonPrefix(_:_:)` instead.")
-public func findLongestCommonPrefix(_ words1: [WordTiming], _ words2: [WordTiming]) -> [WordTiming] {
-    return TranscriptionUtilities.findLongestCommonPrefix(words1, words2)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TranscriptionUtilities.findLongestDifferentSuffix(_:_:)` instead.")
-public func findLongestDifferentSuffix(_ words1: [WordTiming], _ words2: [WordTiming]) -> [WordTiming] {
-    TranscriptionUtilities.findLongestDifferentSuffix(words1, words2)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TranscriptionUtilities.mergeTranscriptionResults(_:confirmedWords:)` instead.")
-public func mergeTranscriptionResults(_ results: [TranscriptionResult?], confirmedWords: [WordTiming]? = nil) -> TranscriptionResult {
-    return TranscriptionUtilities.mergeTranscriptionResults(results, confirmedWords: confirmedWords)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TranscriptionUtilities.updateSegmentTimings(segment:seekTime:)` instead.")
-public func updateSegmentTimings(segment: TranscriptionSegment, seekTime: Float) -> TranscriptionSegment {
-    return TranscriptionUtilities.updateSegmentTimings(segment: segment, seekTime: seekTime)
-}

@@ -44,16 +44,3 @@ public extension String {
         trimmingCharacters(in: Constants.specialTokenCharacters)
     }
 }
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `FileManager.resolveAbsolutePath(_:)` instead.")
-public func resolveAbsolutePath(_ inputPath: String) -> String {
-    return FileManager.resolveAbsolutePath(inputPath)
-}
-
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `ModelUtilities.formatModelFiles(_:)` instead.")
-public extension WhisperKit {
-    static func formatModelFiles(_ modelFiles: [String]) -> [String] {
-        return ModelUtilities.formatModelFiles(modelFiles)
-    }
-}

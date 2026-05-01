@@ -93,16 +93,6 @@ public protocol TextDecoding {
         callback: TranscriptionCallback?
     ) async throws -> DecodingResult
 
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
-    @_disfavoredOverload
-    func decodeText(
-        from encoderOutput: MLMultiArray,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options decoderOptions: DecodingOptions,
-        callback: TranscriptionCallback?
-    ) async throws -> [DecodingResult]
-
     func detectLanguage(
         from encoderOutput: any AudioEncoderOutputType,
         using decoderInputs: any DecodingInputsType,
@@ -110,16 +100,6 @@ public protocol TextDecoding {
         options: DecodingOptions,
         temperature: FloatType
     ) async throws -> DecodingResult
-
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
-    @_disfavoredOverload
-    func detectLanguage(
-        from encoderOutput: MLMultiArray,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options: DecodingOptions,
-        temperature: FloatType
-    ) async throws -> [DecodingResult]
 
     static func updateKVCache(
         keyTensor: MLMultiArray,
@@ -131,112 +111,6 @@ public protocol TextDecoding {
 }
 
 public extension TextDecoding {
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
-    func decodeText(
-        from encoderOutput: MLMultiArray,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options decoderOptions: DecodingOptions,
-        callback: TranscriptionCallback?
-    ) async throws -> [DecodingResult] {
-        let result: DecodingResult = try await decodeText(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: decoderOptions,
-            callback: callback
-        )
-        return [result]
-    }
-
-    // Add default conformance for protocol
-    func decodeText(
-        from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: any DecodingInputsType,
-        sampler tokenSampler: TokenSampling,
-        options decoderOptions: DecodingOptions,
-        callback: TranscriptionCallback?
-    ) async throws -> DecodingResult {
-        let result: DecodingResult = try await decodeText(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: decoderOptions,
-            callback: callback
-        )
-        return result
-    }
-
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `decodeText(from:using:sampler:options:callback:) async throws -> DecodingResult` instead.")
-    func decodeText(
-        from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options decoderOptions: DecodingOptions,
-        callback: TranscriptionCallback?
-    ) async throws -> DecodingResult {
-        let result: DecodingResult = try await decodeText(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: decoderOptions,
-            callback: callback
-        )
-        return result
-    }
-
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
-    func detectLanguage(
-        from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options: DecodingOptions,
-        temperature: FloatType
-    ) async throws -> DecodingResult {
-        let result: DecodingResult = try await detectLanguage(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: options,
-            temperature: temperature
-        )
-        return result
-    }
-
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
-    func detectLanguage(
-        from encoderOutput: MLMultiArray,
-        using decoderInputs: DecodingInputs,
-        sampler tokenSampler: TokenSampling,
-        options: DecodingOptions,
-        temperature: FloatType
-    ) async throws -> [DecodingResult] {
-        let result: DecodingResult = try await detectLanguage(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: options,
-            temperature: temperature
-        )
-        return [result]
-    }
-
-    func detectLanguage(
-        from encoderOutput: any AudioEncoderOutputType,
-        using decoderInputs: any DecodingInputsType,
-        sampler tokenSampler: TokenSampling,
-        options: DecodingOptions,
-        temperature: FloatType
-    ) async throws -> DecodingResult {
-        let result: DecodingResult = try await detectLanguage(
-            from: encoderOutput,
-            using: decoderInputs,
-            sampler: tokenSampler,
-            options: options,
-            temperature: temperature
-        )
-        return result
-    }
 
     func prepareDecoderInputs(withPrompt initialPrompt: [Int]) throws -> any DecodingInputsType {
         let tokenShape = [NSNumber(value: 1), NSNumber(value: initialPrompt.count)]
@@ -508,27 +382,27 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
     public init() {}
 
     public var supportsWordTimestamps: Bool {
-        return ModelUtilities.getModelOutputDimention(model, named: "alignment_heads_weights", position: 0) != nil
+        return ModelUtilities.getModelOutputDimension(model, named: "alignment_heads_weights", position: 0) != nil
     }
 
     public var logitsSize: Int? {
-        return ModelUtilities.getModelOutputDimention(model, named: "logits", position: 2)
+        return ModelUtilities.getModelOutputDimension(model, named: "logits", position: 2)
     }
 
     public var kvCacheEmbedDim: Int? {
-        return ModelUtilities.getModelInputDimention(model, named: "key_cache", position: 1)
+        return ModelUtilities.getModelInputDimension(model, named: "key_cache", position: 1)
     }
 
     public var kvCacheMaxSequenceLength: Int? {
-        return ModelUtilities.getModelInputDimention(model, named: "key_cache", position: 3)
+        return ModelUtilities.getModelInputDimension(model, named: "key_cache", position: 3)
     }
 
     public var windowSize: Int? {
-        return ModelUtilities.getModelInputDimention(model, named: "encoder_output_embeds", position: 3)
+        return ModelUtilities.getModelInputDimension(model, named: "encoder_output_embeds", position: 3)
     }
 
     public var embedSize: Int? {
-        return ModelUtilities.getModelInputDimention(model, named: "encoder_output_embeds", position: 1)
+        return ModelUtilities.getModelInputDimension(model, named: "encoder_output_embeds", position: 1)
     }
 
     /// Override default so we an unload the prefill data as well

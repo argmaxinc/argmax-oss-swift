@@ -312,7 +312,7 @@ struct WhisperAXWatchView: View {
             }
         }
 
-        localModels = WhisperKit.formatModelFiles(localModels)
+        localModels = ModelUtilities.formatModelFiles(localModels)
         for model in localModels {
             if !availableModels.contains(model),
                !disabledModels.contains(model)
@@ -523,7 +523,7 @@ struct WhisperAXWatchView: View {
             let checkWindow = Int(compressionCheckWindow)
             if currentTokens.count > checkWindow {
                 let checkTokens: [Int] = currentTokens.suffix(checkWindow)
-                let compressionRatio = compressionRatio(of: checkTokens)
+                let compressionRatio = TextUtilities.compressionRatio(of: checkTokens)
                 if compressionRatio > options.compressionRatioThreshold! {
                     return false
                 }
