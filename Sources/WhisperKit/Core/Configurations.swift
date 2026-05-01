@@ -135,7 +135,6 @@ open class WhisperKitConfig {
 ///   - sampleLength: The maximum number of tokens to sample.
 ///   - topK: Number of candidates when sampling with non-zero temperature.
 ///   - usePrefillPrompt: If true, the prefill tokens will be forced according to task and language settings.
-///   - usePrefillCache: If true, the kv cache will be prefilled based on the prefill data mlmodel.
 ///   - detectLanguage: Use this in conjuntion with `usePrefillPrompt: true` to detect the language of the input audio.
 ///   - skipSpecialTokens: Whether to skip special tokens in the output.
 ///   - withoutTimestamps: Whether to include timestamps in the transcription result.
@@ -163,7 +162,6 @@ public struct DecodingOptions: Codable, Sendable {
     public var sampleLength: Int
     public var topK: Int
     public var usePrefillPrompt: Bool
-    public var usePrefillCache: Bool
     public var detectLanguage: Bool
     public var skipSpecialTokens: Bool
     public var withoutTimestamps: Bool
@@ -193,7 +191,6 @@ public struct DecodingOptions: Codable, Sendable {
         sampleLength: Int = Constants.maxTokenContext,
         topK: Int = 5,
         usePrefillPrompt: Bool = true,
-        usePrefillCache: Bool = true,
         detectLanguage: Bool? = nil,
         skipSpecialTokens: Bool = false,
         withoutTimestamps: Bool = false,
@@ -222,7 +219,6 @@ public struct DecodingOptions: Codable, Sendable {
         self.sampleLength = sampleLength
         self.topK = topK
         self.usePrefillPrompt = usePrefillPrompt
-        self.usePrefillCache = usePrefillCache
         self.detectLanguage = detectLanguage ?? !usePrefillPrompt // If prefill is false, detect language by default
         self.skipSpecialTokens = skipSpecialTokens
         self.withoutTimestamps = withoutTimestamps

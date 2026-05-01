@@ -23,7 +23,6 @@ struct WhisperAXWatchView: View {
     @AppStorage("repoName") private var repoName: String = "argmaxinc/whisperkit-coreml"
     @AppStorage("enableTimestamps") private var enableTimestamps: Bool = false
     @AppStorage("enablePromptPrefill") private var enablePromptPrefill: Bool = true
-    @AppStorage("enableCachePrefill") private var enableCachePrefill: Bool = true
     @AppStorage("enableSpecialCharacters") private var enableSpecialCharacters: Bool = false
     @AppStorage("enableEagerDecoder") private var enableEagerDecoder: Bool = false
     @AppStorage("temperatureStart") private var temperatureStart: Double = 0

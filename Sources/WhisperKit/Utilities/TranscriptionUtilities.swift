@@ -123,7 +123,6 @@ public struct TranscriptionUtilities {
             audioProcessing: validResults.map { $0.timings.audioProcessing }.reduce(0, +),
             logmels: validResults.map { $0.timings.logmels }.reduce(0, +),
             encoding: validResults.map { $0.timings.encoding }.reduce(0, +),
-            prefill: validResults.map { $0.timings.prefill }.reduce(0, +),
             decodingInit: validResults.map { $0.timings.decodingInit }.reduce(0, +),
             decodingLoop: validResults.map { $0.timings.decodingLoop }.reduce(0, +),
             decodingPredictions: validResults.map { $0.timings.decodingPredictions }.reduce(0, +),

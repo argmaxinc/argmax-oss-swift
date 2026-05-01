@@ -85,18 +85,11 @@ open class TranscribeTask {
         timings.decodingInit = decoderInitTime
         Logging.debug("Decoder init time: \(decoderInitTime)")
 
-        // MARK: - Prefill KV Cache
+        // MARK: - Prefill Prompt
 
-        let prefillStartTime = CFAbsoluteTimeGetCurrent()
         if options.usePrefillPrompt {
             decoderInputs = try await textDecoder.prefillDecoderInputs(decoderInputs, withOptions: options)
         }
-        // Update cache size based on prefill
-        let prefilledCacheSize = decoderInputs.cacheLength[0].intValue
-        let prefillTime = CFAbsoluteTimeGetCurrent() - prefillStartTime
-        timings.prefill = prefillTime
-
-        Logging.debug("Prefill time: \(prefillTime)")
         Logging.debug("Prefill prompt: \(decoderInputs.initialPrompt.map { tokenizer.convertIdToToken($0) ?? "" })")
 
         // MARK: - Main decoder loop
@@ -176,7 +169,6 @@ open class TranscribeTask {
                     decodingOptions: options,
                     decoderInputs: &decoderInputs,
                     detectedLanguage: &detectedLanguage,
-                    prefilledCacheSize: prefilledCacheSize,
                     callback: decodingCallback
                 )
 
@@ -277,7 +269,6 @@ open class TranscribeTask {
 
                 // Reset cache and move on to the next window
                 decoderInputs.reset(
-                    prefilledCacheSize: prefilledCacheSize,
                     maxTokenContext: decodeOptions?.sampleLength ?? Constants.maxTokenContext
                 )
 
@@ -327,7 +318,6 @@ open class TranscribeTask {
         decodingOptions options: DecodingOptions,
         decoderInputs: inout any DecodingInputsType,
         detectedLanguage: inout String?,
-        prefilledCacheSize: Int,
         callback: TranscriptionCallback? = nil
     ) async throws -> DecodingResult {
         let interval = Logging.beginSignpost("Decode", signposter: Logging.TranscribeTask.signposter)
@@ -406,7 +396,6 @@ open class TranscribeTask {
                 timings.decodingFallback += Date().timeIntervalSince(decodeWithFallbackStart)
                 timings.totalDecodingFallbacks = Double(i)
                 decoderInputs.reset(
-                    prefilledCacheSize: prefilledCacheSize,
                     maxTokenContext: options.sampleLength
                 )
                 Logging.info("Fallback #\(i + 1) (\(fallback.fallbackReason))")
