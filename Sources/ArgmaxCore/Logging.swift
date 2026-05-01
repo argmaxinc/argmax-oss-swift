@@ -218,12 +218,3 @@ public extension Logging {
     }
 }
 
-@available(*, deprecated, message: "Subject to removal in a future version. Use `Logging.logCurrentMemoryUsage(_:)` instead.")
-public func logCurrentMemoryUsage(_ message: String) {
-    Logging.logCurrentMemoryUsage(message)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `Logging.getMemoryUsage()` instead.")
-public func getMemoryUsage() -> UInt64 {
-    return Logging.getMemoryUsage()
-}

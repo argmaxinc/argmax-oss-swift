@@ -203,29 +203,3 @@ extension ModelUtilities {
     }
 }
 
-@available(*, deprecated, message: "Subject to removal in a future version. Use `ModelUtilities.loadTokenizer(for:pretrained:tokenizerFolder:useBackgroundSession:)` instead.")
-public func loadTokenizer(
-    for pretrained: ModelVariant,
-    tokenizerFolder: URL? = nil,
-    useBackgroundSession: Bool = false
-) async throws -> WhisperTokenizer {
-    return try await ModelUtilities.loadTokenizer(for: pretrained, tokenizerFolder: tokenizerFolder, useBackgroundSession: useBackgroundSession)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use ModelUtilities.modelSupport(for:from:) -> ModelSupport instead.")
-public func modelSupport(for deviceName: String, from config: ModelSupportConfig? = nil) -> ModelSupport {
-    return ModelUtilities.modelSupport(for: deviceName, from: config)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use ModelUtilities.modelSupport(for:from:) -> ModelSupport instead.")
-@_disfavoredOverload
-public func modelSupport(for deviceName: String, from config: ModelSupportConfig? = nil) -> (default: String, disabled: [String]) {
-    let modelSupport = ModelUtilities.modelSupport(for: deviceName, from: config)
-    return (modelSupport.default, modelSupport.disabled)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `ModelUtilities.detectModelURL(inFolder:named:)` instead.")
-public func detectModelURL(inFolder path: URL, named modelName: String) -> URL {
-    return ModelUtilities.detectModelURL(inFolder: path, named: modelName)
-    
-}

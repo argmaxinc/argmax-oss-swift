@@ -52,13 +52,3 @@ public class SpeakerKitDiarizer: ModelManager, Diarizer, @unchecked Sendable {
         return try await diarize(audioArray, options, progressCallback)
     }
 }
-
-// MARK: - Deprecated
-
-/// Deprecated: Use ``SpeakerKitDiarizer/pyannote(config:segmenterModelInfo:embedderModelInfo:pldaModelInfo:downloader:)``
-/// to create a Pyannote-backed manager, then inject it via ``SpeakerKitConfig/diarizer`` or pass a config to ``SpeakerKit/init(_:)``.
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-@available(*, deprecated, renamed: "SpeakerKitDiarizer",
-    message: "Use SpeakerKitDiarizer.pyannote(config:) and SpeakerKit(_ config:) instead.")
-public typealias SpeakerKitModelManager = SpeakerKitDiarizer
-

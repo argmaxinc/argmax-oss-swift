@@ -813,17 +813,6 @@ open class WhisperKit {
 
     // MARK: - Transcribe single audio file
 
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `transcribe(audioPath:decodeOptions:callback:) async throws -> [TranscriptionResult]` instead.")
-    @_disfavoredOverload
-    open func transcribe(
-        audioPath: String,
-        decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback? = nil
-    ) async throws -> TranscriptionResult? {
-        let result: [TranscriptionResult] = try await transcribe(audioPath: audioPath, decodeOptions: decodeOptions, callback: callback)
-        return result.first
-    }
-
     /// Transcribes an audio file from the given path asynchronously.
     /// - Parameters:
     ///   - audioPath: The file path to the audio file to be transcribed.
@@ -866,18 +855,6 @@ open class WhisperKit {
     }
 
     // MARK: - Transcribe single audio sample array
-
-    /// Deprecated
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `transcribe(audioArray:decodeOptions:callback:) async throws -> [TranscriptionResult]` instead.")
-    @_disfavoredOverload
-    open func transcribe(
-        audioArray: [Float],
-        decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback? = nil
-    ) async throws -> TranscriptionResult? {
-        let result: [TranscriptionResult] = try await transcribe(audioArray: audioArray, decodeOptions: decodeOptions, callback: callback)
-        return result.first
-    }
 
     /// Main entry point for transcribing audio
     /// - Parameters:

@@ -27,16 +27,6 @@ public struct ModelUtilities {
         return shape[position]
     }
 
-    @available(*, deprecated, renamed: "getModelInputDimension")
-    public static func getModelInputDimention(_ model: MLModel?, named: String, position: Int) -> Int? {
-        getModelInputDimension(model, named: named, position: position)
-    }
-
-    @available(*, deprecated, renamed: "getModelOutputDimension")
-    public static func getModelOutputDimention(_ model: MLModel?, named: String, position: Int) -> Int? {
-        getModelOutputDimension(model, named: named, position: position)
-    }
-
     // MARK: - Model URL Detection
 
     /// Recursively searches a directory tree for a named CoreML model bundle.
