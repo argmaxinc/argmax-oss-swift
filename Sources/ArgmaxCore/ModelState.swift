@@ -17,7 +17,7 @@ import Foundation
 /// loaded   → unloading  → unloaded
 /// ```
 @frozen
-public enum ModelState: CustomStringConvertible {
+public enum ModelState: CustomStringConvertible, Equatable, Hashable {
     case unloading
     case unloaded
     case loading
