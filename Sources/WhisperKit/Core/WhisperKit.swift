@@ -250,6 +250,15 @@ open class WhisperKit {
         endpoint: String = Constants.defaultRemoteEndpoint,
         progressCallback: ((Progress) -> Void)? = nil
     ) async throws -> URL {
+        // Fast path — if the variant folder already exists locally with the
+        // three required CoreML bundles, skip the network round-trips.
+        // `hubApi.getFilenames` + per-file `snapshot` cache checks add
+        // ~5 s on iPhone 14 Pro / cellular even when every byte is on disk.
+        if let cached = locallyCachedFolder(variant: variant, repoID: repo, downloadBase: downloadBase) {
+            Logging.debug("Local cache hit at \(cached.path) — skipping HuggingFace download")
+            progressCallback?(Self.completedProgress())
+            return cached
+        }
         let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
         let repo = Hub.Repo(id: repo, type: .models)
         var modelSearchPath = "*\(variant.description)/*"
@@ -297,6 +306,56 @@ open class WhisperKit {
             Logging.debug(error)
             throw error
         }
+    }
+
+    /// Returns the on-disk model folder if it already contains every CoreML
+    /// bundle WhisperKit needs to construct the model — `nil` means callers
+    /// should fall through to the regular download path.
+    ///
+    /// Replicates `HubApi`'s default snapshot path
+    /// (`<downloadBase>/models/<repo>/<variant>`) using public-only API.
+    /// `downloadBase` defaults to `<Documents>/huggingface` to match
+    /// `HubApi.init(downloadBase: nil)`.
+    private static func locallyCachedFolder(
+        variant: String,
+        repoID: String,
+        downloadBase: URL?
+    ) -> URL? {
+        let baseDir: URL
+        if let downloadBase {
+            baseDir = downloadBase
+        } else {
+            guard let documents = FileManager.default.urls(
+                for: .documentDirectory, in: .userDomainMask
+            ).first else { return nil }
+            baseDir = documents.appending(component: "huggingface")
+        }
+        let repoFolder = baseDir
+            .appending(component: "models")
+            .appending(component: repoID)
+        // `hubApi.snapshot` lays the variant under either `<variant>` or, more
+        // commonly for argmaxinc/whisperkit-coreml, `openai_whisper-<variant>`.
+        let candidates = ["openai_whisper-\(variant)", variant]
+        let required = ["AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc"]
+        let fm = FileManager.default
+        for candidate in candidates {
+            let folder = repoFolder.appending(component: candidate)
+            let allPresent = required.allSatisfy { name in
+                var isDir: ObjCBool = false
+                let exists = fm.fileExists(
+                    atPath: folder.appending(component: name).path, isDirectory: &isDir
+                )
+                return exists && isDir.boolValue
+            }
+            if allPresent { return folder }
+        }
+        return nil
+    }
+
+    private static func completedProgress() -> Progress {
+        let p = Progress(totalUnitCount: 1)
+        p.completedUnitCount = 1
+        return p
     }
 
     /// Sets up the model folder either from a local path or by downloading from a repository.
