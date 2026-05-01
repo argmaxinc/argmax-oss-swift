@@ -1016,7 +1016,9 @@ open class TTSKit: @unchecked Sendable {
                 text: text, voice: voice, language: language,
                 options: playOptions, callback: callback
             )
-            try audioOut.startPlayback()
+            try audioOut.startPlayback(
+                preserveExistingAudioSession: config.preserveExistingAudioSession
+            )
             audioOut.setBufferDuration(0)
             audioOut.enqueueAudioChunk(result.audio)
             await audioOut.stopPlayback(waitForCompletion: true)
@@ -1026,7 +1028,10 @@ open class TTSKit: @unchecked Sendable {
         // Streaming requires sequential generation to preserve chunk order.
         playOptions.concurrentWorkerCount = 1
 
-        try audioOut.startPlayback(deferEngineStart: true)
+        try audioOut.startPlayback(
+            deferEngineStart: true,
+            preserveExistingAudioSession: config.preserveExistingAudioSession
+        )
         switch playbackStrategy {
             case .stream: audioOut.setBufferDuration(0)
             case let .buffered(secs): audioOut.setBufferDuration(secs)
