@@ -372,7 +372,6 @@ open class WhisperKit {
         let logmelUrl = ModelUtilities.detectModelURL(inFolder: path, named: "MelSpectrogram")
         let encoderUrl = ModelUtilities.detectModelURL(inFolder: path, named: "AudioEncoder")
         let decoderUrl = ModelUtilities.detectModelURL(inFolder: path, named: "TextDecoder")
-        let decoderPrefillUrl = ModelUtilities.detectModelURL(inFolder: path, named: "TextDecoderContextPrefill")
 
         for item in [logmelUrl, encoderUrl, decoderUrl] {
             if !FileManager.default.fileExists(atPath: item.path) {
@@ -388,17 +387,6 @@ open class WhisperKit {
                 prewarmMode: prewarmMode
             )
             Logging.debug("Loaded feature extractor")
-        }
-
-        if FileManager.default.fileExists(atPath: decoderPrefillUrl.path) {
-            Logging.debug("Loading text decoder prefill data")
-            textDecoder.prefillData = TextDecoderContextPrefill()
-            try await textDecoder.prefillData?.loadModel(
-                at: decoderPrefillUrl,
-                computeUnits: modelCompute.prefillCompute,
-                prewarmMode: prewarmMode
-            )
-            Logging.debug("Loaded text decoder prefill data")
         }
 
         if let textDecoder = textDecoder as? WhisperMLModel {

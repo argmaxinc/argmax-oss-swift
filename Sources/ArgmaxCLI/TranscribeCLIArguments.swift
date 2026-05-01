@@ -58,9 +58,6 @@ struct TranscribeCLIArguments: ParsableArguments {
     @Flag(help: "Force initial prompt tokens based on language, task, and timestamp options")
     var usePrefillPrompt: Bool = false
 
-    @Flag(help: "Use decoder prefill data for faster initial decoding")
-    var usePrefillCache: Bool = false
-
     @Flag(help: "Skip special tokens in the output")
     var skipSpecialTokens: Bool = false
 

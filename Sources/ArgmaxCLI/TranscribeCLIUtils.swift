@@ -54,7 +54,6 @@ internal class TranscribeCLIUtils {
             temperatureFallbackCount: arguments.temperatureFallbackCount,
             topK: arguments.bestOf,
             usePrefillPrompt: arguments.usePrefillPrompt || arguments.language != nil || task == .translate,
-            usePrefillCache: arguments.usePrefillCache,
             skipSpecialTokens: arguments.skipSpecialTokens,
             withoutTimestamps: arguments.withoutTimestamps,
             wordTimestamps: arguments.wordTimestamps,

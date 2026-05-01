@@ -54,12 +54,11 @@ public protocol DecodingInputsType {
     var inputIds: MLMultiArray { get set }
     var cacheLength: MLMultiArray { get set }
 
-    func reset(prefilledCacheSize: Int, maxTokenContext: Int)
+    func reset(maxTokenContext: Int)
 }
 
 public protocol TextDecoding {
     var tokenizer: WhisperTokenizer? { get set }
-    var prefillData: WhisperMLModel? { get set }
     var isModelMultilingual: Bool { get set }
     var supportsWordTimestamps: Bool { get }
     var logitsSize: Int? { get }
@@ -79,11 +78,6 @@ public protocol TextDecoding {
         _ decoderInputs: any DecodingInputsType,
         withOptions options: DecodingOptions?
     ) async throws -> any DecodingInputsType
-
-    func prefillKVCache(
-        withTask task: MLMultiArray,
-        andLanguage language: MLMultiArray
-    ) async throws -> DecodingCache?
 
     func decodeText(
         from encoderOutput: any AudioEncoderOutputType,
@@ -273,8 +267,6 @@ public extension TextDecoding {
         let alignmentWeights = try MLMultiArray(shape: [kvCacheMaxSequenceLengthValue, encoderOutputDimValue], dataType: .float16, initialValue: FloatType(0))
         let kvCacheUpdateMask = try MLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .int32, initialValue: Int32(0))
         let decoderKeyPaddingMask = try MLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(-10000))
-        let prefillKeyCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
-        let prefillValueCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
 
         // Initialize default masks
         kvCacheUpdateMask[0] = 1.0
@@ -288,9 +280,7 @@ public extension TextDecoding {
             valueCache: valueCache,
             alignmentWeights: alignmentWeights,
             kvCacheUpdateMask: kvCacheUpdateMask,
-            decoderKeyPaddingMask: decoderKeyPaddingMask,
-            prefillKeyCache: prefillKeyCache,
-            prefillValueCache: prefillValueCache
+            decoderKeyPaddingMask: decoderKeyPaddingMask
         )
 
         return decoderInputs
@@ -312,20 +302,17 @@ public extension TextDecoding {
         // Setup prefill tokens based on task and language
         var prefillTokens: [Int] = [tokenizer.specialTokens.startOfTranscriptToken] // SOT
 
-        var languageToken: Int = tokenizer.specialTokens.englishToken
-        var taskToken: Int = tokenizer.specialTokens.transcribeToken
-
         // Multilingual models require language and task tokens
         if let options = options {
             if isModelMultilingual {
                 // Set languageToken
                 let languageTokenString = "<|\(options.language ?? Constants.defaultLanguageCode)|>"
-                languageToken = tokenizer.convertTokenToId(languageTokenString) ?? tokenizer.specialTokens.englishToken
+                let languageToken = tokenizer.convertTokenToId(languageTokenString) ?? tokenizer.specialTokens.englishToken
                 prefillTokens.append(languageToken)
 
                 // Set taskToken
                 let taskTokenString = "<|\(options.task)|>"
-                taskToken = tokenizer.convertTokenToId(taskTokenString) ?? tokenizer.specialTokens.transcribeToken
+                let taskToken = tokenizer.convertTokenToId(taskTokenString) ?? tokenizer.specialTokens.transcribeToken
                 prefillTokens.append(taskToken)
             }
 
@@ -348,67 +335,10 @@ public extension TextDecoding {
         }
 
         prefilledDecoderInputs.initialPrompt = prefillTokens
-        var prefilledCacheSize = 0
-        if options?.usePrefillCache ?? false,
-           prefillData != nil,
-           options?.promptTokens == nil // TODO: allow prefill cache to be used with prompt tokens, currently breaks if it starts at non-zero index
-        {
-            // Prefilling kv cache data requires non-nil task and language tokens, set defaults if not provided
-            // Task tokens are remapped to 0->transcribe and 1->translate for the prefill lookup table
-            let task = try MLMultiArray.from([taskToken == tokenizer.specialTokens.transcribeToken ? 0 : 1])
-            let lang = try MLMultiArray.from([languageToken])
-            guard let prefillOutput = try await self.prefillKVCache(withTask: task, andLanguage: lang) else {
-                Logging.error("Unable to prefill cache")
-                return prefilledDecoderInputs
-            }
-
-            // Prefill kv cache
-            prefilledDecoderInputs.prefillKeyCache = prefillOutput.keyCache!
-            prefilledDecoderInputs.prefillValueCache = prefillOutput.valueCache!
-
-            TextDecoder.updateKVCache(keyTensor: prefilledDecoderInputs.keyCache,
-                                      keySlice: prefilledDecoderInputs.prefillKeyCache,
-                                      valueTensor: prefilledDecoderInputs.valueCache,
-                                      valueSlice: prefilledDecoderInputs.prefillValueCache,
-                                      insertAtIndex: prefillTokens.firstIndex(of: tokenizer.specialTokens.startOfTranscriptToken) ?? 0)
-            prefilledDecoderInputs.cacheLength[0] = prefilledDecoderInputs.prefillKeyCache.shape[3]
-            prefilledCacheSize = prefilledDecoderInputs.cacheLength[0].intValue
-        }
-
-        // Setup masks based on prefill values
-        prefilledCacheSize += 1 // Add 1 for initial masked cache update
-        for i in 0..<prefilledCacheSize {
-            prefilledDecoderInputs.kvCacheUpdateMask[i] = 0.0
-            prefilledDecoderInputs.decoderKeyPaddingMask[i] = 0.0
-        }
-        prefilledDecoderInputs.kvCacheUpdateMask[prefilledCacheSize - 1] = 1.0
+        prefilledDecoderInputs.kvCacheUpdateMask[0] = 1.0
+        prefilledDecoderInputs.decoderKeyPaddingMask[0] = 0.0
 
         return prefilledDecoderInputs
-    }
-
-    func prefillKVCache(withTask task: MLMultiArray, andLanguage language: MLMultiArray) async throws -> DecodingCache? {
-        let modelInputs = TextDecoderCachePrefillInput(
-            task: task,
-            language: language
-        )
-
-        guard let prefillModel = prefillData?.model else {
-            return nil
-        }
-
-        try Task.checkCancellation()
-
-        let outputFeatures = try await prefillModel.asyncPrediction(from: modelInputs, options: MLPredictionOptions())
-
-        let output = TextDecoderCachePrefillOutput(features: outputFeatures)
-
-        let kvCache = DecodingCache(
-            keyCache: output.key_cache_prefill,
-            valueCache: output.value_cache_prefill,
-            alignmentWeights: nil
-        )
-
-        return kvCache
     }
 
     static func updateKVCache(keyTensor: MLMultiArray, keySlice: MLMultiArray,
@@ -492,14 +422,9 @@ public extension TextDecoding {
     }
 }
 
-public class TextDecoderContextPrefill: WhisperMLModel {
-    public var model: MLModel?
-}
-
 open class TextDecoder: TextDecoding, WhisperMLModel {
     public var model: MLModel?
     public var tokenizer: WhisperTokenizer?
-    public var prefillData: WhisperMLModel?
     public var isModelMultilingual: Bool = false
     public var logitsFilters: [any LogitsFiltering]? = []
     private let earlyStopActor = EarlyStopActor()
@@ -531,10 +456,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         return ModelUtilities.getModelInputDimention(model, named: "encoder_output_embeds", position: 1)
     }
 
-    /// Override default so we an unload the prefill data as well
     public func unloadModel() {
         model = nil
-        prefillData = nil
         languageLogitsFilter = nil
     }
 
