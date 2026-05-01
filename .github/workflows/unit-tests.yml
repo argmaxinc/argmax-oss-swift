@@ -55,7 +55,7 @@ jobs:
             }
     timeout-minutes: ${{ matrix.run-config['name'] == 'visionOS' && 60 || 30 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: ${{ inputs.xcode-version || '26.4.1' }}
@@ -63,7 +63,7 @@ jobs:
         run: make setup
       - name: Setup Cache
         id: model-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: Models
           key: ${{ runner.os }}-models
@@ -81,9 +81,9 @@ jobs:
           echo "Runtimes for testing:"
           xcrun simctl list runtimes
           echo "Destinations for testing:"
-          xcodebuild test-without-building -testPlan UnitTestsPlan -scheme whisperkit-Package -showdestinations
+          xcodebuild test-without-building -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -showdestinations
       - name: Boot Simulator and Wait
-        if: ${{ matrix.run-config['condition'] == true }} && ${{ matrix.run-config['name'] != 'macOS' }} && ${{ inputs.macos-runner == 'macos-26' }}
+        if: ${{ matrix.run-config['condition'] == true && matrix.run-config['name'] != 'macOS' && inputs.macos-runner == 'macos-26' }}
         # Slower runners require some time to fully boot the simulator
         # Parse the simulator name from the destination string, boot it, and wait
         run: |
@@ -95,8 +95,8 @@ jobs:
         if: ${{ matrix.run-config['condition'] == true }}
         run: |
           set -o pipefail
-          xcodebuild clean build-for-testing -scheme whisperkit-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcpretty
-          xcodebuild test -testPlan UnitTestsPlan -scheme whisperkit-Package -destination '${{ matrix.run-config['test-destination'] }}'
+          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcpretty
+          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}'
       - name: Upload Test Results
         if: failure()
         uses: actions/upload-artifact@v4

@@ -4,11 +4,6 @@
 import PackageDescription
 import Foundation
 
-let approachableConcurrencySettings: [SwiftSetting] = [
-    .enableUpcomingFeature("InferIsolatedConformances"),
-    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-]
-
 let package = Package(
     name: "argmax-oss-swift",
     platforms: [
@@ -33,6 +28,11 @@ let package = Package(
         .library(
             name: "SpeakerKit",
             targets: ["SpeakerKit"]
+        ),
+        .library(
+            name: "ArgmaxOSSDynamic",
+            type: .dynamic,
+            targets: ["ArgmaxOSS"]
         ),
         .executable(
             name: "argmax-cli",
@@ -60,25 +60,25 @@ let package = Package(
                 "TTSKit",
                 "SpeakerKit",
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "ArgmaxCore",
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "WhisperKit",
             dependencies: [
                 "ArgmaxCore",
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "TTSKit",
             dependencies: [
                 "ArgmaxCore",
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "SpeakerKit",
@@ -86,7 +86,7 @@ let package = Package(
                 "ArgmaxCore",
                 "WhisperKit",
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings()
         ),
         .testTarget(
             name: "WhisperKitTests",
@@ -97,14 +97,14 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings(libraryEvolution: false)
         ),
         .testTarget(
             name: "TTSKitTests",
             dependencies: [
                 "TTSKit"
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings(libraryEvolution: false)
         ),
         .testTarget(
             name: "SpeakerKitTests",
@@ -115,7 +115,7 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: approachableConcurrencySettings
+            swiftSettings: swiftSettings(libraryEvolution: false)
         ),
         .executableTarget(
             name: "ArgmaxCLI",
@@ -131,7 +131,7 @@ let package = Package(
             ] : []),
             path: "Sources/ArgmaxCLI",
             exclude: (isServerEnabled() ? [] : ["Server"]),
-            swiftSettings: approachableConcurrencySettings + (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
+            swiftSettings: swiftSettings(libraryEvolution: false) + (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
         )
     ],
     swiftLanguageModes: [.v6]
@@ -144,4 +144,36 @@ func isServerEnabled() -> Bool {
 
     // Default disabled, change to true temporarily for local development
     return false
+}
+
+func swiftSettings(libraryEvolution: Bool = true) -> [SwiftSetting] {
+    // Opt-in to Swift 6.2's "Approachable Concurrency" upcoming features.
+    // These reduce false-positive concurrency diagnostics by making the
+    // compiler infer isolation in places where it's almost always what the
+    // developer intended:
+    //   - InferIsolatedConformances (SE-0470): a protocol conformance on a
+    //     globally-isolated type (e.g. @MainActor) is itself inferred to be
+    //     isolated to that same actor, instead of forcing a `nonisolated`
+    //     conformance that can't touch the type's state.
+    //   - NonisolatedNonsendingByDefault (SE-0461): a `nonisolated` async
+    //     function runs on the caller's actor by default rather than hopping
+    //     to the generic executor, avoiding spurious Sendable errors on
+    //     arguments and return values that never actually cross actors.
+    let approachableConcurrencySettings: [SwiftSetting] = [
+        .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    ]
+
+    // Equivalent to Xcode's BUILD_LIBRARY_FOR_DISTRIBUTION setting: enables
+    // library evolution and module stability so these targets can be linked
+    // against prebuilt binary frameworks (e.g. an .xcframework) without
+    // requiring the framework to be rebuilt for every Swift compiler version.
+    let dynamicSettings: [SwiftSetting] = libraryEvolution ? [
+        .unsafeFlags([
+            "-enable-library-evolution",
+            "-Xfrontend", "-alias-module-names-in-module-interface",
+        ])
+    ] : []
+
+    return approachableConcurrencySettings + dynamicSettings
 }

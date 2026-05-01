@@ -62,6 +62,48 @@
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "ArgmaxOSSDynamic"
+               BuildableName = "ArgmaxOSSDynamic"
+               BlueprintName = "ArgmaxOSSDynamic"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "SpeakerKit"
+               BuildableName = "SpeakerKit"
+               BlueprintName = "SpeakerKit"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "argmax-cli"
+               BuildableName = "argmax-cli"
+               BlueprintName = "argmax-cli"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -112,12 +154,21 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
+            BlueprintIdentifier = "argmax-cli"
+            BuildableName = "argmax-cli"
+            BlueprintName = "argmax-cli"
+            ReferencedContainer = "container:">
+         </BuildableReference>
+      </BuildableProductRunnable>
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
             BlueprintIdentifier = "whisperkit-cli"
             BuildableName = "whisperkit-cli"
             BlueprintName = "whisperkit-cli"
             ReferencedContainer = "container:">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -129,9 +180,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "whisperkit-cli"
-            BuildableName = "whisperkit-cli"
-            BlueprintName = "whisperkit-cli"
+            BlueprintIdentifier = "argmax-cli"
+            BuildableName = "argmax-cli"
+            BlueprintName = "argmax-cli"
             ReferencedContainer = "container:">
          </BuildableReference>
       </BuildableProductRunnable>

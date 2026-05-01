@@ -56,31 +56,25 @@ let package = Package(
                 "TTSKit",
                 "SpeakerKit",
             ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "ArgmaxCore",
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "WhisperKit",
             dependencies: [
                 "ArgmaxCore",
             ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "TTSKit",
             dependencies: [
                 "ArgmaxCore",
             ],
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
+            swiftSettings: swiftSettings()
         ),
         .target(
             name: "SpeakerKit",
@@ -88,7 +82,7 @@ let package = Package(
                 "ArgmaxCore",
                 "WhisperKit",
             ],
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
+            swiftSettings: swiftSettings()
         ),
         .testTarget(
             name: "WhisperKitTests",
@@ -99,18 +93,14 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .testTarget(
             name: "TTSKitTests",
             dependencies: [
                 "TTSKit"
             ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .testTarget(
             name: "SpeakerKitTests",
@@ -121,9 +111,7 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]
+            swiftSettings: swiftSettings()
         ),
         .executableTarget(
             name: "ArgmaxCLI",
@@ -139,9 +127,7 @@ let package = Package(
             ] : []),
             path: "Sources/ArgmaxCLI",
             exclude: (isServerEnabled() ? [] : ["Server"]),
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency"),
-            ] + (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
+            swiftSettings: swiftSettings() + (isServerEnabled() ? [.define("BUILD_SERVER_CLI")] : [])
         )
     ],
     swiftLanguageVersions: [.v5]
@@ -154,4 +140,8 @@ func isServerEnabled() -> Bool {
 
     // Default disabled, change to true temporarily for local development
     return false
+}
+
+func swiftSettings() -> [SwiftSetting] {
+    [.enableExperimentalFeature("StrictConcurrency")]
 }
