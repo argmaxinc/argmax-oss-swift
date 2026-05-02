@@ -212,21 +212,21 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
             assignments: assignments,
             embeddings: embeddings,
             source: .finalAssignment,
-            minActiveRatio: 0.2,
-            clusterCount: 2
+            minActiveRatio: 0.2
         )
-        assertVectorsEqual(finalAssignmentCentroids[0], [2.0, 0.0])
-        assertVectorsEqual(finalAssignmentCentroids[1], [0.0, 15.0])
+        XCTAssertEqual(Set(finalAssignmentCentroids.keys), [0, 1])
+        assertVectorsEqual(finalAssignmentCentroids[0] ?? [], [2.0, 0.0])
+        assertVectorsEqual(finalAssignmentCentroids[1] ?? [], [0.0, 15.0])
 
         let trainableOnlyCentroids = await clusterer.centroidsFromFinalAssignments(
             assignments: assignments,
             embeddings: embeddings,
             source: .trainableOnly,
-            minActiveRatio: 0.2,
-            clusterCount: 2
+            minActiveRatio: 0.2
         )
-        assertVectorsEqual(trainableOnlyCentroids[0], [1.0, 0.0])
-        assertVectorsEqual(trainableOnlyCentroids[1], [0.0, 10.0])
+        XCTAssertEqual(Set(trainableOnlyCentroids.keys), [0, 1])
+        assertVectorsEqual(trainableOnlyCentroids[0] ?? [], [1.0, 0.0])
+        assertVectorsEqual(trainableOnlyCentroids[1] ?? [], [0.0, 10.0])
     }
 
     // MARK: - Clusterer-level invariant: value matches post-reassignment mean

@@ -35,11 +35,12 @@ public struct DiarizationResult: Sendable {
     /// space (unnormalised, pre-PLDA). Useful for linking the same speaker across independent
     /// `diarize(...)` calls without re-running the embedder.
     ///
-    /// By default, each centroid is the arithmetic mean of the final per-window embeddings
-    /// assigned to that `speakerId` after clustering and cluster reassignment, so the centroid
-    /// reflects the speaker's actual membership in this result. Pyannote callers may set
-    /// `PyannoteDiarizationOptions.centroidSource` to `.trainableOnly` to mean-pool only the
-    /// trainable subset under those final assignments.
+    /// Each centroid is the mean of the per-window embeddings that ended up under that
+    /// `speakerId`. Which embeddings contribute is controlled by
+    /// `PyannoteDiarizationOptions.centroidSource`; see ``SpeakerCentroidSource``. Under
+    /// `.trainableOnly`, some speakers in `segments` may not have a centroid in this
+    /// map; use `if let centroid = speakerCentroidEmbeddings[id]` rather than assuming
+    /// the key is present.
     ///
     /// Compare centroids with cosine distance via `centroidCosineDistance(between:and:)` or
     /// `nearestSpeakerCentroid(to:)`, matching the convention used by

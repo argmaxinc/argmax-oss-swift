@@ -28,22 +28,10 @@ actor VBxClustering: Clusterer {
             _speakerEmbeddings[clusterIndex].clusterId = clusterId
         }
 
-        // Key centroids by the final clusterId so each entry matches its speakerId membership.
-        let distinctClusterIds = Set(clusters.filter { $0 >= 0 })
-        var centroidMap: [Int: [Float]] = [:]
-        centroidMap.reserveCapacity(distinctClusterIds.count)
-        for clusterId in distinctClusterIds where clusterId < centroids.count {
-            let centroid = centroids[clusterId]
-            // drop zero-vector centroids. they surface when `.trainableOnly` empties a
-            // cluster and would otherwise map to the MathOps cosine sentinel of `1.0`
-            guard centroid.contains(where: { $0 != 0 }) else { continue }
-            centroidMap[clusterId] = centroid
-        }
-
         return ClusteringResult(
             clusterIndices: clusters,
             speakerEmbeddings: _speakerEmbeddings,
-            speakerCentroids: centroidMap
+            speakerCentroids: centroids
         )
     }
 
@@ -58,7 +46,7 @@ actor VBxClustering: Clusterer {
     func cluster(
         embeddings: [SpeakerEmbedding],
         config: VBxClusteringConfig
-    ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [[Float]]) {
+    ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [Int: [Float]]) {
         let trainableEmbeddings = embeddings.filter { $0.nonOverlappedFrameRatio > config.minActiveRatio }
         let embeddingsFloats = trainableEmbeddings.map { $0.embedding }
         let allEmbeddingsFloats = embeddings.map { $0.embedding }
@@ -144,17 +132,14 @@ actor VBxClustering: Clusterer {
         }
 
         // Returned centroids use final assignments and the caller-selected embedding source,
-        // uniform across all paths (VBx weighted, kMeans correction, AHC fallback).
-        let numFinalClusters = (clusters.max() ?? -1) + 1
-        let finalCentroids: [[Float]] = numFinalClusters > 0
-            ? centroidsFromFinalAssignments(
-                assignments: clusters,
-                embeddings: embeddings,
-                source: config.centroidSource,
-                minActiveRatio: config.minActiveRatio,
-                clusterCount: numFinalClusters
-            )
-            : []
+        // uniform across all paths (VBx weighted, kMeans correction, AHC fallback). Empty
+        // clusters (no surviving members under .trainableOnly) are not keyed.
+        let finalCentroids = centroidsFromFinalAssignments(
+            assignments: clusters,
+            embeddings: embeddings,
+            source: config.centroidSource,
+            minActiveRatio: config.minActiveRatio
+        )
 
         return (clusters, linkageMatrix, finalCentroids)
     }
@@ -227,26 +212,43 @@ actor VBxClustering: Clusterer {
         }
     }
 
+    /// Mean-pools embeddings under final post-reassignment labels, keyed by cluster id.
+    /// Empty clusters (no surviving members after the `.trainableOnly` filter) never get a key.
     func centroidsFromFinalAssignments(
         assignments: [Int],
         embeddings: [SpeakerEmbedding],
         source: SpeakerCentroidSource,
-        minActiveRatio: Float,
-        clusterCount: Int
-    ) -> [[Float]] {
-        let selected: [(assignment: Int, embedding: [Float])] = embeddings.enumerated().compactMap { index, speakerEmbedding in
-            guard index < assignments.count else { return nil }
+        minActiveRatio: Float
+    ) -> [Int: [Float]] {
+        var sums: [Int: [Float]] = [:]
+        var counts: [Int: Int] = [:]
+        for (index, speakerEmbedding) in embeddings.enumerated() {
+            guard index < assignments.count else { continue }
+            let assignment = assignments[index]
+            guard assignment >= 0 else { continue }
             if source == .trainableOnly, speakerEmbedding.nonOverlappedFrameRatio <= minActiveRatio {
-                return nil
+                continue
             }
-            return (assignments[index], speakerEmbedding.embedding)
+            let embedding = speakerEmbedding.embedding
+            guard !embedding.isEmpty else { continue }
+            if var existing = sums[assignment] {
+                guard existing.count == embedding.count else { continue }
+                for d in 0..<embedding.count {
+                    existing[d] += embedding[d]
+                }
+                sums[assignment] = existing
+                counts[assignment, default: 0] += 1
+            } else {
+                sums[assignment] = embedding
+                counts[assignment] = 1
+            }
         }
-
-        return centroidsFromAssignments(
-            assignments: selected.map { $0.assignment },
-            embeddings: selected.map { $0.embedding },
-            clusterCount: clusterCount
-        )
+        var result: [Int: [Float]] = [:]
+        for (clusterId, sum) in sums {
+            guard let count = counts[clusterId], count > 0 else { continue }
+            result[clusterId] = sum.map { $0 / Float(count) }
+        }
+        return result
     }
 
     func calculateCentroids(speakerWeights: [[Float]], embeddings: [[Float]]) -> [[Float]] {

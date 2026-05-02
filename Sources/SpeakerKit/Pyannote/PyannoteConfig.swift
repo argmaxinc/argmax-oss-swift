@@ -119,15 +119,16 @@ public class PyannoteConfig: SpeakerKitConfig, @unchecked Sendable {
 
 // MARK: - Diarization Options
 
-public enum SpeakerCentroidSource: Sendable {
-    /// Mean of all embeddings under the final post-reassignment speaker labels.
+public enum SpeakerCentroidSource: Equatable, Hashable, Sendable {
+    /// Mean of all embeddings under the final post-reassignment speaker labels, without
+    /// any filtering for quality of embeddings.
     case finalAssignment
 
-    /// Mean of the trainable subset under the final post-reassignment speaker labels.
-    ///
-    /// This excludes embeddings whose `nonOverlappedFrameRatio` does not pass the clustering
-    /// `minActiveRatio` filter, matching the subset used to seed VBx/k-means clustering.
-    /// Speakers with no trainable embeddings are omitted from the returned centroid map.
+    /// Mean of embeddings under the final post-reassignment speaker labels, with
+    /// additional filtering by the clustering algorithm for purer voice embeddings.
+    /// May omit speakers whose members are entirely excluded by the filter. Use
+    /// `if let centroid = speakerCentroidEmbeddings[id]` rather than assuming the
+    /// key is present.
     case trainableOnly
 }
 
