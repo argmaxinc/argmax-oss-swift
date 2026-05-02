@@ -255,6 +255,7 @@ actor PyannoteDiarizerActor {
         progressObj.completedUnitCount = 80
         progressCallback?(progressObj)
         var diarizationResult = postProcess(speakerEmbeddings: clusteringResult.speakerEmbeddings,
+                                            speakerCentroids: clusteringResult.speakerCentroids,
                                             originalLength: audioLength,
                                             useExclusiveReconciliation: resolvedOptions.useExclusiveReconciliation)
         timings.numberOfSpeakers = diarizationResult.speakerCount
@@ -268,7 +269,10 @@ actor PyannoteDiarizerActor {
         return diarizationResult
     }
 
-    private func postProcess(speakerEmbeddings: [SpeakerEmbedding], originalLength: Int, useExclusiveReconciliation: Bool) -> DiarizationResult {
+    private func postProcess(speakerEmbeddings: [SpeakerEmbedding],
+                             speakerCentroids: [Int: [Float]],
+                             originalLength: Int,
+                             useExclusiveReconciliation: Bool) -> DiarizationResult {
         let startTime = CFAbsoluteTimeGetCurrent()
         defer {
             let totalTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1_000
@@ -360,7 +364,7 @@ actor PyannoteDiarizerActor {
             }
         }
 
-        return DiarizationResult(binaryMatrix: binaryDiarization, diarizationFrameRate: diarizationFrameRate)
+        return DiarizationResult(binaryMatrix: binaryDiarization, diarizationFrameRate: diarizationFrameRate, speakerCentroidEmbeddings: speakerCentroids)
     }
 
     func diarize(audioArray: [Float], options: (any DiarizationOptions)?, progressCallback: (@Sendable (Progress) -> Void)?) async throws -> DiarizationResult {

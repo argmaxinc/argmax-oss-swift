@@ -12,6 +12,7 @@ struct VBxClusteringConfig: Sendable {
     let maxIterations: Int
     let initialSmoothingFactor: Float
     let numSpeakers: Int?
+    let centroidSource: SpeakerCentroidSource
 
     private static let defaultThreshold: Float = 0.6
 
@@ -22,7 +23,8 @@ struct VBxClusteringConfig: Sendable {
          minActiveRatio: Float = 0.2,
          maxIterations: Int = 20,
          initialSmoothingFactor: Float = 7.0,
-         numSpeakers: Int? = nil) {
+         numSpeakers: Int? = nil,
+         centroidSource: SpeakerCentroidSource = .finalAssignment) {
         self.threshold = threshold
         self.speakerRelevanceFactorA = speakerRelevanceFactorA
         self.speakerRelevanceFactorB = speakerRelevanceFactorB
@@ -31,12 +33,14 @@ struct VBxClusteringConfig: Sendable {
         self.maxIterations = maxIterations
         self.initialSmoothingFactor = initialSmoothingFactor
         self.numSpeakers = numSpeakers
+        self.centroidSource = centroidSource
     }
 
     init(from options: PyannoteDiarizationOptions) {
         self.init(
             threshold: options.clusterDistanceThreshold ?? Self.defaultThreshold,
-            numSpeakers: options.numberOfSpeakers
+            numSpeakers: options.numberOfSpeakers,
+            centroidSource: options.centroidSource
         )
     }
 }
@@ -44,11 +48,14 @@ struct VBxClusteringConfig: Sendable {
 struct ClusteringResult {
     let clusterIndices: [Int]
     let speakerEmbeddings: [SpeakerEmbedding]
+    let speakerCentroids: [Int: [Float]]
 
     init(clusterIndices: [Int],
-         speakerEmbeddings: [SpeakerEmbedding]) {
+         speakerEmbeddings: [SpeakerEmbedding],
+         speakerCentroids: [Int: [Float]] = [:]) {
         self.clusterIndices = clusterIndices
         self.speakerEmbeddings = speakerEmbeddings
+        self.speakerCentroids = speakerCentroids
     }
 }
 

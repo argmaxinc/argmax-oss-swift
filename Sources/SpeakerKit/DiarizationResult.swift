@@ -31,26 +31,56 @@ public struct DiarizationResult: Sendable {
     public private(set) var segments: [SpeakerSegment]
     public var timings: (any DiarizationTimings)?
 
+    /// Per-speaker centroid embeddings keyed by `speakerId`, in the raw speaker-embedder output
+    /// space (unnormalised, pre-PLDA). Useful for linking the same speaker across independent
+    /// `diarize(...)` calls without re-running the embedder.
+    ///
+    /// Each centroid is the mean of the per-window embeddings that ended up under that
+    /// `speakerId`. Which embeddings contribute is controlled by
+    /// `PyannoteDiarizationOptions.centroidSource`; see ``SpeakerCentroidSource``. Under
+    /// `.trainableOnly`, some speakers in `segments` may not have a centroid in this
+    /// map; use `if let centroid = speakerCentroidEmbeddings[id]` rather than assuming
+    /// the key is present.
+    ///
+    /// Compare centroids with cosine distance via `centroidCosineDistance(between:and:)` or
+    /// `nearestSpeakerCentroid(to:)`, matching the convention used by
+    /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. SpeakerKit does not define a
+    /// universal "same speaker" threshold for comparing centroids across independent runs;
+    /// callers should calibrate that policy for their model, audio, and application.
+    ///
+    /// This field is populated by the Pyannote backend (`PyannoteDiarizer`). Other backends
+    /// conforming to `Diarizer` may leave it as `[:]` if they do not expose per-cluster centroids.
+    public private(set) var speakerCentroidEmbeddings: [Int: [Float]]
+
     /// Pyannote init: builds segments from binary speaker activity matrix
-    init(binaryMatrix: [[Int]], diarizationFrameRate: Float) {
+    init(binaryMatrix: [[Int]], diarizationFrameRate: Float, speakerCentroidEmbeddings: [Int: [Float]] = [:]) {
         self.binaryMatrix = binaryMatrix
         self.frameRate = diarizationFrameRate
         self.speakerCount = binaryMatrix.count
         self.totalFrames = speakerCount > 0 ? binaryMatrix[0].count : 0
         self.segments = []
         self.timings = nil
+        self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
 
         self.updateSegments(minActiveOffset: 0.0)
     }
 
     /// Generic init: for engines that produce segments directly
-    public init(speakerCount: Int, totalFrames: Int, frameRate: Float, segments: [SpeakerSegment], timings: (any DiarizationTimings)? = nil) {
+    public init(
+        speakerCount: Int,
+        totalFrames: Int,
+        frameRate: Float,
+        segments: [SpeakerSegment],
+        timings: (any DiarizationTimings)? = nil,
+        speakerCentroidEmbeddings: [Int: [Float]] = [:]
+    ) {
         self.binaryMatrix = []
         self.speakerCount = speakerCount
         self.totalFrames = totalFrames
         self.frameRate = frameRate
         self.segments = segments
         self.timings = timings
+        self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
     }
 
     public mutating func updateSegments(minActiveOffset: Float) {
@@ -99,6 +129,52 @@ public struct DiarizationResult: Sendable {
         }
 
         self.segments = segments.sorted { $0.startFrame < $1.startFrame }
+    }
+
+    // MARK: - Speaker Centroid Comparison
+
+    /// Cosine distance in `[0.0, 2.0]` between two speaker centroids from this result.
+    ///
+    /// Delegates to `MathOps.cosineDistance(_:_:)`, matching the convention used by
+    /// `MathOps.cosineDistanceMatrix` elsewhere in SpeakerKit. The result is clamped to
+    /// `[0, 2]` to absorb floating-point error near the extremes. A distance of `0` means
+    /// identical direction, `1` means orthogonal vectors (no directional similarity), and
+    /// `2` means opposite direction.
+    ///
+    /// - Returns: `nil` if either `speakerId` is absent from
+    ///   ``speakerCentroidEmbeddings``, the centroids have different dimensions, or either
+    ///   vector is empty. Zero-magnitude centroids (unreachable in real diarization runs)
+    ///   yield `MathOps.cosineDistance`'s sentinel of `1.0`.
+    public func centroidCosineDistance(between a: Int, and b: Int) -> Float? {
+        guard let lhs = speakerCentroidEmbeddings[a],
+              let rhs = speakerCentroidEmbeddings[b],
+              lhs.count == rhs.count, !lhs.isEmpty else { return nil }
+        return MathOps.cosineDistance(lhs, rhs)
+    }
+
+    /// Nearest centroid in this result to an external speaker embedding.
+    ///
+    /// This is a pure nearest-neighbour lookup over ``speakerCentroidEmbeddings``. It does not
+    /// apply a same-speaker threshold; callers should interpret the returned distance according
+    /// to their own calibration. Ties resolve deterministically to the lowest `speakerId`.
+    ///
+    /// - Returns: The nearest compatible centroid, or `nil` when `embedding` is empty, no
+    ///   centroid exists, or all stored centroids have different dimensions.
+    public func nearestSpeakerCentroid(to embedding: [Float]) -> (speakerId: Int, distance: Float)? {
+        guard !embedding.isEmpty else { return nil }
+
+        var nearest: (speakerId: Int, distance: Float)?
+        for speakerId in speakerCentroidEmbeddings.keys.sorted() {
+            guard let centroid = speakerCentroidEmbeddings[speakerId], centroid.count == embedding.count else {
+                continue
+            }
+            let distance = MathOps.cosineDistance(embedding, centroid)
+            if nearest == nil || distance < (nearest?.distance ?? .infinity) {
+                nearest = (speakerId, distance)
+            }
+        }
+
+        return nearest
     }
 
     // MARK: - Speaker Info Matching
