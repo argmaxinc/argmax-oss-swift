@@ -114,22 +114,37 @@ public protocol SpeechDecoding: MLModelLoading {
 
     // MARK: - Cache geometry (read after loadModel)
 
+    /// KV-cache embedding dimension (channel count of each cached key/value),
+    /// read from the model's `key_cache` input shape after `loadModel`.
     var kvCacheEmbedDim: Int { get }
+    /// Maximum KV-cache sequence length (capacity in positions), read from the
+    /// model's `key_cache` input shape after `loadModel`.
     var kvCacheMaxSequenceLength: Int { get }
+    /// Hidden-state dimension consumed by the decoder, read from the model's
+    /// `hidden_context` input shape after `loadModel`.
     var hiddenDim: Int { get }
+    /// Length of the rolling hidden-context window the decoder attends over,
+    /// read from the model's `hidden_context` input shape after `loadModel`.
     var hiddenContextLen: Int { get }
+    /// Number of RVQ frames consumed per decode call (1 for latency-optimized
+    /// SpeechDecoder, 4 for throughput-optimized). Read from the loaded model's
+    /// `audio_codes` input shape. Implies `qk_mask` is consumed iff this is > 1.
+    var codesPerStep: Int { get }
 
     // MARK: - Decoding
 
-    /// Decode a single RVQ frame (16 codes) into audio samples.
+    /// Decode `codesPerStep` RVQ frames (each 16 codes) into audio samples.
+    /// Pass an array of `codesPerStep` frames; an outer-array length mismatch
+    /// throws `TTSError.generationFailed`.
     func decodeFrame(
-        codes: [Int32],
+        codes: [[Int32]],
         cache: SpeechDecoderCache
     ) async throws -> [Float]
 
-    /// Async decode that returns audio samples with wall-clock timing.
+    /// Async decode returning audio samples plus wall-clock timing.
+    /// Pass an array of `codesPerStep` frames.
     func decodeFrameAsync(
-        codes: [Int32],
+        codes: [[Int32]],
         cache: SpeechDecoderCache
     ) async throws -> SpeechDecoderTimedResult
 }

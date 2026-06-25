@@ -12,6 +12,7 @@ import WhisperKit
 extension Qwen3Speaker: ExpressibleByArgument {}
 extension Qwen3Language: ExpressibleByArgument {}
 extension TTSModelVariant: ExpressibleByArgument {}
+extension Qwen3SpeechDecoderMode: ExpressibleByArgument {}
 
 // MARK: - CLI Command
 
@@ -109,6 +110,9 @@ struct TTSCLI: AsyncParsableCommand {
     @Option(name: .long, help: "SpeechDecoder variant (overrides --model preset)")
     var speechDecoderVariant: String?
 
+    @Option(name: .long, help: "SpeechDecoder mode: latencyOptimized (default, lowest time-to-first-audio, 1 frame/call) or throughputOptimized (higher throughput, ~4x larger pre-buffer, 4 frames/call)")
+    var speechDecoderMode: Qwen3SpeechDecoderMode = .latencyOptimized
+
     // MARK: - Compute unit options
 
     @Option(name: .long, help: "Compute units for embedders (TextProjector, CodeEmbedder, MultiCodeEmbedder) {all,cpuOnly,cpuAndGPU,cpuAndNeuralEngine}")
@@ -166,6 +170,7 @@ struct TTSCLI: AsyncParsableCommand {
             codeDecoderVariant: codeDecoderVariant,
             multiCodeDecoderVariant: multiCodeDecoderVariant,
             speechDecoderVariant: speechDecoderVariant,
+            speechDecoderMode: speechDecoderMode,
             computeOptions: ComputeOptions(
                 embedderComputeUnits: embedderComputeUnits.asMLComputeUnits,
                 codeDecoderComputeUnits: codeDecoderComputeUnits.asMLComputeUnits,
@@ -208,7 +213,7 @@ struct TTSCLI: AsyncParsableCommand {
             print("  Version: \(config.versionDir)")
             print("  CodeDecoder: \(config.codeDecoderVariant)")
             print("  MultiCodeDecoder: \(config.multiCodeDecoderVariant)")
-            print("  SpeechDecoder: \(config.speechDecoderVariant)")
+            print("  SpeechDecoder: \(config.speechDecoderVariant) (\(config.speechDecoderMode.rawValue))")
             print("  Embedder compute: \(embedderComputeUnits.rawValue)")
             print("  CodeDecoder compute: \(codeDecoderComputeUnits.rawValue)")
             print("  MultiCodeDecoder compute: \(multiCodeDecoderComputeUnits.rawValue)")

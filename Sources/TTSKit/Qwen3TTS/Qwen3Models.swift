@@ -54,7 +54,7 @@ public enum Qwen3TTSConstants {
     public static let sdCacheDim: Int = 8192
     public static let sdMaxSeq: Int = 256
     public static let sdHiddenDim: Int = 1024
-    public static let sdHiddenContextLen: Int = 16
+    public static let sdHiddenContextLen: Int = 4
 
     // MARK: Default HuggingFace sources
 
@@ -169,6 +169,25 @@ public enum Qwen3Language: String, CaseIterable, Sendable {
             case .portuguese: return 2071
             case .spanish: return 2054
             case .italian: return 2070
+        }
+    }
+}
+
+// MARK: - SpeechDecoder Mode
+
+/// Selects which SpeechDecoder mode to use — i.e. how much audio is produced by a
+/// single prediction. `.latencyOptimized` decodes one RVQ frame per call;
+/// `.throughputOptimized` decodes four.
+@frozen
+public enum Qwen3SpeechDecoderMode: String, Sendable, CaseIterable {
+    case latencyOptimized
+    case throughputOptimized
+
+    /// CoreML function name corresponding to this mode.
+    public var functionName: String {
+        switch self {
+            case .latencyOptimized: return "latency"
+            case .throughputOptimized: return "throughput"
         }
     }
 }

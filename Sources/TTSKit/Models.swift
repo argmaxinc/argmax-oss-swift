@@ -330,6 +330,10 @@ public struct SpeechTimings: Codable, Sendable {
     public var speechDecoder: TimeInterval = 0
     /// Sum of `model.prediction()` calls inside SpeechDecoder.
     public var speechDecoderPredictions: TimeInterval = 0
+    /// Number of SpeechDecoder invocations across all chunks. Differs from
+    /// `totalDecodingLoops` when `codesPerStep > 1` (e.g. throughputOptimized's
+    /// N=4 batches: one SD call per 4 RVQ frames plus a final partial flush).
+    public var totalSpeechDecoderInvocations: Double = 0
 
     // MARK: - Non-model overhead
 
@@ -407,6 +411,7 @@ public struct SpeechTimings: Codable, Sendable {
         totalMultiCodeDecoderPredictions += other.totalMultiCodeDecoderPredictions
         speechDecoder += other.speechDecoder
         speechDecoderPredictions += other.speechDecoderPredictions
+        totalSpeechDecoderInvocations += other.totalSpeechDecoderInvocations
         kvCacheUpdate += other.kvCacheUpdate
         codeEmbed += other.codeEmbed
         codecHidden += other.codecHidden
@@ -467,8 +472,8 @@ public struct SpeechResult: Codable, Sendable {
             - Sampling:              \(formatTime(timings.multiCodeDecoderSampling, totalLoops))
             - Embedding:             \(formatTime(timings.multiCodeDecoderEmbedding, totalLoops))
             - KV Caching:            \(formatTime(timings.decodingKvCaching, totalLoops))
-            SpeechDecoder:           \(formatTime(timings.speechDecoder, totalLoops))
-            - Predictions:           \(formatTime(timings.speechDecoderPredictions, totalLoops))
+            SpeechDecoder:           \(formatTime(timings.speechDecoder, timings.totalSpeechDecoderInvocations))
+            - Predictions:           \(formatTime(timings.speechDecoderPredictions, timings.totalSpeechDecoderInvocations))
             KV Cache (outer):        \(formatTime(timings.kvCacheUpdate, totalLoops))
             Code Embed (outer):      \(formatTime(timings.codeEmbed, totalLoops))
             Codec Hidden:            \(formatTime(timings.codecHidden, totalLoops))

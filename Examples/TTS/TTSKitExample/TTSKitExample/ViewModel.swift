@@ -2,6 +2,7 @@
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
 @preconcurrency import AVFoundation
+import ArgmaxCore
 import CoreML
 import Foundation
 import Observation
@@ -11,6 +12,24 @@ import WhisperKit
 #if os(macOS)
 import AppKit
 #endif
+
+// MARK: - Streaming helpers
+
+/// Lock-protected running total of audio samples streamed so far. Used by
+/// `streamGeneration` to ship a single `Int` snapshot to the main actor per
+/// chunk instead of the full `[Float]`, keeping the streaming callback's
+/// MainActor hop O(1) regardless of chunk size.
+private final class StreamedSamplesCounter: @unchecked Sendable {
+    private var total = 0
+    private let lock = UnfairLock()
+
+    func add(_ count: Int) -> Int {
+        lock.withLock {
+            total += count
+            return total
+        }
+    }
+}
 
 // MARK: - Data Model
 
@@ -137,6 +156,9 @@ private class Settings {
     @AppStorage("codeDecoderComputeUnits") var codeDecoderComputeUnitsRaw: Int = MLComputeUnits.cpuAndNeuralEngine.rawValue
     @AppStorage("multiCodeDecoderComputeUnits") var multiCodeDecoderComputeUnitsRaw: Int = MLComputeUnits.cpuAndNeuralEngine.rawValue
     @AppStorage("speechDecoderComputeUnits") var speechDecoderComputeUnitsRaw: Int = MLComputeUnits.cpuAndNeuralEngine.rawValue
+
+    /// Which function of the multifunction SpeechDecoder asset to load.
+    @AppStorage("speechDecoderMode") var speechDecoderModeRaw: String = Qwen3SpeechDecoderMode.latencyOptimized.rawValue
 }
 
 // MARK: - View Model
@@ -232,6 +254,12 @@ final class ViewModel: @unchecked Sendable {
         didSet { settings.speechDecoderComputeUnitsRaw = speechDecoderComputeUnits.rawValue }
     }
 
+    /// Which function of the multifunction SpeechDecoder asset to load
+    /// (`.latencyOptimized` for one RVQ frame per call; `.throughputOptimized` for four).
+    var speechDecoderMode: Qwen3SpeechDecoderMode {
+        didSet { settings.speechDecoderModeRaw = speechDecoderMode.rawValue }
+    }
+
     var computeOptions: ComputeOptions {
         ComputeOptions(
             embedderComputeUnits: embedderComputeUnits,
@@ -267,6 +295,7 @@ final class ViewModel: @unchecked Sendable {
         codeDecoderComputeUnits = MLComputeUnits(rawValue: settings.codeDecoderComputeUnitsRaw) ?? .cpuAndNeuralEngine
         multiCodeDecoderComputeUnits = MLComputeUnits(rawValue: settings.multiCodeDecoderComputeUnitsRaw) ?? .cpuAndNeuralEngine
         speechDecoderComputeUnits = MLComputeUnits(rawValue: settings.speechDecoderComputeUnitsRaw) ?? .cpuAndNeuralEngine
+        speechDecoderMode = Qwen3SpeechDecoderMode(rawValue: settings.speechDecoderModeRaw) ?? .latencyOptimized
     }
 
     // MARK: - Generation output
@@ -449,12 +478,7 @@ final class ViewModel: @unchecked Sendable {
         statusMessage = "Downloading \(selectedPreset.rawValue) model..."
 
         do {
-            // Set a HuggingFace token via TTSKitConfig(token:) if the model repo is private.
-            // For the public argmaxinc/ttskit-coreml repo no token is required.
-            let config = TTSKitConfig(
-                model: selectedPreset,
-                verbose: true
-            )
+            let config = TTSKitConfig(model: selectedPreset, verbose: true)
             let folder = try await TTSKit.download(config: config) { [weak self] progress in
                 Task { @MainActor in
                     self?.downloadProgress = progress.fractionCompleted
@@ -489,6 +513,7 @@ final class ViewModel: @unchecked Sendable {
             let ttsConfig = TTSKitConfig(
                 model: selectedPreset,
                 modelFolder: localModelPaths[selectedPreset].map { URL(fileURLWithPath: $0) },
+                speechDecoderMode: speechDecoderMode,
                 computeOptions: computeOptions,
                 verbose: true
             )
@@ -688,6 +713,10 @@ final class ViewModel: @unchecked Sendable {
             isStreaming = true
             activeAudioOutput = ttsKit.audioOutput
             startPlaybackUpdates()
+        @unknown default:
+            isStreaming = true
+            activeAudioOutput = ttsKit.audioOutput
+            startPlaybackUpdates()
         }
 
         do {
@@ -704,6 +733,12 @@ final class ViewModel: @unchecked Sendable {
                     playGeneration(gen)
                 }
             case .auto, .stream, .buffered:
+                result = try await streamGeneration(tts: ttsKit)
+                stopPlaybackUpdates()
+                activeAudioOutput = nil
+                isStreaming = false
+                try await finalizeGeneration(result: result)
+            @unknown default:
                 result = try await streamGeneration(tts: ttsKit)
                 stopPlaybackUpdates()
                 activeAudioOutput = nil
@@ -776,10 +811,17 @@ final class ViewModel: @unchecked Sendable {
         return result
     }
 
-    /// Run `play`, streaming waveform peaks and audio samples back to the main actor.
+    /// Run `play`, streaming waveform peaks to the main actor (the full audio is set
+    /// once at the end from `result.audio`). `WaveformView` shows one bar per ~80 ms
+    /// RVQ frame, so in `throughputOptimized` mode each chunk is resampled to one peak
+    /// per ~80 ms window via `peaksPerToken`.
     private func streamGeneration(tts: TTSKit) async throws -> SpeechResult {
         let options = buildOptions()
         let sampleRate = Double(Qwen3TTSConstants.sampleRate)
+
+        // Running duration accumulated off the main actor so we can ship a single
+        // `Double` to MainActor per chunk instead of a `[Float]`.
+        let streamedSamples = StreamedSamplesCounter()
 
         let result = try await tts.play(
             text: inputText,
@@ -789,12 +831,12 @@ final class ViewModel: @unchecked Sendable {
             playbackStrategy: selectedPlaybackStrategy,
             callback: { [weak self] progress in
                 let samples = progress.audio
-                let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+                let peaks = self?.peaksPerToken(from: samples) ?? []
+                let totalSamples = streamedSamples.add(samples.count)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    currentAudioSamples.append(contentsOf: samples)
-                    currentDuration = Double(currentAudioSamples.count) / sampleRate
-                    currentWaveform.append(peak)
+                    currentWaveform.append(contentsOf: peaks)
+                    currentDuration = Double(totalSamples) / sampleRate
                 }
                 return nil
             }

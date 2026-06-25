@@ -471,6 +471,12 @@ open class TTSKit: @unchecked Sendable {
             try await loadTokenizerIfNeeded()
         }
 
+        // Propagate Qwen3-specific config to the concrete SpeechDecoder before `loadModel`
+        // selects which function of the multifunction asset to compile.
+        if let qwen3SD = speechDecoder as? Qwen3SpeechDecoder {
+            qwen3SD.mode = config.speechDecoderMode
+        }
+
         // Load the six CoreML models.
         // Prewarm: sequential to serialize compilation -> lower peak memory.
         // Normal: concurrent since compiled artifacts are already cached.

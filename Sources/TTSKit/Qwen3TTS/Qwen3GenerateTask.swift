@@ -339,11 +339,13 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         let roleTokenIds = tokenizer.encode(text: "<|im_start|>assistant\n").map { Int32($0) }
         let maxStepsByPrefill = 8 * (roleTokenIds.count + tokenizeResult.textTokenIds.count)
 
+        let codesPerStep = speechDecoder.codesPerStep
         let sdCache = try SpeechDecoderCache(
             cacheDim: speechDecoder.kvCacheEmbedDim,
             maxSeqLength: speechDecoder.kvCacheMaxSequenceLength,
             hiddenDim: speechDecoder.hiddenDim,
-            hiddenContextLen: speechDecoder.hiddenContextLen
+            hiddenContextLen: speechDecoder.hiddenContextLen,
+            codesPerStep: codesPerStep
         )
 
         var generatedTokens: [Int32] = []
@@ -356,9 +358,26 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         )
         generatedTokens.append(code0)
 
-        var allAudio: [Float] = []
         var stepIndex = 0
-        var firstBufferEmitted = false
+        var stopRequested = false
+
+        let padFrame: [Int32] = [Int32](repeating: Qwen3TTSConstants.codecPAD, count: 16)
+
+        // Owns RVQ-frame buffering, the overlapped SpeechDecoder decode/drain, pad
+        // trimming, audio accumulation, and callback emission. Extracted so this loop
+        // stays flat; SpeechDecoder timings are folded into `timings` (passed `inout`).
+        let writer = SpeechStreamWriter(
+            speechDecoder: speechDecoder,
+            sdCache: sdCache,
+            callback: callback,
+            pipelineStart: pipelineStart,
+            baseTimings: baseTimings,
+            padFrame: padFrame
+        )
+
+        // Tear down the writer's overlapped decode on every exit path — it is an
+        // unstructured Task that does not inherit this loop's cancellation.
+        defer { writer.cancelPendingDecode() }
 
         // TODO: Remove forking logic with package with min os version upgrade
         if #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *), !options.forceLegacyEmbedPath {
@@ -393,107 +412,38 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 timings.decodingKvCaching += mcdResult.timings.decodingKvCaching
                 timings.totalMultiCodeDecoderPredictions += mcdResult.timings.totalMultiCodeDecoderPredictions
 
+                // Captured before `code0` is resampled below; ingested into the writer
+                // after sampling (nothing between here and then reads the buffer).
                 let rvqFrame = [code0] + mcdResult.codes
 
-                if !firstBufferEmitted {
-                    // First step: give SpeechDecoder exclusive compute access for minimum TTFB.
-                    // Emit the buffer immediately, then do the remaining step work (codec hidden,
-                    // text projection, CodeDecoder) which only affects the *next* step's readiness.
-                    let sdResult = try await speechDecoder.decodeFrameAsync(codes: rvqFrame, cache: sdCache)
-                    let stepTime = CFAbsoluteTimeGetCurrent() - stepStart
-                    timings.speechDecoderPredictions += sdResult.timings.speechDecoderPredictions
-                    timings.speechDecoder += sdResult.timings.speechDecoderPredictions
-                    allAudio.append(contentsOf: sdResult.samples)
-
-                    timings.timeToFirstBuffer = CFAbsoluteTimeGetCurrent() - pipelineStart
-                    firstBufferEmitted = true
-
-                    if callback?(
-                        SpeechProgress(
-                            audio: sdResult.samples,
-                            timings: timings,
-                            stepTime: stepTime
-                        )
-                    ) == false {
-                        break
-                    }
-
-                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
-                    guard let lastMcdCode = mcdResult.codes.last else {
-                        throw TTSError.generationFailed("Multi-code generation result has no codes")
-                    }
-                    let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
-                    let code15EmbedTensor: MLTensor = try await multiCodeEmbedder.embed(tokenId: code15OffsetId)
-                    var allCodeEmbedTensors: [MLTensor] = [code0EmbedTensor]
-                    if let tensorEmbeds = mcdResult.offsetCodeEmbedTensors {
-                        allCodeEmbedTensors += tensorEmbeds
-                    } else {
-                        allCodeEmbedTensors += mcdResult.offsetCodeEmbeds.map { $0.asMLTensor() }
-                    }
-                    allCodeEmbedTensors.append(code15EmbedTensor)
-                    let codecHiddenTensor = EmbedUtilities.sumEmbeddings(allCodeEmbedTensors)
-                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
-
-                    let textProjStart = CFAbsoluteTimeGetCurrent()
-                    let textEmbedTensor: MLTensor =
-                        stepIndex < tokenizeResult.trailingTextTokens.count
-                        ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
-                        : textPadEmbedTensor
-                    let combinedTensor = EmbedUtilities.addEmbeddings(codecHiddenTensor, textEmbedTensor)
-                    timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
-
-                    let decodingStart = CFAbsoluteTimeGetCurrent()
-                    lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedTensor, cache: cdCache, state: cdState)
-                    timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart - lastCdOutput.internalCacheUpdateTime
-                    timings.kvCacheUpdate += lastCdOutput.internalCacheUpdateTime
-                } else {
-                    // Subsequent steps: overlap SpeechDecoder with CodeDecoder for throughput
-                    async let speechResult = speechDecoder.decodeFrameAsync(codes: rvqFrame, cache: sdCache)
-
-                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
-                    guard let lastMcdCode = mcdResult.codes.last else {
-                        throw TTSError.generationFailed("Multi-code generation result has no codes")
-                    }
-                    let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
-                    let code15EmbedTensor: MLTensor = try await multiCodeEmbedder.embed(tokenId: code15OffsetId)
-                    var allCodeEmbedTensors: [MLTensor] = [code0EmbedTensor]
-                    if let tensorEmbeds = mcdResult.offsetCodeEmbedTensors {
-                        allCodeEmbedTensors += tensorEmbeds
-                    } else {
-                        allCodeEmbedTensors += mcdResult.offsetCodeEmbeds.map { $0.asMLTensor() }
-                    }
-                    allCodeEmbedTensors.append(code15EmbedTensor)
-                    let codecHiddenTensor = EmbedUtilities.sumEmbeddings(allCodeEmbedTensors)
-                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
-
-                    let textProjStart = CFAbsoluteTimeGetCurrent()
-                    let textEmbedTensor: MLTensor =
-                        stepIndex < tokenizeResult.trailingTextTokens.count
-                        ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
-                        : textPadEmbedTensor
-                    let combinedTensor = EmbedUtilities.addEmbeddings(codecHiddenTensor, textEmbedTensor)
-                    timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
-
-                    let decodingStart = CFAbsoluteTimeGetCurrent()
-                    lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedTensor, cache: cdCache, state: cdState)
-                    timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart - lastCdOutput.internalCacheUpdateTime
-                    timings.kvCacheUpdate += lastCdOutput.internalCacheUpdateTime
-
-                    let sdResult = try await speechResult
-                    timings.speechDecoderPredictions += sdResult.timings.speechDecoderPredictions
-                    timings.speechDecoder += sdResult.timings.speechDecoderPredictions
-                    allAudio.append(contentsOf: sdResult.samples)
-
-                    if callback?(
-                        SpeechProgress(
-                            audio: sdResult.samples,
-                            timings: {
-                                var merged = baseTimings; merged.merge(timings); return merged
-                            }(), stepTime: nil)) == false
-                    {
-                        break
-                    }
+                let codecHiddenStart = CFAbsoluteTimeGetCurrent()
+                guard let lastMcdCode = mcdResult.codes.last else {
+                    throw TTSError.generationFailed("Multi-code generation result has no codes")
                 }
+                let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
+                let code15EmbedTensor: MLTensor = try await multiCodeEmbedder.embed(tokenId: code15OffsetId)
+                var allCodeEmbedTensors: [MLTensor] = [code0EmbedTensor]
+                if let tensorEmbeds = mcdResult.offsetCodeEmbedTensors {
+                    allCodeEmbedTensors += tensorEmbeds
+                } else {
+                    allCodeEmbedTensors += mcdResult.offsetCodeEmbeds.map { $0.asMLTensor() }
+                }
+                allCodeEmbedTensors.append(code15EmbedTensor)
+                let codecHiddenTensor = EmbedUtilities.sumEmbeddings(allCodeEmbedTensors)
+                timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
+
+                let textProjStart = CFAbsoluteTimeGetCurrent()
+                let textEmbedTensor: MLTensor =
+                    stepIndex < tokenizeResult.trailingTextTokens.count
+                    ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
+                    : textPadEmbedTensor
+                let combinedTensor = EmbedUtilities.addEmbeddings(codecHiddenTensor, textEmbedTensor)
+                timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
+
+                let decodingStart = CFAbsoluteTimeGetCurrent()
+                lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedTensor, cache: cdCache, state: cdState)
+                timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart - lastCdOutput.internalCacheUpdateTime
+                timings.kvCacheUpdate += lastCdOutput.internalCacheUpdateTime
 
                 let samplingStart = CFAbsoluteTimeGetCurrent()
                 code0 = await sampler.sampleCodec0(
@@ -505,6 +455,11 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 )
                 generatedTokens.append(code0)
                 timings.decodingSampling += CFAbsoluteTimeGetCurrent() - samplingStart
+
+                if !(try await writer.append(rvqFrame, stepStart: stepStart, loopTimings: &timings)) {
+                    stopRequested = true
+                    break
+                }
 
                 timings.decodingLoop += CFAbsoluteTimeGetCurrent() - stepStart
                 stepIndex += 1
@@ -519,8 +474,14 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 }
             }
         } else {
-            // Legacy path (older OS)
-            while code0 != Qwen3TTSConstants.codecEOS && !cdCache.isFull && stepIndex < options.maxNewTokens && stepIndex < maxStepsByPrefill {
+            // Legacy embed path (forced via options.forceLegacyEmbedPath, or pre-macOS-15
+            // OSes — note the multifunction SpeechDecoder asset still requires iOS 18+,
+            // so SD calls will throw at runtime on older OSes).
+            while code0 != Qwen3TTSConstants.codecEOS
+                && !cdCache.isFull
+                && stepIndex < options.maxNewTokens
+                && stepIndex < maxStepsByPrefill
+            {
                 try Task.checkCancellation()
                 let stepStart = CFAbsoluteTimeGetCurrent()
 
@@ -549,91 +510,32 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 timings.decodingKvCaching += mcdResult.timings.decodingKvCaching
                 timings.totalMultiCodeDecoderPredictions += mcdResult.timings.totalMultiCodeDecoderPredictions
 
+                // Captured before `code0` is resampled below; ingested into the writer
+                // after sampling (nothing between here and then reads the buffer).
                 let rvqFrame = [code0] + mcdResult.codes
 
-                if !firstBufferEmitted {
-                    let sdResult = try await speechDecoder.decodeFrameAsync(codes: rvqFrame, cache: sdCache)
-                    timings.speechDecoderPredictions += sdResult.timings.speechDecoderPredictions
-                    timings.speechDecoder += sdResult.timings.speechDecoderPredictions
-                    allAudio.append(contentsOf: sdResult.samples)
-
-                    timings.timeToFirstBuffer = CFAbsoluteTimeGetCurrent() - pipelineStart
-                    firstBufferEmitted = true
-                    let stepTime = CFAbsoluteTimeGetCurrent() - stepStart
-
-                    if callback?(
-                        SpeechProgress(
-                            audio: sdResult.samples,
-                            timings: {
-                                var merged = baseTimings; merged.merge(timings); return merged
-                            }(), stepTime: stepTime)) == false
-                    {
-                        break
-                    }
-
-                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
-                    guard let lastMcdCode = mcdResult.codes.last else {
-                        throw TTSError.generationFailed("Multi-code generation result has no codes")
-                    }
-                    let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
-                    var allCodeEmbeds: [[FloatType]] = [code0Embed]
-                    allCodeEmbeds += mcdResult.offsetCodeEmbeds
-                    try await allCodeEmbeds.append(multiCodeEmbedder.embed(tokenId: code15OffsetId))
-                    let codecHidden = EmbedUtilities.sumEmbeddings(allCodeEmbeds)
-                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
-
-                    let textProjStart = CFAbsoluteTimeGetCurrent()
-                    let textTokenEmbed: [FloatType] =
-                        stepIndex < tokenizeResult.trailingTextTokens.count
-                        ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
-                        : tokenizeResult.textPadEmbed
-                    let combinedArr = try EmbedUtilities.createEmbedMLArray(EmbedUtilities.addEmbeddings(codecHidden, textTokenEmbed))
-                    timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
-
-                    let decodingStart = CFAbsoluteTimeGetCurrent()
-                    lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedArr, cache: cdCache, state: cdState)
-                    timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart
-                } else {
-                    async let speechResult = speechDecoder.decodeFrameAsync(codes: rvqFrame, cache: sdCache)
-
-                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
-                    guard let lastMcdCode = mcdResult.codes.last else {
-                        throw TTSError.generationFailed("Multi-code generation result has no codes")
-                    }
-                    let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
-                    var allCodeEmbeds: [[FloatType]] = [code0Embed]
-                    allCodeEmbeds += mcdResult.offsetCodeEmbeds
-                    try await allCodeEmbeds.append(multiCodeEmbedder.embed(tokenId: code15OffsetId))
-                    let codecHidden = EmbedUtilities.sumEmbeddings(allCodeEmbeds)
-                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
-
-                    let textProjStart = CFAbsoluteTimeGetCurrent()
-                    let textTokenEmbed: [FloatType] =
-                        stepIndex < tokenizeResult.trailingTextTokens.count
-                        ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
-                        : tokenizeResult.textPadEmbed
-                    let combinedArr = try EmbedUtilities.createEmbedMLArray(EmbedUtilities.addEmbeddings(codecHidden, textTokenEmbed))
-                    timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
-
-                    let decodingStart = CFAbsoluteTimeGetCurrent()
-                    lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedArr, cache: cdCache, state: cdState)
-                    timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart
-
-                    let sdResult = try await speechResult
-                    timings.speechDecoderPredictions += sdResult.timings.speechDecoderPredictions
-                    timings.speechDecoder += sdResult.timings.speechDecoderPredictions
-                    allAudio.append(contentsOf: sdResult.samples)
-
-                    if callback?(
-                        SpeechProgress(
-                            audio: sdResult.samples,
-                            timings: {
-                                var merged = baseTimings; merged.merge(timings); return merged
-                            }(), stepTime: nil)) == false
-                    {
-                        break
-                    }
+                let codecHiddenStart = CFAbsoluteTimeGetCurrent()
+                guard let lastMcdCode = mcdResult.codes.last else {
+                    throw TTSError.generationFailed("Multi-code generation result has no codes")
                 }
+                let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
+                var allCodeEmbeds: [[FloatType]] = [code0Embed]
+                allCodeEmbeds += mcdResult.offsetCodeEmbeds
+                try await allCodeEmbeds.append(multiCodeEmbedder.embed(tokenId: code15OffsetId))
+                let codecHidden = EmbedUtilities.sumEmbeddings(allCodeEmbeds)
+                timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
+
+                let textProjStart = CFAbsoluteTimeGetCurrent()
+                let textTokenEmbed: [FloatType] =
+                    stepIndex < tokenizeResult.trailingTextTokens.count
+                    ? try await textProjector.project(tokenId: tokenizeResult.trailingTextTokens[stepIndex])
+                    : tokenizeResult.textPadEmbed
+                let combinedArr = try EmbedUtilities.createEmbedMLArray(EmbedUtilities.addEmbeddings(codecHidden, textTokenEmbed))
+                timings.textProjection += CFAbsoluteTimeGetCurrent() - textProjStart
+
+                let decodingStart = CFAbsoluteTimeGetCurrent()
+                lastCdOutput = try await codeDecoder.decode(inputEmbeds: combinedArr, cache: cdCache, state: cdState)
+                timings.decodingPredictions += CFAbsoluteTimeGetCurrent() - decodingStart
 
                 let samplingStart = CFAbsoluteTimeGetCurrent()
                 code0 = await sampler.sampleCodec0(
@@ -645,6 +547,11 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 )
                 generatedTokens.append(code0)
                 timings.decodingSampling += CFAbsoluteTimeGetCurrent() - samplingStart
+
+                if !(try await writer.append(rvqFrame, stepStart: stepStart, loopTimings: &timings)) {
+                    stopRequested = true
+                    break
+                }
 
                 timings.decodingLoop += CFAbsoluteTimeGetCurrent() - stepStart
                 stepIndex += 1
@@ -660,6 +567,13 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
             }
         }
 
+        // Drain the in-flight decode from the last completed flush, then flush any
+        // remaining partial buffer. Skipped entirely when the callback already asked
+        // to stop in the loop, so we don't emit one more `SpeechProgress` after that.
+        if !stopRequested {
+            try await writer.finish(loopTimings: &timings)
+        }
+
         let stopReason: String
         if code0 == Qwen3TTSConstants.codecEOS {
             stopReason = "EOS token"
@@ -673,7 +587,7 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         Logging.info("Loop stopped: \(stopReason) after \(stepIndex) steps")
 
         timings.totalDecodingLoops = Double(stepIndex)
-        return GenerationLoopResult(audio: allAudio, steps: stepIndex, timings: timings)
+        return GenerationLoopResult(audio: writer.collectedAudio, steps: stepIndex, timings: timings)
     }
 
     // MARK: - Embedding Helpers

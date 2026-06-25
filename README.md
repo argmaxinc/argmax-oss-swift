@@ -432,6 +432,26 @@ try await tts.play(
 
 Other strategies include `.stream` (immediate, no buffer), `.buffered(seconds:)` (fixed pre-buffer), and `.generateFirst` (generate all audio first, then play).
 
+### Speech Decoder Mode
+
+TTSKit's default speech decoder bundles two functions, selectable via `TTSKitConfig.speechDecoderMode`:
+
+| Mode | RVQ frames / call | Audio / call | Use case |
+|------|-------------------|--------------|----------|
+| `.latencyOptimized` (default) | 1 | ~80 ms | Lowest time-to-first-audio for streaming. |
+| `.throughputOptimized` | 4 | ~320 ms | Amortizes decoder overhead for higher throughput, at the cost of a ~4× larger first-buffer latency. |
+
+```swift
+// Default: latency-optimized (lowest time-to-first-audio)
+let tts = try await TTSKit()
+
+// Opt into throughput-optimized generation
+let config = TTSKitConfig(speechDecoderMode: .throughputOptimized)
+let throughputTTS = try await TTSKit(config)
+```
+
+The mode is read once when models are loaded; set it before constructing `TTSKit` (or reload the model to switch at runtime).
+
 ### Generation Options
 
 You can customize sampling, chunking, and concurrency via `GenerationOptions`:

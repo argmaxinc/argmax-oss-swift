@@ -7,6 +7,9 @@ import Foundation
 public enum TTSError: Error, LocalizedError, Equatable {
     case emptyText
     case modelNotFound(String)
+    /// A model bundle was found but could not be loaded or introspected (e.g. a
+    /// failed `MLModel.load`, or a malformed asset missing an expected input shape).
+    case modelLoadingFailed(String)
     case generationFailed(String)
     case tokenizerUnavailable(String)
     case audioOutputFailed(String)
@@ -18,6 +21,7 @@ public enum TTSError: Error, LocalizedError, Equatable {
         switch self {
             case .emptyText: return "Input text is empty"
             case let .modelNotFound(path): return "Model directory not found: \(path)"
+            case let .modelLoadingFailed(msg): return "Model loading failed: \(msg)"
             case let .generationFailed(msg): return "Generation failed: \(msg)"
             case let .tokenizerUnavailable(msg): return "Tokenizer unavailable: \(msg)"
             case let .audioOutputFailed(msg): return "Audio output failed: \(msg)"

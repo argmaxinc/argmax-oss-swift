@@ -206,12 +206,26 @@ final class TTSKitUnitTests: XCTestCase {
 
     func testKVCacheIsFull() throws {
         let cache = try KVCache(cacheDim: 4, maxSeqLength: 4)
-        // maxSeqLength=4, isFull when cacheLength >= 3 (maxSeqLength - 1)
+        // codesPerStep == 1 (default): isFull when cacheLength >= maxSeqLength - 1 == 3.
         cache.update()
         cache.update()
         XCTAssertFalse(cache.isFull)
         cache.update()
         XCTAssertTrue(cache.isFull)
+    }
+
+    func testKVCacheIsFullThroughput() throws {
+        // codesPerStep=4: isFull reserves a full write, flipping at maxSeqLength - codesPerStep (12).
+        let cache = try KVCache(
+            cacheDim: 4, maxSeqLength: 16, codesPerStep: 4, useRank3UpdateMask: true
+        )
+        cache.update() // cacheLength 0 -> 4
+        cache.update() // 4 -> 8
+        XCTAssertFalse(cache.isFull)
+        XCTAssertEqual(cache.freePositions, 4) // 16 - 4 - 8
+        cache.update() // 8 -> 12
+        XCTAssertTrue(cache.isFull)
+        XCTAssertEqual(cache.freePositions, 0) // 16 - 4 - 12
     }
 
     func testKVCacheReset() throws {
@@ -231,6 +245,265 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(cache.hiddenDim, 32)
         XCTAssertEqual(cache.hiddenContextLen, 4)
         XCTAssertEqual(cache.hiddenContext.shape, [1, 32, 1, 4] as [NSNumber])
+        // Latency function default (N=1): rank-3 kvCacheUpdateMask, no qkMask.
+        XCTAssertEqual(cache.kvCacheUpdateMask.shape, [1, 1, 16] as [NSNumber])
+        XCTAssertNil(cache.qkMask)
+    }
+
+    func testSpeechDecoderCacheThroughputMaskShapes() throws {
+        let cache = try SpeechDecoderCache(
+            cacheDim: 64, maxSeqLength: 16, hiddenDim: 32, hiddenContextLen: 1, codesPerStep: 4
+        )
+        XCTAssertEqual(cache.codesPerStep, 4)
+        XCTAssertEqual(cache.kvCacheUpdateMask.shape, [1, 4, 16] as [NSNumber])
+        XCTAssertNotNil(cache.qkMask)
+        XCTAssertEqual(cache.qkMask?.shape, [1, 4, 16] as [NSNumber])
+    }
+
+    func testSpeechDecoderCacheInitialMasksLatency() throws {
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: 8, hiddenDim: 4, hiddenContextLen: 4, codesPerStep: 1
+        )
+        let update = cache.kvCacheUpdateMask
+        let updatePtr = update.dataPointer.bindMemory(to: FloatType.self, capacity: update.count)
+        // [1, 1, 8] — only [0, 0, 0] = 1
+        XCTAssertEqual(Float(updatePtr[0]), 1.0, accuracy: 0.001)
+        for j in 1..<8 {
+            XCTAssertEqual(Float(updatePtr[j]), 0.0, accuracy: 0.001)
+        }
+        let pad = cache.keyPaddingMask
+        let padPtr = pad.dataPointer.bindMemory(to: FloatType.self, capacity: pad.count)
+        XCTAssertEqual(Float(padPtr[0]), 0.0, accuracy: 0.001)
+        for j in 1..<8 {
+            XCTAssertEqual(Float(padPtr[j]), -10000.0, accuracy: 0.001)
+        }
+    }
+
+    func testSpeechDecoderCacheInitialMasksThroughput() throws {
+        let codesPerStep = 4
+        let maxSeqLength = 16
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: maxSeqLength, hiddenDim: 4, hiddenContextLen: 1, codesPerStep: codesPerStep
+        )
+        // kvCacheUpdateMask[0, i, i] = 1 for i in 0..<codesPerStep, else 0.
+        let update = cache.kvCacheUpdateMask
+        let updatePtr = update.dataPointer.bindMemory(to: FloatType.self, capacity: update.count)
+        for i in 0..<codesPerStep {
+            for j in 0..<maxSeqLength {
+                let expected: Float = (j == i) ? 1.0 : 0.0
+                XCTAssertEqual(Float(updatePtr[i * maxSeqLength + j]), expected, accuracy: 0.001,
+                               "kvCacheUpdateMask[0,\(i),\(j)]")
+            }
+        }
+        // qkMask[0, i, j] = -10000 for i < j < codesPerStep, else 0.
+        let qk = try XCTUnwrap(cache.qkMask)
+        let qkPtr = qk.dataPointer.bindMemory(to: FloatType.self, capacity: qk.count)
+        for i in 0..<codesPerStep {
+            for j in 0..<maxSeqLength {
+                let expected: Float = (i < j && j < codesPerStep) ? -10000.0 : 0.0
+                XCTAssertEqual(Float(qkPtr[i * maxSeqLength + j]), expected, accuracy: 0.001,
+                               "qkMask[0,\(i),\(j)]")
+            }
+        }
+        // keyPaddingMask: 0 for [0, codesPerStep), -10000 after.
+        let pad = cache.keyPaddingMask
+        let padPtr = pad.dataPointer.bindMemory(to: FloatType.self, capacity: pad.count)
+        for j in 0..<maxSeqLength {
+            let expected: Float = (j < codesPerStep) ? 0.0 : -10000.0
+            XCTAssertEqual(Float(padPtr[j]), expected, accuracy: 0.001, "keyPaddingMask[\(j)]")
+        }
+    }
+
+    func testSpeechDecoderCacheUpdateShiftsMasksThroughput() throws {
+        // Advance once with codesPerStep=4 and confirm masks shift to the next block.
+        let codesPerStep = 4
+        let maxSeqLength = 16
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: maxSeqLength, hiddenDim: 4, hiddenContextLen: 1, codesPerStep: codesPerStep
+        )
+        // The update call needs keyCacheUpdates/valueCacheUpdates of shape [1, 4, 1, codesPerStep];
+        // populating with zeros is fine because the test only inspects the masks.
+        let keyUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        let valueUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        memset(keyUpdates.dataPointer, 0, keyUpdates.count * MemoryLayout<FloatType>.size)
+        memset(valueUpdates.dataPointer, 0, valueUpdates.count * MemoryLayout<FloatType>.size)
+
+        cache.update(keyCacheUpdates: keyUpdates, valueCacheUpdates: valueUpdates)
+        XCTAssertEqual(cache.cacheLength, Int32(codesPerStep))
+
+        // kvCacheUpdateMask now has 1s at [0, i, codesPerStep + i] for i in 0..<codesPerStep.
+        let update = cache.kvCacheUpdateMask
+        let updatePtr = update.dataPointer.bindMemory(to: FloatType.self, capacity: update.count)
+        for i in 0..<codesPerStep {
+            for j in 0..<maxSeqLength {
+                let expected: Float = (j == codesPerStep + i) ? 1.0 : 0.0
+                XCTAssertEqual(Float(updatePtr[i * maxSeqLength + j]), expected, accuracy: 0.001,
+                               "post-update kvCacheUpdateMask[0,\(i),\(j)]")
+            }
+        }
+        // qkMask now has -10000 at columns (codesPerStep + i + 1, 2*codesPerStep) for each row i.
+        let qk = try XCTUnwrap(cache.qkMask)
+        let qkPtr = qk.dataPointer.bindMemory(to: FloatType.self, capacity: qk.count)
+        for i in 0..<codesPerStep {
+            for j in 0..<maxSeqLength {
+                let inNewTriangle = (j > codesPerStep + i) && (j < 2 * codesPerStep)
+                let expected: Float = inNewTriangle ? -10000.0 : 0.0
+                XCTAssertEqual(Float(qkPtr[i * maxSeqLength + j]), expected, accuracy: 0.001,
+                               "post-update qkMask[0,\(i),\(j)]")
+            }
+        }
+        // keyPaddingMask unmasked region extends to [0, 2N).
+        let pad = cache.keyPaddingMask
+        let padPtr = pad.dataPointer.bindMemory(to: FloatType.self, capacity: pad.count)
+        for j in 0..<maxSeqLength {
+            let expected: Float = (j < 2 * codesPerStep) ? 0.0 : -10000.0
+            XCTAssertEqual(Float(padPtr[j]), expected, accuracy: 0.001,
+                           "post-update keyPaddingMask[\(j)]")
+        }
+    }
+
+    func testKVCacheUpdateScattersNPositions() throws {
+        // Drive a non-stateful KVCache with codesPerStep=4 and verify the codesPerStep new
+        // K/V slots land at positions [cacheLength, cacheLength + codesPerStep).
+        let codesPerStep = 4
+        let maxSeqLength = 16
+        let cacheDim = 3
+        let cache = try KVCache(
+            cacheDim: cacheDim, maxSeqLength: maxSeqLength, codesPerStep: codesPerStep, useRank3UpdateMask: true
+        )
+        // Seed update tensors with distinct values per (dim, i).
+        let keyUpdates = try MLMultiArray(shape: [1, NSNumber(value: cacheDim), 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        let valueUpdates = try MLMultiArray(shape: [1, NSNumber(value: cacheDim), 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        let keyUpdatePtr = keyUpdates.dataPointer.bindMemory(to: FloatType.self, capacity: keyUpdates.count)
+        let valueUpdatePtr = valueUpdates.dataPointer.bindMemory(to: FloatType.self, capacity: valueUpdates.count)
+        for dim in 0..<cacheDim {
+            for i in 0..<codesPerStep {
+                keyUpdatePtr[dim * codesPerStep + i] = FloatType(Float(dim) + Float(i) * 0.1)
+                valueUpdatePtr[dim * codesPerStep + i] = FloatType(Float(dim) * 10 + Float(i))
+            }
+        }
+        cache.update(keyCacheUpdates: keyUpdates, valueCacheUpdates: valueUpdates)
+        XCTAssertEqual(cache.cacheLength, Int32(codesPerStep))
+
+        let keyCache = try XCTUnwrap(cache.keyCache)
+        let valueCache = try XCTUnwrap(cache.valueCache)
+        let keyCachePtr = keyCache.dataPointer.bindMemory(to: FloatType.self, capacity: cacheDim * maxSeqLength)
+        let valueCachePtr = valueCache.dataPointer.bindMemory(to: FloatType.self, capacity: cacheDim * maxSeqLength)
+        for dim in 0..<cacheDim {
+            for i in 0..<codesPerStep {
+                let expectedKey = Float(dim) + Float(i) * 0.1
+                let expectedValue = Float(dim) * 10 + Float(i)
+                XCTAssertEqual(Float(keyCachePtr[dim * maxSeqLength + i]), expectedKey, accuracy: 0.01,
+                               "keyCache[\(dim), \(i)]")
+                XCTAssertEqual(Float(valueCachePtr[dim * maxSeqLength + i]), expectedValue, accuracy: 0.01,
+                               "valueCache[\(dim), \(i)]")
+            }
+            // Positions past codesPerStep must still be zero.
+            for j in codesPerStep..<maxSeqLength {
+                XCTAssertEqual(Float(keyCachePtr[dim * maxSeqLength + j]), 0.0, accuracy: 0.001)
+                XCTAssertEqual(Float(valueCachePtr[dim * maxSeqLength + j]), 0.0, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testHiddenContextRollN1M4() throws {
+        // codesPerStep=1 (latency), hiddenContextLen=4: one-step left shift, append new column.
+        let codesPerStep = 1
+        let hiddenContextLen = 4
+        let hiddenDim = 2
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: 16, hiddenDim: hiddenDim, hiddenContextLen: hiddenContextLen, codesPerStep: codesPerStep
+        )
+        // Pre-load the hidden buffer with known values.
+        let hiddenPtr = cache.hiddenContext.dataPointer.bindMemory(
+            to: FloatType.self, capacity: hiddenDim * hiddenContextLen
+        )
+        for dim in 0..<hiddenDim {
+            for t in 0..<hiddenContextLen { hiddenPtr[dim * hiddenContextLen + t] = FloatType(Float(dim) * 10 + Float(t)) }
+        }
+        // Build a synthetic hidden_context_update of shape [1, hiddenDim, 1, codesPerStep].
+        let updateArr = try MLMultiArray(
+            shape: [1, NSNumber(value: hiddenDim), 1, NSNumber(value: codesPerStep)], dataType: .float16
+        )
+        let updatePtr = updateArr.dataPointer.bindMemory(to: FloatType.self, capacity: updateArr.count)
+        for dim in 0..<hiddenDim {
+            updatePtr[dim * codesPerStep] = FloatType(99.0 + Float(dim))
+        }
+        // Synthesize a FeatureProvider that returns empty KV updates + this hidden update.
+        let keyUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        let valueUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        memset(keyUpdates.dataPointer, 0, keyUpdates.count * MemoryLayout<FloatType>.size)
+        memset(valueUpdates.dataPointer, 0, valueUpdates.count * MemoryLayout<FloatType>.size)
+        let provider = try MLDictionaryFeatureProvider(dictionary: [
+            "key_cache_updates": MLFeatureValue(multiArray: keyUpdates),
+            "value_cache_updates": MLFeatureValue(multiArray: valueUpdates),
+            "hidden_context_update": MLFeatureValue(multiArray: updateArr)
+        ])
+        cache.updateWithHiddenContext(output: provider)
+
+        // Expected: each row shifted left by 1, new value at position hiddenContextLen-1.
+        for dim in 0..<hiddenDim {
+            // Old positions 1, 2, 3 -> 0, 1, 2.
+            XCTAssertEqual(Float(hiddenPtr[dim * hiddenContextLen + 0]), Float(dim) * 10 + 1.0, accuracy: 0.01)
+            XCTAssertEqual(Float(hiddenPtr[dim * hiddenContextLen + 1]), Float(dim) * 10 + 2.0, accuracy: 0.01)
+            XCTAssertEqual(Float(hiddenPtr[dim * hiddenContextLen + 2]), Float(dim) * 10 + 3.0, accuracy: 0.01)
+            // New column appended.
+            XCTAssertEqual(Float(hiddenPtr[dim * hiddenContextLen + 3]), 99.0 + Float(dim), accuracy: 0.01)
+        }
+    }
+
+    func testHiddenContextRollN4M1() throws {
+        // codesPerStep=4 (throughput), hiddenContextLen=1: keep only the last new column.
+        let codesPerStep = 4
+        let hiddenContextLen = 1
+        let hiddenDim = 2
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: 16, hiddenDim: hiddenDim, hiddenContextLen: hiddenContextLen, codesPerStep: codesPerStep
+        )
+        let updateArr = try MLMultiArray(
+            shape: [1, NSNumber(value: hiddenDim), 1, NSNumber(value: codesPerStep)], dataType: .float16
+        )
+        let updatePtr = updateArr.dataPointer.bindMemory(to: FloatType.self, capacity: updateArr.count)
+        for dim in 0..<hiddenDim {
+            for i in 0..<codesPerStep { updatePtr[dim * codesPerStep + i] = FloatType(Float(dim) * 10 + Float(i)) }
+        }
+        let keyUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        let valueUpdates = try MLMultiArray(shape: [1, 4, 1, NSNumber(value: codesPerStep)], dataType: .float16)
+        memset(keyUpdates.dataPointer, 0, keyUpdates.count * MemoryLayout<FloatType>.size)
+        memset(valueUpdates.dataPointer, 0, valueUpdates.count * MemoryLayout<FloatType>.size)
+        let provider = try MLDictionaryFeatureProvider(dictionary: [
+            "key_cache_updates": MLFeatureValue(multiArray: keyUpdates),
+            "value_cache_updates": MLFeatureValue(multiArray: valueUpdates),
+            "hidden_context_update": MLFeatureValue(multiArray: updateArr)
+        ])
+        cache.updateWithHiddenContext(output: provider)
+
+        let hiddenPtr = cache.hiddenContext.dataPointer.bindMemory(
+            to: FloatType.self, capacity: hiddenDim * hiddenContextLen
+        )
+        for dim in 0..<hiddenDim {
+            // Only the last column (i=codesPerStep-1=3) is retained.
+            XCTAssertEqual(Float(hiddenPtr[dim * hiddenContextLen + 0]), Float(dim) * 10 + Float(codesPerStep - 1), accuracy: 0.01)
+        }
+    }
+
+    // MARK: - SpeechDecoder mode enum
+
+    func testSpeechDecoderModeFunctionNames() {
+        XCTAssertEqual(Qwen3SpeechDecoderMode.latencyOptimized.functionName, "latency")
+        XCTAssertEqual(Qwen3SpeechDecoderMode.throughputOptimized.functionName, "throughput")
+    }
+
+    func testSpeechDecoderModeDefaults() {
+        let decoder = Qwen3SpeechDecoder()
+        XCTAssertEqual(decoder.mode, .latencyOptimized)
+        XCTAssertEqual(decoder.codesPerStep, 1)
+    }
+
+    func testTTSKitConfigSpeechDecoderDefaults() {
+        let config = TTSKitConfig()
+        XCTAssertEqual(config.speechDecoderMode, .latencyOptimized)
+        XCTAssertEqual(config.speechDecoderVariant, "W8A16-multifunction")
     }
 
     // MARK: - Sampler
@@ -584,21 +857,21 @@ final class TTSKitUnitTests: XCTestCase {
     // MARK: - PlaybackStrategy
 
     func testAudioPerStep() {
-        let spf = Qwen3TTSConstants.samplesPerFrame
-        let sr = Qwen3TTSConstants.sampleRate
-        let expected = Double(spf) / Double(sr)
-        XCTAssertEqual(PlaybackStrategy.audioPerStep(samplesPerFrame: spf, sampleRate: sr), expected, accuracy: 0.0001)
+        let samplesPerFrame = Qwen3TTSConstants.samplesPerFrame
+        let sampleRate = Qwen3TTSConstants.sampleRate
+        let expected = Double(samplesPerFrame) / Double(sampleRate)
+        XCTAssertEqual(PlaybackStrategy.audioPerStep(samplesPerFrame: samplesPerFrame, sampleRate: sampleRate), expected, accuracy: 0.0001)
         // ~80ms per frame at 24kHz / 1920 samples
-        XCTAssertEqual(PlaybackStrategy.audioPerStep(samplesPerFrame: spf, sampleRate: sr), 0.08, accuracy: 0.001)
+        XCTAssertEqual(PlaybackStrategy.audioPerStep(samplesPerFrame: samplesPerFrame, sampleRate: sampleRate), 0.08, accuracy: 0.001)
     }
 
     func testRequiredBufferFastDevice() {
         // Step completes in half the frame duration -> device is 2x real-time
         // deficit = max(0, 1 - 2.0) = 0, so result = minimumBufferDuration
-        let spf = Qwen3TTSConstants.samplesPerFrame
-        let sr = Qwen3TTSConstants.sampleRate
-        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: spf, sampleRate: sr) / 2.0
-        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 100, samplesPerFrame: spf, sampleRate: sr)
+        let samplesPerFrame = Qwen3TTSConstants.samplesPerFrame
+        let sampleRate = Qwen3TTSConstants.sampleRate
+        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: samplesPerFrame, sampleRate: sampleRate) / 2.0
+        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 100, samplesPerFrame: samplesPerFrame, sampleRate: sampleRate)
         XCTAssertEqual(buffer, PlaybackStrategy.minimumBufferDuration, accuracy: 0.001)
     }
 
@@ -606,10 +879,10 @@ final class TTSKitUnitTests: XCTestCase {
         // Step takes 2x the frame duration -> device is at 0.5x real-time
         // speedRatio = 0.5, deficit = 0.5, maxAudio = 100 * 0.08 = 8s
         // deficitBuffer = 8 * 0.5 = 4s > minimumBufferDuration
-        let spf = Qwen3TTSConstants.samplesPerFrame
-        let sr = Qwen3TTSConstants.sampleRate
-        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: spf, sampleRate: sr) * 2.0
-        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 100, samplesPerFrame: spf, sampleRate: sr)
+        let samplesPerFrame = Qwen3TTSConstants.samplesPerFrame
+        let sampleRate = Qwen3TTSConstants.sampleRate
+        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: samplesPerFrame, sampleRate: sampleRate) * 2.0
+        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 100, samplesPerFrame: samplesPerFrame, sampleRate: sampleRate)
         XCTAssertGreaterThan(buffer, PlaybackStrategy.minimumBufferDuration)
         // Exact: 100 * 0.08 * 0.5 = 4.0s
         XCTAssertEqual(buffer, 4.0, accuracy: 0.01)
@@ -617,10 +890,10 @@ final class TTSKitUnitTests: XCTestCase {
 
     func testRequiredBufferAtExactRealTime() {
         // Step equals frame duration -> speedRatio = 1, deficit = 0 -> minimum clamp applies
-        let spf = Qwen3TTSConstants.samplesPerFrame
-        let sr = Qwen3TTSConstants.sampleRate
-        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: spf, sampleRate: sr)
-        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 50, samplesPerFrame: spf, sampleRate: sr)
+        let samplesPerFrame = Qwen3TTSConstants.samplesPerFrame
+        let sampleRate = Qwen3TTSConstants.sampleRate
+        let stepTime = PlaybackStrategy.audioPerStep(samplesPerFrame: samplesPerFrame, sampleRate: sampleRate)
+        let buffer = PlaybackStrategy.requiredBuffer(stepTime: stepTime, maxNewTokens: 50, samplesPerFrame: samplesPerFrame, sampleRate: sampleRate)
         XCTAssertEqual(buffer, PlaybackStrategy.minimumBufferDuration, accuracy: 0.001)
     }
 
