@@ -23,7 +23,7 @@
 
 [Argmax](https://argmaxinc.com/blog) Open-Source SDK Swift is a collection of turn-key on-device inference frameworks:
 - **WhisperKit** for speech-to-text with OpenAI Whisper
-- **SpeakerKit** for speaker diarization Pyannote
+- **SpeakerKit** for speaker diarization with Pyannote
 - **TTSKit** for text-to-speech with Qwen-TTS
 
 > [!IMPORTANT]
@@ -46,7 +46,7 @@
   - [Xcode Steps](#xcode-steps)
   - [Package.swift](#packageswift)
   - [Homebrew](#homebrew)
-- [Getting Started](#getting-started)
+- [WhisperKit](#whisperkit)
   - [Quick Example](#quick-example)
   - [Model Selection](#model-selection)
   - [Generating Models](#generating-models)
@@ -136,7 +136,7 @@ You can install the command line app using [Homebrew](https://brew.sh) by runnin
 brew install whisperkit-cli
 ```  
 
-## Getting Started
+## WhisperKit
 
 To get started with WhisperKit, you need to initialize it in your project.
 
@@ -159,6 +159,18 @@ Task {
 
 > [!NOTE]
 > Argmax recommends `large-v3-v20240930_626MB` for maximum multilingual accuracy and `tiny` for the fastest debugging workflow.
+
+| Whisper Version                  | WhisperKit Variant                                                                                                 | Description                                                                      |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| Large v3 Turbo (compressed)      | [large-v3-v20240930_626MB](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_626MB) | Recommended across iOS and macOS for maximum accuracy                            |
+| Large v3 Turbo                   | [large-v3-v20240930_turbo](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_turbo) | Recommended on macOS for maximum speed and accuracy                             |
+| Base (multilingual)              | [base](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base)                         |                                                                                  |
+| Base (English-only)              | [base.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base.en)                   |                                                                                  |
+| Small (Multilingual)             | [small](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small)                       |                                                                                  |
+| Small (English-only)             | [small.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small.en)                 |                                                                                  |
+| Tiny (Multilingual)              | [tiny](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny)                         |                                                                                  |
+| Tiny (English-only)              | [tiny.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny.en)                   | Smallest size, lowest accuracy. Only recommended for development & debugging.     |
+
 
 
 WhisperKit automatically downloads the recommended model for the device if not specified. You can also select a specific model by passing in the model name:
@@ -659,11 +671,11 @@ This project incorporates third-party software under their own license terms. Se
 
 If you use this SDK for something cool or just find it useful, please drop us a note at [info@argmaxinc.com](mailto:info@argmaxinc.com)!
 
-If you use WhisperKit for academic work, here is the BibTeX:
+If you use WhisperKit, SpeakerKit or TTSKit for academic work, please cite the project using the following BibTeX:
 
 ```bibtex
 @misc{whisperkit-argmax,
-   title = {Argmax OSS: WhisperKit, SpeakerKit and TTSKit},
+   title = {Argmax OSS: On-device Speech AI with WhisperKit, SpeakerKit and TTSKit},
    author = {Argmax, Inc.},
    year = {2024},
    URL = {https://github.com/argmaxinc/argmax-oss-swift}
