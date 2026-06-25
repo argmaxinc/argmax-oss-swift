@@ -57,9 +57,12 @@ public class Qwen3SpeechDecoder: SpeechDecoding, @unchecked Sendable {
         modelConfig.computeUnits = computeUnits
         // Multifunction `functionName` selection is iOS 18+ / macOS 15+. The asset
         // itself requires the same minimum, so callers on older OS cannot load it.
-        if #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) {
-            modelConfig.functionName = mode.functionName
+        guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+            throw TTSError.modelLoadingFailed(
+                "SpeechDecoder requires macOS 15 / iOS 18 (multifunction CoreML model)"
+            )
         }
+        modelConfig.functionName = mode.functionName
         let loaded: MLModel
         do {
             loaded = try await MLModel.load(contentsOf: url, configuration: modelConfig)
