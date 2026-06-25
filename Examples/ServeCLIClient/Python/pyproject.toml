@@ -2,10 +2,11 @@
 name = "whisperkit-python-client"
 version = "0.1.0"
 description = "Python client for WhisperKit local server"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "openai>=1.0.0",
-    "requests>=2.25.0",
-    "python-dotenv>=0.19.0",
+    "requests>=2.33.0",
+    "urllib3>=2.7.0",
+    "python-dotenv>=1.2.2",
     "argparse",
 ]

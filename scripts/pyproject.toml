@@ -2,8 +2,9 @@
 name = "whisperkit-scripts"
 version = "0.1.0"
 description = "Scripts for WhisperKit development"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
-    "requests",
+    "requests>=2.33.0",
+    "urllib3>=2.7.0",
     "ruamel.yaml",
 ]
