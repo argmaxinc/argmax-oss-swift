@@ -594,18 +594,46 @@ extension HubApi {
                 throw EnvironmentError.offlineModeError(String(localized: "Repository not available locally"))
             }
 
-            let fileUrls = try FileManager.default.getFileUrls(at: repoDestination)
+            // Argmax-modification: resolve each cached file's repo-relative path once and reuse it below to
+            // honor `globs` and to locate each file's `.metadata` sidecar. FileManager's enumerator yields
+            // paths with a /private prefix (/private/var/...) on macOS while repoDestination may not
+            // (/var/...), so resolve symlinks on both sides before stripping the root prefix.
+            let rootPath = repoDestination.resolvingSymlinksInPath().path
+            let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+            func repoRelativePath(of url: URL) -> String? {
+                let path = url.resolvingSymlinksInPath().path
+                guard path.hasPrefix(rootPrefix) else { return nil }
+                return String(path.dropFirst(rootPrefix.count))
+            }
+
+            var fileUrls = try FileManager.default.getFileUrls(at: repoDestination)
             if fileUrls.isEmpty {
                 throw EnvironmentError.offlineModeError(String(localized: "No files available locally for this repository"))
             }
 
+            // Argmax-modification: honor `globs` in offline mode. Upstream validates every file under the
+            // repo root and ignores `matching:`, so an unrelated, partial, or manually-copied file
+            // elsewhere in the same repo (e.g. a different model variant) fails validation even when the
+            // requested files are complete. Restrict validation to files matching the requested globs.
+            if !globs.isEmpty {
+                fileUrls = fileUrls.filter { url in
+                    guard let relative = repoRelativePath(of: url) else { return false }
+                    return globs.contains { ![relative].matching(glob: $0).isEmpty }
+                }
+                if fileUrls.isEmpty {
+                    throw EnvironmentError.offlineModeError(String(localized: "No files matching the requested patterns are available locally"))
+                }
+            }
+
             for fileUrl in fileUrls {
-                let metadataPath = URL(
-                    fileURLWithPath: fileUrl.path.replacingOccurrences(
-                        of: repoDestination.path,
-                        with: repoMetadataDestination.path
-                    ) + ".metadata"
-                )
+                // Argmax-modification: build the `.metadata` path from the repo-relative path, mirroring how
+                // HubFileDownloader writes it (repoMetadataDestination + relativeFilename + ".metadata").
+                // Upstream string-replaced repoDestination.path inside fileUrl.path, which is fragile when
+                // the enumerator and repo root disagree on the /private prefix.
+                guard let relative = repoRelativePath(of: fileUrl) else {
+                    throw EnvironmentError.offlineModeError(String(localized: "Metadata not available for \(fileUrl.lastPathComponent)"))
+                }
+                let metadataPath = repoMetadataDestination.appending(path: relative + ".metadata")
 
                 let localMetadata = try readDownloadMetadata(metadataPath: metadataPath)
 

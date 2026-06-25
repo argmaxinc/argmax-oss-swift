@@ -13,7 +13,7 @@ import Foundation
 /// Thread safety: mutable state (`model`, dimension properties) is set once during
 /// `loadModel()` and read-only thereafter. `MLModel.prediction()` is thread-safe.
 public class Qwen3SpeechDecoder: SpeechDecoding, @unchecked Sendable {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     // MARK: - Audio format
 

@@ -9,7 +9,7 @@ import WhisperKit
 public class SpeakerSegmenterModel: @unchecked Sendable {
     public private(set) var modelURL: URL
     public private(set) var computeUnits: MLComputeUnits
-    public private(set) var model: MLModel?
+    @Protected public private(set) var model: MLModel?
     public private(set) var modelState: ModelState = .unloaded
     public let sampleRate: Int
 

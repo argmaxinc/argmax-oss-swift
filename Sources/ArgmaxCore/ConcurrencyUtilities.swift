@@ -86,6 +86,32 @@ public struct PropertyLock<Value: Codable & Sendable>: Sendable, Codable {
     }
 }
 
+// MARK: - Protected
+
+/// Thread-safe storage for a value, backed by an `OSAllocatedUnfairLock`.
+///
+/// This is without `Sendable`, so it can wrap types such as `MLModel?`.
+/// Only whole-value reads and writes are atomic.
+@propertyWrapper
+public struct Protected<Value>: Sendable {
+    private let lock: OSAllocatedUnfairLock<Value>
+
+    public init(wrappedValue: Value) {
+        lock = OSAllocatedUnfairLock(uncheckedState: wrappedValue)
+    }
+
+    public var wrappedValue: Value {
+        get { lock.withLockUnchecked { $0 } }
+        // nonmutating: the setter mutates the lock's heap state, not the struct.
+        nonmutating set { lock.withLockUnchecked { $0 = newValue } }
+    }
+}
+
+public extension Protected where Value: ExpressibleByNilLiteral {
+    /// Allows `@Protected var x: T?` with no explicit initial value (defaults to `nil`).
+    init() { self.init(wrappedValue: nil) }
+}
+
 // MARK: - Weak Sendable Wrapper
 
 /// Wraps a weak reference so it can be captured in a `@Sendable` closure.

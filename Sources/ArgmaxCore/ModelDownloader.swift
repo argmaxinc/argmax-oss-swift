@@ -184,14 +184,14 @@ open class ModelDownloader {
 
     /// Resolves an entire repository in a single snapshot call.
     ///
-    /// Resolution order:
-    /// 1. Local Hub cache — if all required pattern directories exist, return the cache root immediately.
-    /// 2. Online download — fetches all files matching `patterns` at this downloader’s `revision` in one `HubApi.snapshot()` call.
+    /// This function checks the local cache first and only downloads if it has to:
+    /// 1. Local cache: used only if every component is present and an offline snapshot can validate each file's metadata and hash.
+    /// 2. Online download: fetches everything matching `patterns` and re-fetches anything missing or stale.
     ///
     /// - Parameters:
     ///   - patterns: Glob patterns selecting the files to download (e.g. `modelInfo.downloadPattern`).
     ///   - downloadBase: Override for the Hub cache root. Defaults to the Hub default location.
-    ///   - download: When `false`, throws if models are not already cached locally.
+    ///   - download: When `false`, throws if there isn’t already a valid local copy.
     ///   - progressCallback: Called with the Hub’s `Progress` each time it updates.
     /// - Returns: The Hub snapshot root URL containing the downloaded files.
     open func resolveRepo(
@@ -201,20 +201,30 @@ open class ModelDownloader {
         progressCallback: ((Progress) -> Void)? = nil
     ) async throws -> URL {
         let resolvedDownloadBase = downloadBase ?? config.downloadBase.map { URL(fileURLWithPath: $0) }
+        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
         let localRoot = localRepoLocation(downloadBase: resolvedDownloadBase)
+
+        // patternsExistLocally just checks every component is on disk; it can't tell a half-downloaded
+        // model from a complete one. So before trusting the cache, run an offline snapshot to validate
+        // each file's metadata and hash. If that fails, fall through and re-download below.
         if patternsExistLocally(patterns, in: localRoot) {
-            Logging.debug("[ModelDownloader] All models found in local cache at \(localRoot.path)")
-            return localRoot
+            let offlineHubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession, useOfflineMode: true)
+            do {
+                let validatedRoot = try await offlineHubApi.snapshot(from: repo, revision: config.revision, matching: patterns)
+                Logging.debug("[ModelDownloader] Found valid local cache at \(validatedRoot.path)")
+                return validatedRoot
+            } catch {
+                Logging.debug("[ModelDownloader] Local cache for '\(config.modelRepo)' didn't validate (\(error.localizedDescription)); re-resolving.")
+            }
         }
 
         guard download else {
             throw ModelDownloaderError.modelUnavailable(
-                "No local models found for repo '\(config.modelRepo)' and download is disabled."
+                "No valid local models found for repo '\(config.modelRepo)' and download is disabled."
             )
         }
 
         let hubApi = HubApi(downloadBase: resolvedDownloadBase, hfToken: config.modelToken, endpoint: config.endpoint, useBackgroundSession: config.useBackgroundSession)
-        let repo = HubApi.Repo(id: config.modelRepo, type: .models)
 
         Logging.info("[ModelDownloader] Downloading \(patterns.count) model(s) from \(config.modelRepo)...")
         let snapshotRoot = try await hubApi.snapshot(from: repo, revision: config.revision, matching: patterns, progressHandler: progressCallback ?? { _ in })

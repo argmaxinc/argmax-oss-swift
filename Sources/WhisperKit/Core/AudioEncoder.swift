@@ -1,6 +1,7 @@
 //  For licensing see accompanying LICENSE.md file.
 //  Copyright © 2024 Argmax, Inc. All rights reserved.
 
+import ArgmaxCore
 import CoreML
 
 public protocol AudioEncoderOutputType {}
@@ -19,7 +20,7 @@ public protocol AudioEncoding {
 
 /// Backwards-compatible AudioEncoder implementation
 public class AudioEncoder: AudioEncoding, WhisperMLModel {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     public var embedSize: Int? {
         guard let inputDescription = model?.modelDescription.outputDescriptionsByName["encoder_output_embeds"] else { return nil }

@@ -10,15 +10,9 @@ import ArgmaxCore
 public extension ModelInfo {
     static func segmenter(version: String? = nil, variant: String? = nil, computeUnits: MLComputeUnits = .cpuOnly) -> ModelInfo {
         let variant = variant ?? {
-            #if targetEnvironment(simulator)
             if #available(iOS 18, macOS 15, *) {
                 return "W8A16"
             }
-            #else
-            if #available(iOS 17, macOS 14, *) {
-                return "W8A16"
-            }
-            #endif
 
             return "W32A32"
         }()
