@@ -17,7 +17,10 @@ public extension AudioStreamTranscriber {
     }
 }
 
-public typealias AudioStreamTranscriberCallback = (AudioStreamTranscriber.State, AudioStreamTranscriber.State) -> Void
+public typealias AudioStreamTranscriberCallback = @Sendable (
+    AudioStreamTranscriber.State,
+    AudioStreamTranscriber.State
+) -> Void
 
 /// Responsible for streaming audio from the microphone, processing it, and transcribing it in real-time.
 public actor AudioStreamTranscriber {
@@ -193,7 +196,8 @@ public actor AudioStreamTranscriber {
         var options = decodingOptions
         options.clipTimestamps = [state.lastConfirmedSegmentEndSeconds]
         let checkWindow = compressionCheckWindow
-        return try await transcribeTask.run(audioArray: samples, decodeOptions: options) { [weak self] progress in
+        return try await transcribeTask
+            .run(audioArray: samples, decodeOptions: options) { [options] progress in
             Task { [weak self] in
                 await self?.onProgressCallback(progress)
             }

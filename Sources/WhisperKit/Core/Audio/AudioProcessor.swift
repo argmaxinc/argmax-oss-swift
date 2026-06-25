@@ -2,7 +2,7 @@
 //  Copyright © 2024 Argmax, Inc. All rights reserved.
 
 import Accelerate
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreAudio
 import CoreML
 
@@ -1045,9 +1045,10 @@ public extension AudioProcessor {
     /// Recording stops automatically when the stream terminates.
     func startStreamingRecordingLive(inputDeviceID: DeviceID? = nil) -> (AsyncThrowingStream<[Float], Error>, AsyncThrowingStream<[Float], Error>.Continuation) {
         let (stream, continuation) = AsyncThrowingStream<[Float], Error>.makeStream(bufferingPolicy: .unbounded)
-        
-        continuation.onTermination = { [weak self] _ in
-            guard let self = self else { return }
+
+        let weakSelf = WeakSendableWrapper(self)
+        continuation.onTermination = { _ in
+            guard let self = weakSelf.value else { return }
             self.audioBufferCallback = nil
             self.stopRecording()
         }

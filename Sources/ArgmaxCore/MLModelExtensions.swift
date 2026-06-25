@@ -1,7 +1,7 @@
 //  For licensing see accompanying LICENSE.md file.
 //  Copyright © 2024 Argmax, Inc. All rights reserved.
 
-import CoreML
+@preconcurrency import CoreML
 
 // MARK: - Async Prediction
 

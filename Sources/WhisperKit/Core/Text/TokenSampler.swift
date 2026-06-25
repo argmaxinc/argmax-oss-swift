@@ -6,7 +6,7 @@ import CoreML
 import Foundation
 
 public protocol TokenSampling {
-    func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) -> SamplingResult
+    func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) async -> SamplingResult
     func finalize(tokens: [Int], logProbs: [Float]) -> SamplingResult
 }
 
@@ -39,7 +39,7 @@ open class GreedyTokenSampler: TokenSampling {
 
     #if canImport(CoreML.MLState)
     @available(macOS 15, iOS 18, watchOS 11, visionOS 2, *)
-    private func sampleWithMLTensor(logits: MLMultiArray) -> (token: Int, logprob: Float) {
+    private func sampleWithMLTensor(logits: MLMultiArray) async -> (token: Int, logprob: Float) {
         // Use MLTensor operations if available for sampling
         // Reference: https://github.com/huggingface/swift-transformers/blob/preview/Sources/Generation/Decoders.swift
         var logitsTensor = MLTensor(MLShapedArray<FloatType>(logits)).cast(to: Float.self)
@@ -77,8 +77,8 @@ open class GreedyTokenSampler: TokenSampling {
         }
 
         return (
-            token: nextTokenTensor.asIntArray()[0],
-            logprob: nextLogprobTensor.asFloatArray()[0]
+            token: await nextTokenTensor.toIntArray()[0],
+            logprob: await nextLogprobTensor.toFloatArray()[0]
         )
     }
     #endif
@@ -212,7 +212,7 @@ open class GreedyTokenSampler: TokenSampling {
         return (token: nextToken!, logprob: nextLogprob)
     }
 
-    public func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) -> SamplingResult {
+    public func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) async -> SamplingResult {
         var nextTokens = tokens
         var nextLogprobs = logProbs
         var completed = false
@@ -220,7 +220,7 @@ open class GreedyTokenSampler: TokenSampling {
         var result: (token: Int, logprob: Float)
         #if canImport(CoreML.MLState)
         if #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) {
-            result = sampleWithMLTensor(logits: logits)
+            result = await sampleWithMLTensor(logits: logits)
         } else {
             result = sampleWithBNNS(logits: logits)
         }
@@ -278,7 +278,7 @@ open class BeamSearchTokenSampler: TokenSampling {
         finishedSequences = []
     }
 
-    public func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) -> SamplingResult {
+    public func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) async -> SamplingResult {
         // TODO: Implement
         fatalError("Not implemented: \(#function)")
     }

@@ -4,6 +4,7 @@
 import ArgumentParser
 import CoreML
 import Foundation
+import SpeakerKit
 import WhisperKit
 import TTSKit
 
@@ -15,6 +16,18 @@ struct TranscribeCLI: AsyncParsableCommand {
 
     @OptionGroup
     var cliArguments: TranscribeCLIArguments
+
+    @Flag(name: .long, help: "Enable speaker diarization")
+    var diarization: Bool = false
+
+    @Option(name: .long, help: "Number of speakers for diarization (default: automatic)")
+    var diarizationNumSpeakers: Int?
+
+    @Option(name: .long, help: "Path to diarization model files (skips download)")
+    var diarizationModelPath: String?
+
+    @Option(name: .long, help: "HuggingFace repo for diarization models")
+    var diarizationModelRepo: String?
 
     mutating func validate() throws {
         if let language = cliArguments.language {
@@ -44,6 +57,9 @@ struct TranscribeCLI: AsyncParsableCommand {
     }
 
     mutating func run() async throws {
+        if cliArguments.verbose {
+            Logging.shared.logLevel = .debug
+        }
         if cliArguments.stream {
             try await transcribeStream()
         } else if cliArguments.streamSimulated {
@@ -105,6 +121,9 @@ struct TranscribeCLI: AsyncParsableCommand {
         }
 
         var options = TranscribeCLIUtils.createDecodingOptions(from: cliArguments, task: task)
+        if diarization {
+            options.wordTimestamps = true
+        }
         if cliArguments.verbose {
             print("\nConfiguring decoding options...")
         }
@@ -169,7 +188,9 @@ struct TranscribeCLI: AsyncParsableCommand {
             let smoothingFactor = 0.1 // For exponential moving average
 
             // Start the progress bar task
+            let weakWhisperKit = WeakSendableWrapper(whisperKit)
             progressBarTask = Task {
+                guard let whisperKit = weakWhisperKit.value else { return }
                 while await progressState.getIsTranscribing() {
                     let progress = whisperKit.progress.fractionCompleted
                     let currentTime = Date()
@@ -236,6 +257,17 @@ struct TranscribeCLI: AsyncParsableCommand {
                 processTranscriptionResult(audioPath: audioPath, transcribeResult: mergedPartialResult)
             } catch {
                 print("Error when transcribing \(audioPath): \(error)")
+            }
+        }
+
+        if diarization {
+            for (audioPath, result) in zip(resolvedAudioPaths, transcribeResult) {
+                do {
+                    let partialResult = try result.get()
+                    try await runDiarization(audioPath: audioPath, transcriptionResults: partialResult)
+                } catch {
+                    print("Error during diarization for \(audioPath): \(error)")
+                }
             }
         }
     }
@@ -325,7 +357,7 @@ struct TranscribeCLI: AsyncParsableCommand {
         for seekSample in stride(from: 16000, to: audioArray.count, by: 16000) {
             let endSample = min(seekSample + 16000, audioArray.count)
             if cliArguments.verbose {
-                print("[whisperkit-cli] \(lastAgreedSeconds)-\(Double(endSample) / 16000.0) seconds")
+                print("[argmax-cli] \(lastAgreedSeconds)-\(Double(endSample) / 16000.0) seconds")
             }
 
             let simulatedStreamingAudio = Array(audioArray[..<endSample])
@@ -343,26 +375,26 @@ struct TranscribeCLI: AsyncParsableCommand {
                         prevWords = prevResult.allWords.filter { $0.start >= lastAgreedSeconds }
                         let commonPrefix = TranscriptionUtilities.findLongestCommonPrefix(prevWords, hypothesisWords)
                         if cliArguments.verbose {
-                            print("[whisperkit-cli] Prev \"\((prevWords.map { $0.word }).joined())\"")
-                            print("[whisperkit-cli] Next \"\((hypothesisWords.map { $0.word }).joined())\"")
-                            print("[whisperkit-cli] Found common prefix \"\((commonPrefix.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Prev \"\((prevWords.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Next \"\((hypothesisWords.map { $0.word }).joined())\"")
+                            print("[argmax-cli] Found common prefix \"\((commonPrefix.map { $0.word }).joined())\"")
                         }
 
                         if commonPrefix.count >= agreementCountNeeded {
                             lastAgreedWords = commonPrefix.suffix(agreementCountNeeded)
                             lastAgreedSeconds = lastAgreedWords.first!.start
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Found new last agreed word \(lastAgreedWords.first!.word) at \(lastAgreedSeconds) seconds")
+                                print("[argmax-cli] Found new last agreed word \(lastAgreedWords.first!.word) at \(lastAgreedSeconds) seconds")
                             }
 
                             confirmedWords.append(contentsOf: commonPrefix.prefix(commonPrefix.count - agreementCountNeeded))
                             let currentWords = confirmedWords.map { $0.word }.joined()
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Current: \(lastAgreedSeconds) -> \(Double(endSample) / 16000.0) \(currentWords)")
+                                print("[argmax-cli] Current: \(lastAgreedSeconds) -> \(Double(endSample) / 16000.0) \(currentWords)")
                             }
                         } else {
                             if cliArguments.verbose {
-                                print("[whisperkit-cli] Using same last agreed time \(lastAgreedSeconds)")
+                                print("[argmax-cli] Using same last agreed time \(lastAgreedSeconds)")
                             }
                             skipAppend = true
                         }
@@ -370,7 +402,7 @@ struct TranscribeCLI: AsyncParsableCommand {
                     prevResult = result
                 } else {
                     if cliArguments.verbose {
-                        print("[whisperkit-cli] No word timings found, this may be due to alignment weights missing from the model being used")
+                        print("[argmax-cli] No word timings found, this may be due to alignment weights missing from the model being used")
                     }
                 }
                 if !skipAppend {
@@ -394,6 +426,41 @@ struct TranscribeCLI: AsyncParsableCommand {
 
 
 
+
+    private func runDiarization(audioPath: String, transcriptionResults: [TranscriptionResult]) async throws {
+        let config = PyannoteConfig(
+            modelRepo: diarizationModelRepo ?? "argmaxinc/speakerkit-coreml",
+            modelFolder: diarizationModelPath,
+            download: diarizationModelPath == nil,
+            load: true,
+            verbose: cliArguments.verbose
+        )
+
+        let loadStart = Date()
+        let speakerKit = try await SpeakerKit(config)
+        let loadTime = Date().timeIntervalSince(loadStart)
+
+        if cliArguments.verbose {
+            print("\nDiarization model initialization complete:")
+            print(String(format: "  - Total load time: %.2f seconds", loadTime))
+        }
+
+        let audioFrames = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioPath)
+
+        let options = PyannoteDiarizationOptions(numberOfSpeakers: diarizationNumSpeakers)
+        let diarizationResult = try await speakerKit.diarize(audioArray: audioFrames, options: options)
+
+        let rttmLines = SpeakerKit.generateRTTM(
+            from: diarizationResult,
+            transcription: transcriptionResults,
+            fileName: URL(filePath: audioPath).deletingPathExtension().lastPathComponent
+        )
+
+        print("\n---- Speaker Diarization Results ----")
+        for line in rttmLines {
+            print(line)
+        }
+    }
 
     private func processTranscriptionResult(
         audioPath: String,

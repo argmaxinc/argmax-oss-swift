@@ -7,7 +7,6 @@ import Foundation
 public enum WhisperError: Error, LocalizedError, Equatable {
     case tokenizerUnavailable(String = "Tokenizer is unavailable")
     case modelsUnavailable(String = "Models are unavailable")
-    case prefillFailed(String = "Prefill failed")
     case audioProcessingFailed(String = "Audio processing failed")
     case decodingLogitsFailed(String = "Unable to decode logits from the model output")
     case segmentingFailed(String = "Creating segments failed")
@@ -22,7 +21,6 @@ public enum WhisperError: Error, LocalizedError, Equatable {
         switch self {
         case let .tokenizerUnavailable(message),
             let .modelsUnavailable(message),
-            let .prefillFailed(message),
             let .audioProcessingFailed(message),
             let .decodingLogitsFailed(message),
             let .segmentingFailed(message),

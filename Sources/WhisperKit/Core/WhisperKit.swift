@@ -3,11 +3,10 @@
 
 @_exported import ArgmaxCore
 import Accelerate
+import ArgmaxCore
 import AVFoundation
 import CoreML
 import Foundation
-import Hub
-import Tokenizers
 
 open class WhisperKit {
     /// Models
@@ -70,7 +69,7 @@ open class WhisperKit {
         tokenizerFolder = config.tokenizerFolder ?? config.downloadBase
         useBackgroundDownloadSession = config.useBackgroundDownloadSession
         currentTimings = TranscriptionTimings()
-        Logging.shared.logLevel = config.verbose ? config.logLevel : .none
+        Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
 
         try await setupModels(
             model: config.model,
@@ -186,13 +185,14 @@ open class WhisperKit {
         remoteConfigName: String = Constants.defaultRemoteConfigName,
         endpoint: String = Constants.defaultRemoteEndpoint
     ) async -> ModelSupportConfig {
-        let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
+        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
+        let repoRef = HubApiWrapper.Repo(id: repo)
         var modelSupportConfig = Constants.fallbackModelSupportConfig
 
         do {
             // Try to decode config file into ModelSupportConfig
             Logging.debug("Searching for config file matching \"\(remoteConfigName)\" in \(repo)")
-            let files = try await hubApi.getFilenames(from: repo, matching: remoteConfigName)
+            let files = try await hubApi.getFilenames(from: repoRef, matching: [remoteConfigName])
             if files.count > 1 {
                 Logging.info("Multiple config files found (\(files.count)): \(files). Using first matching file: \(files.first ?? "none")")
             } else if files.isEmpty {
@@ -204,7 +204,7 @@ open class WhisperKit {
             // Use the first file in the list, or default to Constants.defaultRemoteConfigName
             let configFileName = files.first ?? Constants.defaultRemoteConfigName
             
-            let configUrl = try await hubApi.snapshot(from: repo, matching: configFileName)
+            let configUrl = try await hubApi.snapshot(from: repoRef, matching: [configFileName])
             let decoder = JSONDecoder()
             let jsonData = try Data(contentsOf: configUrl.appendingPathComponent(configFileName))
             modelSupportConfig = try decoder.decode(ModelSupportConfig.self, from: jsonData)
@@ -248,10 +248,10 @@ open class WhisperKit {
         from repo: String = "argmaxinc/whisperkit-coreml",
         token: String? = nil,
         endpoint: String = Constants.defaultRemoteEndpoint,
-        progressCallback: ((Progress) -> Void)? = nil
+        progressCallback: ProgressCallback? = nil
     ) async throws -> URL {
-        let hubApi = HubApi(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
-        let repo = Hub.Repo(id: repo, type: .models)
+        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
+        let repo = HubApiWrapper.Repo(id: repo, type: .models)
         var modelSearchPath = "*\(variant.description)/*"
         do {
             Logging.debug("Searching for models matching \"\(modelSearchPath)\" in \(repo)")
@@ -285,7 +285,7 @@ open class WhisperKit {
 
             Logging.debug("Downloading model \(variantPath)...")
             let modelFolder = try await hubApi.snapshot(from: repo, matching: [modelSearchPath]) { progress in
-                Logging.debug(progress)
+                Logging.debug(progress.debugDescription)
                 if let callback = progressCallback {
                     callback(progress)
                 }
@@ -294,7 +294,7 @@ open class WhisperKit {
             let modelFolderName = modelFolder.appending(path: variantPath)
             return modelFolderName
         } catch {
-            Logging.debug(error)
+            Logging.debug(error.localizedDescription)
             throw error
         }
     }
@@ -372,7 +372,6 @@ open class WhisperKit {
         let logmelUrl = ModelUtilities.detectModelURL(inFolder: path, named: "MelSpectrogram")
         let encoderUrl = ModelUtilities.detectModelURL(inFolder: path, named: "AudioEncoder")
         let decoderUrl = ModelUtilities.detectModelURL(inFolder: path, named: "TextDecoder")
-        let decoderPrefillUrl = ModelUtilities.detectModelURL(inFolder: path, named: "TextDecoderContextPrefill")
 
         for item in [logmelUrl, encoderUrl, decoderUrl] {
             if !FileManager.default.fileExists(atPath: item.path) {
@@ -388,17 +387,6 @@ open class WhisperKit {
                 prewarmMode: prewarmMode
             )
             Logging.debug("Loaded feature extractor")
-        }
-
-        if FileManager.default.fileExists(atPath: decoderPrefillUrl.path) {
-            Logging.debug("Loading text decoder prefill data")
-            textDecoder.prefillData = TextDecoderContextPrefill()
-            try await textDecoder.prefillData?.loadModel(
-                at: decoderPrefillUrl,
-                computeUnits: modelCompute.prefillCompute,
-                prewarmMode: prewarmMode
-            )
-            Logging.debug("Loaded text decoder prefill data")
         }
 
         if let textDecoder = textDecoder as? WhisperMLModel {
@@ -475,8 +463,8 @@ open class WhisperKit {
         let additionalSearchPaths: [URL]
         if let modelFolder {
             // TODO: remove hub path in future version, retained as additional search path for backward compatibility
-            let hubTokenizerFolderFromModel = HubApi(downloadBase: modelFolder).localRepoLocation(
-                HubApi.Repo(id: ModelUtilities.tokenizerNameForVariant(modelVariant))
+            let hubTokenizerFolderFromModel = HubApiWrapper(downloadBase: modelFolder).localRepoLocation(
+                HubApiWrapper.Repo(id: ModelUtilities.tokenizerNameForVariant(modelVariant))
             )
 
             additionalSearchPaths = [modelFolder] + [hubTokenizerFolderFromModel]
@@ -521,7 +509,7 @@ open class WhisperKit {
 
     /// Pass in your own logging callback here
     open func loggingCallback(_ callback: Logging.LoggingCallback?) {
-        Logging.shared.loggingCallback = callback
+        Logging.updateCallback(callback)
     }
 
     // MARK: - Detect language
@@ -560,7 +548,7 @@ open class WhisperKit {
             throw WhisperError.tokenizerUnavailable()
         }
 
-        let options = DecodingOptions(verbose: Logging.shared.logLevel != .none)
+        let options = DecodingOptions(verbose: Logging.isLoggingEnabled)
         let decoderInputs = try textDecoder.prepareDecoderInputs(withPrompt: [tokenizer.specialTokens.startOfTranscriptToken])
 
         // Detect language using up to the first 30 seconds
@@ -599,7 +587,7 @@ open class WhisperKit {
     open func transcribe(
         audioPaths: [String],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async -> [[TranscriptionResult]?] {
         let transcribeResults = await transcribeWithResults(
             audioPaths: audioPaths,
@@ -624,7 +612,7 @@ open class WhisperKit {
     open func transcribeWithResults(
         audioPaths: [String],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async -> [Result<[TranscriptionResult], Swift.Error>] {
         transcriptionStateCallback?(.convertingAudio)
 
@@ -679,7 +667,7 @@ open class WhisperKit {
     open func transcribe(
         audioArrays: [[Float]],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async -> [[TranscriptionResult]?] {
         let transcribeResults = await transcribeWithResults(
             audioArrays: audioArrays,
@@ -705,7 +693,7 @@ open class WhisperKit {
     open func transcribeWithResults(
         audioArrays: [[Float]],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async -> [Result<[TranscriptionResult], Swift.Error>] {
         // Create an array of decoding options with the same value for each audio array
         let decodeOptionsArray = Array(repeating: decodeOptions, count: audioArrays.count)
@@ -729,7 +717,7 @@ open class WhisperKit {
         audioArrays: [[Float]],
         decodeOptionsArray: [DecodingOptions?] = [nil],
         seekOffsets: [Int]? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async -> [Result<[TranscriptionResult], Swift.Error>] {
         var result = [Result<[TranscriptionResult], Swift.Error>]()
 
@@ -754,23 +742,25 @@ open class WhisperKit {
             // Use withTaskGroup to manage concurrent transcription tasks
             let partialResult = await withTaskGroup(of: [(index: Int, result: Result<[TranscriptionResult], Swift.Error>)].self) { taskGroup -> [Result<[TranscriptionResult], Swift.Error>] in
                 for (audioIndex, audioArray) in audioArrayBatch.enumerated() {
+                    let batchSize = audioArrayBatch.count
+
                     // Setup callback to keep track of batches and chunks
-                    let batchedAudioCallback: ((TranscriptionProgress) -> Bool?) = { progress in
+                    let batchedAudioCallback: TranscriptionCallback = { progress in
                         var batchedProgress = progress
-                        batchedProgress.windowId = audioIndex + batchIndex * audioArrayBatch.count
+                        batchedProgress.windowId = audioIndex + batchIndex * batchSize
                         return callback?(batchedProgress)
                     }
 
                     // Setup segment callback to track chunk seek positions for segment discovery
                     let batchedSegmentCallback: SegmentDiscoveryCallback? = if let seekOffsets {
-                        { segments in
-                            let windowId = audioIndex + batchIndex * audioArrayBatch.count
+                        { [segmentDiscoveryCallback] segments in
+                            let windowId = audioIndex + batchIndex * batchSize
                             let seekOffset = seekOffsets[windowId]
                             var adjustedSegments = segments
                             for i in 0..<adjustedSegments.count {
                                 adjustedSegments[i].seek += Int(seekOffset)
                             }
-                            self.segmentDiscoveryCallback?(adjustedSegments)
+                            segmentDiscoveryCallback?(adjustedSegments)
                         }
                     } else {
                         self.segmentDiscoveryCallback
@@ -780,13 +770,17 @@ open class WhisperKit {
                     let batchedDecodeOptions = decodeOptionsArray[audioIndex]
 
                     // Add a new task to the task group for each audio array
+                    let weakSelf = WeakSendableWrapper(self)
                     taskGroup.addTask {
                         do {
+                            guard let self = weakSelf.value else {
+                                return [(index: audioIndex, result: .failure(WhisperError.transcriptionFailed("WhisperKit instance was deallocated")))]
+                            }
                             let transcribeResult: [TranscriptionResult] = try await self.transcribe(
                                 audioArray: audioArray,
                                 decodeOptions: batchedDecodeOptions,
                                 callback: batchedAudioCallback,
-                                segmentCallback: batchedSegmentCallback ?? self.segmentDiscoveryCallback
+                                segmentCallback: batchedSegmentCallback
                             )
                             // Return the successful transcription result with its index
                             return [(index: audioIndex, result: .success(transcribeResult))]
@@ -819,17 +813,6 @@ open class WhisperKit {
 
     // MARK: - Transcribe single audio file
 
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `transcribe(audioPath:decodeOptions:callback:) async throws -> [TranscriptionResult]` instead.")
-    @_disfavoredOverload
-    open func transcribe(
-        audioPath: String,
-        decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
-    ) async throws -> TranscriptionResult? {
-        let result: [TranscriptionResult] = try await transcribe(audioPath: audioPath, decodeOptions: decodeOptions, callback: callback)
-        return result.first
-    }
-
     /// Transcribes an audio file from the given path asynchronously.
     /// - Parameters:
     ///   - audioPath: The file path to the audio file to be transcribed.
@@ -840,7 +823,7 @@ open class WhisperKit {
     open func transcribe(
         audioPath: String,
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async throws -> [TranscriptionResult] {
         transcriptionStateCallback?(.convertingAudio)
 
@@ -873,18 +856,6 @@ open class WhisperKit {
 
     // MARK: - Transcribe single audio sample array
 
-    /// Deprecated
-    @available(*, deprecated, message: "Subject to removal in a future version. Use `transcribe(audioArray:decodeOptions:callback:) async throws -> [TranscriptionResult]` instead.")
-    @_disfavoredOverload
-    open func transcribe(
-        audioArray: [Float],
-        decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
-    ) async throws -> TranscriptionResult? {
-        let result: [TranscriptionResult] = try await transcribe(audioArray: audioArray, decodeOptions: decodeOptions, callback: callback)
-        return result.first
-    }
-
     /// Main entry point for transcribing audio
     /// - Parameters:
     ///   - audioArray: Array of 16khz raw float audio samples
@@ -896,7 +867,7 @@ open class WhisperKit {
     open func transcribe(
         audioArray: [Float],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil,
+        callback: TranscriptionCallback? = nil,
         segmentCallback: SegmentDiscoveryCallback? = nil
     ) async throws -> [TranscriptionResult] {
         var transcribeResults = [TranscriptionResult]()
@@ -988,7 +959,7 @@ open class WhisperKit {
     open func runTranscribeTask(
         audioArray: [Float],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil,
+        callback: TranscriptionCallback? = nil,
         segmentCallback: SegmentDiscoveryCallback? = nil
     ) async throws -> [TranscriptionResult] {
         if modelState != .loaded {

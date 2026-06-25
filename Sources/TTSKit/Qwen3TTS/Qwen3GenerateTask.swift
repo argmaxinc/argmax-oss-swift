@@ -4,7 +4,6 @@
 import ArgmaxCore
 import CoreML
 import Foundation
-import Tokenizers
 
 // MARK: - Internal phase-result types
 
@@ -59,7 +58,7 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
     public let multiCodeDecoder: Qwen3MultiCodeDecoder
     public let speechDecoder: Qwen3SpeechDecoder
     public let sampler: any TokenSampling
-    public let tokenizer: any Tokenizer
+    public let tokenizer: any TTSTokenizer
     public let suppressTokenIds: Set<Int>
 
     /// Timings captured at model-load time (modelLoading + tokenizerLoading populated).
@@ -80,7 +79,7 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         multiCodeDecoder: Qwen3MultiCodeDecoder,
         speechDecoder: Qwen3SpeechDecoder,
         sampler: any TokenSampling,
-        tokenizer: any Tokenizer,
+        tokenizer: any TTSTokenizer,
         suppressTokenIds: Set<Int>,
         loadTimings: SpeechTimings = SpeechTimings(),
         progress: Progress? = nil

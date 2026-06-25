@@ -53,12 +53,3 @@ public struct TextUtilities {
     }
 }
 
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TextUtilities.compressionRatio(of:)` instead.")
-public func compressionRatio(of array: [Int]) -> Float {
-    return TextUtilities.compressionRatio(of: array)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `TextUtilities.compressionRatio(of:)` instead.")
-public func compressionRatio(of text: String) -> Float {
-    return TextUtilities.compressionRatio(of: text)
-}

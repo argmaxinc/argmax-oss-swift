@@ -2,7 +2,7 @@
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
 import ArgmaxCore
-import CoreML
+@preconcurrency import CoreML
 import Foundation
 
 // MARK: - Supporting Types

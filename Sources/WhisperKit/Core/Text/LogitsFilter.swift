@@ -4,7 +4,6 @@
 import Accelerate
 import CoreML
 import Foundation
-import Tokenizers
 
 public protocol LogitsFiltering {
     func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray
@@ -12,11 +11,11 @@ public protocol LogitsFiltering {
 
 open class SuppressTokensFilter: LogitsFiltering {
     let suppressTokens: [Int]
-    private let suppressTokenIndexes: [[NSNumber]]
+    private let suppressTokenIndexes: [[Int]]
 
     public init(suppressTokens: [Int]) {
         self.suppressTokens = suppressTokens
-        self.suppressTokenIndexes = suppressTokens.map { [0, 0, $0 as NSNumber] }
+        self.suppressTokenIndexes = suppressTokens.map { [0, 0, $0] }
     }
 
     public func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray {
@@ -28,7 +27,7 @@ open class SuppressTokensFilter: LogitsFiltering {
 open class SuppressBlankFilter: LogitsFiltering {
     let specialTokens: SpecialTokens
     let sampleBegin: Int
-    private let suppressTokenIndexes: [[NSNumber]]
+    private let suppressTokenIndexes: [[Int]]
 
     public init(
         specialTokens: SpecialTokens,
@@ -37,8 +36,8 @@ open class SuppressBlankFilter: LogitsFiltering {
         self.specialTokens = specialTokens
         self.sampleBegin = sampleBegin
         self.suppressTokenIndexes = [
-            [0, 0, specialTokens.whitespaceToken as NSNumber],
-            [0, 0, specialTokens.endToken as NSNumber],
+            [0, 0, specialTokens.whitespaceToken],
+            [0, 0, specialTokens.endToken],
         ]
     }
 
@@ -79,7 +78,7 @@ open class TimestampRulesFilter: LogitsFiltering {
         }
 
         // suppress <|notimestamps|> which is handled by `withoutTimestamps`
-        logits.fill(indexes: [[0, 0, specialTokens.noTimestampsToken as NSNumber]], with: -FloatType.infinity)
+        logits.fill(indexes: [[0, 0, specialTokens.noTimestampsToken]], with: -FloatType.infinity)
 
         if tokens.count > sampleBegin {
             // timestamps have to appear in pairs, except directly before EOT; mask logits accordingly
@@ -131,7 +130,7 @@ open class TimestampRulesFilter: LogitsFiltering {
 
     private func sampleBegin(for tokens: [Int]) -> Int? {
         if isModelMultilingual {
-            // NOTE: for multilingual model we don't want to supress "<|transcribe|>" or "<|translate|>" tokens
+            // NOTE: for multilingual model we don't want to suppress "<|transcribe|>" or "<|translate|>" tokens
             if let taskTokenIndex = tokens.prefix(3).firstIndex(where: { $0 == specialTokens.transcribeToken || $0 == specialTokens.translateToken }) {
                 return max(taskTokenIndex + 1, sampleBegin)
             } else {
@@ -143,7 +142,7 @@ open class TimestampRulesFilter: LogitsFiltering {
     }
 
     private func sumOfProbabilityOverTimestampsIsAboveAnyOtherToken(logits: MLMultiArray, timeTokenBegin: Int) -> Bool {
-        let timeTokenBeginOffset = logits.linearOffset(for: [0, 0, timeTokenBegin as NSNumber])
+        let timeTokenBeginOffset = logits.linearOffset(for: [0, 0, timeTokenBegin])
 
         let logprobsInputPointer = UnsafeMutableRawBufferPointer(
             start: logits.dataPointer,
@@ -247,7 +246,7 @@ open class LanguageLogitsFilter: LogitsFiltering {
     let allLanguageTokens: Set<Int>
     let logitsDim: Int
     let sampleBegin: Int
-    let nonLanguageTokenIndexes: [[NSNumber]]
+    let nonLanguageTokenIndexes: [[Int]]
 
     public init(allLanguageTokens: Set<Int>, logitsDim: Int, sampleBegin: Int) {
         self.allLanguageTokens = allLanguageTokens
@@ -265,11 +264,11 @@ open class LanguageLogitsFilter: LogitsFiltering {
         return logits
     }
 
-    private static func getNonLanguageTokenIndexes(logitsDim: Int, allLanguageTokens: Set<Int>) -> [[NSNumber]] {
-        var indexes: [[NSNumber]] = []
+    private static func getNonLanguageTokenIndexes(logitsDim: Int, allLanguageTokens: Set<Int>) -> [[Int]] {
+        var indexes: [[Int]] = []
         for i in 0..<logitsDim {
             if !allLanguageTokens.contains(i) {
-                indexes.append([0, 0, i as NSNumber])
+                indexes.append([0, 0, i])
             }
         }
         return indexes

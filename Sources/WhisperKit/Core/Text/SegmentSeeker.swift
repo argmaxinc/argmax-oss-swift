@@ -4,7 +4,6 @@
 import Accelerate
 import CoreML
 import Foundation
-import Tokenizers
 
 public protocol SegmentSeeking {
     func findSeekPointAndSegments(

@@ -57,7 +57,7 @@ open class TranscribeTask {
     public func run(
         audioArray: [Float],
         decodeOptions: DecodingOptions? = nil,
-        callback: TranscriptionCallback = nil
+        callback: TranscriptionCallback? = nil
     ) async throws -> TranscriptionResult {
         let interval = Logging.beginSignpost("TranscribeAudio", signposter: Logging.TranscribeTask.signposter)
         defer { Logging.endSignpost("TranscribeAudio", interval: interval, signposter: Logging.TranscribeTask.signposter) }
@@ -66,7 +66,7 @@ open class TranscribeTask {
         Logging.debug("Starting pipeline at: \(Date())")
 
         var options = decodeOptions ?? DecodingOptions()
-        options.verbose = Logging.shared.logLevel != .none
+        options.verbose = Logging.isLoggingEnabled
 
         var detectedLanguage: String?
 
@@ -85,23 +85,14 @@ open class TranscribeTask {
         timings.decodingInit = decoderInitTime
         Logging.debug("Decoder init time: \(decoderInitTime)")
 
-        // MARK: - Prefill KV Cache
+        // MARK: - Prefill Prompt
 
-        let prefillStartTime = CFAbsoluteTimeGetCurrent()
         if options.usePrefillPrompt {
             decoderInputs = try await textDecoder.prefillDecoderInputs(decoderInputs, withOptions: options)
         }
-        // Update cache size based on prefill
-        let prefilledCacheSize = decoderInputs.cacheLength[0].intValue
-        let prefillTime = CFAbsoluteTimeGetCurrent() - prefillStartTime
-        timings.prefill = prefillTime
-
-        Logging.debug("Prefill time: \(prefillTime)")
         Logging.debug("Prefill prompt: \(decoderInputs.initialPrompt.map { tokenizer.convertIdToToken($0) ?? "" })")
 
         // MARK: - Main decoder loop
-
-        var fallbackCount = 0
 
         // Process seek clips
         let seekClips = options.prepareSeekClips(contentFrames: contentFrames)
@@ -163,16 +154,23 @@ open class TranscribeTask {
                 Logging.info("Decoding \(Logging.formatTimestamp(timeOffset))s - \(Logging.formatTimestamp(timeOffsetEnd))s")
 
                 // Overload progress callback to include windowId
-                let decodingCallback: ((TranscriptionProgress) -> Bool?) = { [weak self] progress in
-                    guard let self = self, let callback = callback else { return nil }
+                let windowId = Int(timings.totalDecodingWindows - timings.totalDecodingFallbacks)
+                let decodingCallback: TranscriptionCallback = { progress in
+                    guard let callback = callback else { return nil }
                     var windowProgress = progress
-                    windowProgress.windowId = Int(self.timings.totalDecodingWindows - self.timings.totalDecodingFallbacks)
+                    windowProgress.windowId = windowId
                     return callback(windowProgress)
                 }
 
                 try Task.checkCancellation()
                 // Send to decoder to predict text tokens with fallback
-                let decodingResult = try await decodeWithFallback(encoderSegment: encoderOutput, decodingOptions: options, callback: decodingCallback)
+                let decodingResult = try await decodeWithFallback(
+                    encoderSegment: encoderOutput,
+                    decodingOptions: options,
+                    decoderInputs: &decoderInputs,
+                    detectedLanguage: &detectedLanguage,
+                    callback: decodingCallback
+                )
 
                 // MARK: Windowing
 
@@ -271,7 +269,6 @@ open class TranscribeTask {
 
                 // Reset cache and move on to the next window
                 decoderInputs.reset(
-                    prefilledCacheSize: prefilledCacheSize,
                     maxTokenContext: decodeOptions?.sampleLength ?? Constants.maxTokenContext
                 )
 
@@ -283,105 +280,6 @@ open class TranscribeTask {
 
         // Transcription completed
         progress.completedUnitCount = progress.totalUnitCount
-
-        // MARK: - Decode with Fallback Logic
-
-        func decodeWithFallback(
-            encoderSegment encoderOutput: any AudioEncoderOutputType,
-            decodingOptions options: DecodingOptions,
-            callback: TranscriptionCallback = nil
-        ) async throws -> DecodingResult {
-            let interval = Logging.beginSignpost("Decode", signposter: Logging.TranscribeTask.signposter)
-            defer { Logging.endSignpost("Decode", interval: interval, signposter: Logging.TranscribeTask.signposter) }
-
-            // Fallback `options.temperatureFallbackCount` times with increasing temperatures, starting at `options.temperature`
-            let temperatures = (0...options.temperatureFallbackCount).map { FloatType(options.temperature) + FloatType($0) * FloatType(options.temperatureIncrementOnFallback) }
-
-            Logging.debug("Decoding with temperatures \(temperatures)")
-
-            var decodingResult: DecodingResult?
-
-            for (i, temp) in temperatures.enumerated() {
-                Logging.info("Decoding Temperature: \(temp)")
-                let decodeWithFallbackStart = Date()
-
-                let tokenSampler = GreedyTokenSampler(temperature: temp, eotToken: tokenizer.specialTokens.endToken, decodingOptions: options)
-
-                var currentDecodingOptions = options
-                // For a multilingual model, if language is not passed and detectLanguage is true, detect language and set in options
-                if textDecoder.isModelMultilingual, options.language == nil, options.detectLanguage {
-                    let languageDecodingResult: DecodingResult? = try? await textDecoder.detectLanguage(
-                        from: encoderOutput,
-                        using: decoderInputs,
-                        sampler: tokenSampler,
-                        options: options,
-                        temperature: temp
-                    )
-
-                    // Update the language decoding options
-                    currentDecodingOptions.language = languageDecodingResult?.language
-                    detectedLanguage = languageDecodingResult?.language
-
-                    // Update prompt and KV Cache if needed
-                    if options.usePrefillPrompt {
-                        decoderInputs = try await textDecoder.prefillDecoderInputs(decoderInputs, withOptions: currentDecodingOptions)
-                    }
-                    Logging.debug("Prefill prompt updated to: \(decoderInputs.initialPrompt.map { tokenizer.convertIdToToken($0) ?? "" })")
-
-                    // Update timings from the language detection
-                    if let languageDecodingTimings = languageDecodingResult?.timings {
-                        timings.decodingPredictions += languageDecodingTimings.decodingPredictions
-                        timings.decodingSampling += languageDecodingTimings.decodingSampling
-                    }
-                }
-
-                decodingResult = try await textDecoder.decodeText(
-                    from: encoderOutput,
-                    using: decoderInputs,
-                    sampler: tokenSampler,
-                    options: currentDecodingOptions,
-                    callback: callback
-                )
-
-                // Use the predicted language if it was not detected ahead of time
-                if detectedLanguage == nil {
-                    detectedLanguage = decodingResult?.language
-                }
-
-                // Update timings from the decoder main loop
-                if let decodingTimings = decodingResult?.timings {
-                    timings.firstTokenTime = min(decodingTimings.firstTokenTime, timings.firstTokenTime)
-                    timings.decodingPredictions += decodingTimings.decodingPredictions
-                    timings.totalDecodingLoops += decodingTimings.totalDecodingLoops
-                    timings.decodingNonPrediction += decodingTimings.decodingNonPrediction
-                    timings.decodingFiltering += decodingTimings.decodingFiltering
-                    timings.decodingSampling += decodingTimings.decodingSampling
-                    timings.decodingKvCaching += decodingTimings.decodingKvCaching
-                    timings.totalKVUpdateRuns += decodingTimings.totalKVUpdateRuns
-                }
-
-                // MARK: Fallback checks
-
-                if let fallback = decodingResult?.fallback, fallback.needsFallback {
-                    // Reset decoder inputs for fallback
-                    fallbackCount = i
-                    timings.decodingFallback += Date().timeIntervalSince(decodeWithFallbackStart)
-                    timings.totalDecodingFallbacks = Double(fallbackCount)
-                    decoderInputs.reset(
-                        prefilledCacheSize: prefilledCacheSize,
-                        maxTokenContext: decodeOptions?.sampleLength ?? Constants.maxTokenContext
-                    )
-                    Logging.info("Fallback #\(fallbackCount + 1) (\(fallback.fallbackReason))")
-                } else {
-                    break
-                }
-            }
-
-            guard let decodingResult else {
-                throw WhisperError.decodingFailed()
-            }
-            return decodingResult
-        }
 
         // MARK: Result
 
@@ -411,5 +309,104 @@ open class TranscribeTask {
             language: detectedLanguage ?? Constants.defaultLanguageCode,
             timings: timings
         )
+    }
+
+    // MARK: - Decode with Fallback Logic
+
+    private func decodeWithFallback(
+        encoderSegment encoderOutput: any AudioEncoderOutputType,
+        decodingOptions options: DecodingOptions,
+        decoderInputs: inout any DecodingInputsType,
+        detectedLanguage: inout String?,
+        callback: TranscriptionCallback? = nil
+    ) async throws -> DecodingResult {
+        let interval = Logging.beginSignpost("Decode", signposter: Logging.TranscribeTask.signposter)
+        defer { Logging.endSignpost("Decode", interval: interval, signposter: Logging.TranscribeTask.signposter) }
+
+        // Fallback `options.temperatureFallbackCount` times with increasing temperatures, starting at `options.temperature`
+        let temperatures = (0...options.temperatureFallbackCount).map { FloatType(options.temperature) + FloatType($0) * FloatType(options.temperatureIncrementOnFallback) }
+
+        Logging.debug("Decoding with temperatures \(temperatures)")
+
+        var decodingResult: DecodingResult?
+
+        for (i, temp) in temperatures.enumerated() {
+            Logging.info("Decoding Temperature: \(temp)")
+            let decodeWithFallbackStart = Date()
+
+            let tokenSampler = GreedyTokenSampler(temperature: temp, eotToken: tokenizer.specialTokens.endToken, decodingOptions: options)
+
+            var currentDecodingOptions = options
+            // For a multilingual model, if language is not passed and detectLanguage is true, detect language and set in options
+            if textDecoder.isModelMultilingual, options.language == nil, options.detectLanguage {
+                let languageDecodingResult: DecodingResult? = try? await textDecoder.detectLanguage(
+                    from: encoderOutput,
+                    using: decoderInputs,
+                    sampler: tokenSampler,
+                    options: options,
+                    temperature: temp
+                )
+
+                // Update the language decoding options
+                currentDecodingOptions.language = languageDecodingResult?.language
+                detectedLanguage = languageDecodingResult?.language
+
+                // Update prompt and KV Cache if needed
+                if options.usePrefillPrompt {
+                    decoderInputs = try await textDecoder.prefillDecoderInputs(decoderInputs, withOptions: currentDecodingOptions)
+                }
+                Logging.debug("Prefill prompt updated to: \(decoderInputs.initialPrompt.map { tokenizer.convertIdToToken($0) ?? "" })")
+
+                // Update timings from the language detection
+                if let languageDecodingTimings = languageDecodingResult?.timings {
+                    timings.decodingPredictions += languageDecodingTimings.decodingPredictions
+                    timings.decodingSampling += languageDecodingTimings.decodingSampling
+                }
+            }
+
+            decodingResult = try await textDecoder.decodeText(
+                from: encoderOutput,
+                using: decoderInputs,
+                sampler: tokenSampler,
+                options: currentDecodingOptions,
+                callback: callback
+            )
+
+            // Use the predicted language if it was not detected ahead of time
+            if detectedLanguage == nil {
+                detectedLanguage = decodingResult?.language
+            }
+
+            // Update timings from the decoder main loop
+            if let decodingTimings = decodingResult?.timings {
+                timings.firstTokenTime = min(decodingTimings.firstTokenTime, timings.firstTokenTime)
+                timings.decodingPredictions += decodingTimings.decodingPredictions
+                timings.totalDecodingLoops += decodingTimings.totalDecodingLoops
+                timings.decodingNonPrediction += decodingTimings.decodingNonPrediction
+                timings.decodingFiltering += decodingTimings.decodingFiltering
+                timings.decodingSampling += decodingTimings.decodingSampling
+                timings.decodingKvCaching += decodingTimings.decodingKvCaching
+                timings.totalKVUpdateRuns += decodingTimings.totalKVUpdateRuns
+            }
+
+            // MARK: Fallback checks
+
+            if let fallback = decodingResult?.fallback, fallback.needsFallback {
+                // Reset decoder inputs for fallback
+                timings.decodingFallback += Date().timeIntervalSince(decodeWithFallbackStart)
+                timings.totalDecodingFallbacks = Double(i)
+                decoderInputs.reset(
+                    maxTokenContext: options.sampleLength
+                )
+                Logging.info("Fallback #\(i + 1) (\(fallback.fallbackReason))")
+            } else {
+                break
+            }
+        }
+
+        guard let decodingResult else {
+            throw WhisperError.decodingFailed()
+        }
+        return decodingResult
     }
 }

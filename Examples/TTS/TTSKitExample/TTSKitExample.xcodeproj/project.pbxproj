@@ -211,7 +211,7 @@
 			mainGroup = 1664E8BC2F4407CF00D76464;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../../WhisperKit" */,
+				1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1664E8C62F4407CF00D76464 /* Products */;
@@ -433,6 +433,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TTSKitExample/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TTSKit;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -448,7 +449,6 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
 				MARKETING_VERSION = 0.0.1;
-				INFOPLIST_KEY_CFBundleDisplayName = TTSKit;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.argmaxinc.ttskit.Example${DEVELOPMENT_TEAM}";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -494,6 +494,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TTSKitExample/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TTSKit;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -509,7 +510,6 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
 				MARKETING_VERSION = 0.0.1;
-				INFOPLIST_KEY_CFBundleDisplayName = TTSKit;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.argmaxinc.ttskit.Example${DEVELOPMENT_TEAM}";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -676,16 +676,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../../WhisperKit" */ = {
+		1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../../../WhisperKit;
+			relativePath = ../../../;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		163CD86C2F4FBF6C001FA01B /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../../WhisperKit" */;
+			package = 1664E8EF2F44082900D76464 /* XCLocalSwiftPackageReference "../../../" */;
 			productName = WhisperKit;
 		};
 		1664E8F02F44082900D76464 /* TTSKit */ = {

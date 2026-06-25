@@ -72,13 +72,19 @@ public extension MLMultiArray {
 public extension MLMultiArray {
     /// Computes the linear offset from multi-dimensional indices using strides.
     @inline(__always)
-    func linearOffset(for index: [NSNumber], strides strideInts: [Int]? = nil) -> Int {
+    func linearOffset(for index: [Int], strides strideInts: [Int]? = nil) -> Int {
         var linearOffset = 0
         let strideInts = strideInts ?? strides.map { $0.intValue }
         for (dimension, stride) in zip(index, strideInts) {
-            linearOffset += dimension.intValue * stride
+            linearOffset += dimension * stride
         }
         return linearOffset
+    }
+
+    @available(*, deprecated, message: "Use linearOffset(for: [Int], strides:) instead.")
+    @inline(__always)
+    func linearOffset(for index: [NSNumber], strides strideInts: [Int]? = nil) -> Int {
+        linearOffset(for: index.map(\.intValue), strides: strideInts)
     }
 
     /// Fills a range of indices in the last dimension with a value.
@@ -93,13 +99,18 @@ public extension MLMultiArray {
     }
 
     /// Fills specific multi-dimensional indices with a value.
-    func fill<Value>(indexes: [[NSNumber]], with value: Value) {
+    func fill<Value>(indexes: [[Int]], with value: Value) {
         let pointer = UnsafeMutablePointer<Value>(OpaquePointer(dataPointer))
         let strideInts = strides.map { $0.intValue }
         for index in indexes {
             let linearOffset = linearOffset(for: index, strides: strideInts)
             pointer[linearOffset] = value
         }
+    }
+
+    @available(*, deprecated, message: "Use fill(indexes: [[Int]], with:) instead.")
+    func fill<Value>(indexes: [[NSNumber]], with value: Value) {
+        fill(indexes: indexes.map { $0.map(\.intValue) }, with: value)
     }
 }
 
@@ -128,6 +139,7 @@ extension MLMultiArray {
 // MARK: - Error
 
 /// Error thrown when MLMultiArray creation fails.
+@frozen
 public enum MLMultiArrayCreationError: Error, LocalizedError {
     case pixelBufferFailed
 

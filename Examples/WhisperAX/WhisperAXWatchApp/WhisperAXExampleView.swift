@@ -23,7 +23,6 @@ struct WhisperAXWatchView: View {
     @AppStorage("repoName") private var repoName: String = "argmaxinc/whisperkit-coreml"
     @AppStorage("enableTimestamps") private var enableTimestamps: Bool = false
     @AppStorage("enablePromptPrefill") private var enablePromptPrefill: Bool = true
-    @AppStorage("enableCachePrefill") private var enableCachePrefill: Bool = true
     @AppStorage("enableSpecialCharacters") private var enableSpecialCharacters: Bool = false
     @AppStorage("enableEagerDecoder") private var enableEagerDecoder: Bool = false
     @AppStorage("temperatureStart") private var temperatureStart: Double = 0
@@ -312,7 +311,7 @@ struct WhisperAXWatchView: View {
             }
         }
 
-        localModels = WhisperKit.formatModelFiles(localModels)
+        localModels = ModelUtilities.formatModelFiles(localModels)
         for model in localModels {
             if !availableModels.contains(model),
                !disabledModels.contains(model)
@@ -505,7 +504,7 @@ struct WhisperAXWatchView: View {
         )
 
         // Early stopping checks
-        let decodingCallback: ((TranscriptionProgress) -> Bool?) = { progress in
+        let decodingCallback: TranscriptionCallback = { progress in
             DispatchQueue.main.async {
                 let fallbacks = Int(progress.timings.totalDecodingFallbacks)
                 if progress.text.count < currentText.count {
@@ -523,7 +522,7 @@ struct WhisperAXWatchView: View {
             let checkWindow = Int(compressionCheckWindow)
             if currentTokens.count > checkWindow {
                 let checkTokens: [Int] = currentTokens.suffix(checkWindow)
-                let compressionRatio = compressionRatio(of: checkTokens)
+                let compressionRatio = TextUtilities.compressionRatio(of: checkTokens)
                 if compressionRatio > options.compressionRatioThreshold! {
                     return false
                 }

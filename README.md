@@ -1,30 +1,42 @@
 
 <div align="center">
-  
-<a href="https://github.com/argmaxinc/WhisperKit#gh-light-mode-only">
-  <img src="https://github.com/user-attachments/assets/f0699c07-c29f-45b6-a9c6-f6d491b8f791" alt="WhisperKit" width="20%" />
+
+<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-light-mode-only">
+  <img src="https://github.com/user-attachments/assets/2ef4d2b4-b4f1-4b9b-9590-4e57432633ed" alt="Argmax Logo" width="20%" />
 </a>
 
-<a href="https://github.com/argmaxinc/WhisperKit#gh-dark-mode-only">
-  <img src="https://github.com/user-attachments/assets/1be5e31c-de42-40ab-9b85-790cb911ed47" alt="WhisperKit" width="20%" />
+<a href="https://github.com/argmaxinc/argmax-oss-swift#gh-dark-mode-only">
+  <img src="https://github.com/user-attachments/assets/6f2c77c4-94b5-4ce5-8647-b177641e6f02" alt="Argmax Logo" width="20%" />
 </a>
 
-# WhisperKit
+# Argmax Open-Source SDK
 
-[![Tests](https://github.com/argmaxinc/whisperkit/actions/workflows/release-tests.yml/badge.svg)](https://github.com/argmaxinc/whisperkit/actions/workflows/release-tests.yml)
-[![License](https://img.shields.io/github/license/argmaxinc/whisperkit?logo=github&logoColor=969da4&label=License&labelColor=353a41&color=32d058)](LICENSE.md)
-[![Supported Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2FWhisperKit%2Fbadge%3Ftype%3Dswift-versions&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/WhisperKit) [![Supported Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2FWhisperKit%2Fbadge%3Ftype%3Dplatforms&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/WhisperKit)
+[![Tests](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml/badge.svg)](https://github.com/argmaxinc/argmax-oss-swift/actions/workflows/release-tests.yml)
+[![Supported Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dswift-versions&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift) [![Supported Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fargmaxinc%2Fargmax-oss-swift%2Fbadge%3Ftype%3Dplatforms&labelColor=353a41&color=32d058)](https://swiftpackageindex.com/argmaxinc/argmax-oss-swift)
+[![License](https://img.shields.io/github/license/argmaxinc/argmax-oss-swift?logo=github&logoColor=969da4&label=License&labelColor=353a41&color=32d058)](LICENSE.md)
+<br/>
 [![Discord](https://img.shields.io/discord/1171912382512115722?style=flat&logo=discord&logoColor=969da4&label=Discord&labelColor=353a41&color=32d058&link=https%3A%2F%2Fdiscord.gg%2FG5F5GZGecC)](https://discord.gg/G5F5GZGecC)
+[![Hugging Face](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhuggingface.co%2Fapi%2Fmodels%2Fargmaxinc%2Fwhisperkit-coreml&query=%24.downloads&suffix=%2Fmonth&logo=huggingface&logoColor=969da4&label=Downloads&labelColor=353a41&color=32d058)](https://huggingface.co/argmaxinc/whisperkit-coreml)
 
 
 </div>
 
-WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying state-of-the-art speech-to-text systems (e.g. [Whisper](https://github.com/openai/whisper)) on device with advanced features such as real-time streaming, word timestamps, voice activity detection, and more.
-
-[[TestFlight Demo App]](https://testflight.apple.com/join/Q1cywTJw) [[Python Tools]](https://github.com/argmaxinc/whisperkittools) [[Benchmarks & Device Support]](https://huggingface.co/spaces/argmaxinc/whisperkit-benchmarks) [[WhisperKit Android]](https://github.com/argmaxinc/WhisperKitAndroid)
+[Argmax](https://argmaxinc.com/blog) Open-Source SDK Swift is a collection of turn-key on-device inference frameworks:
+- **WhisperKit** for speech-to-text with OpenAI Whisper
+- **SpeakerKit** for speaker diarization with Pyannote
+- **TTSKit** for text-to-speech with Qwen-TTS
 
 > [!IMPORTANT]
-> WhisperKit is ideal for getting started with on-device speech-to-text. When you are ready to scale your on-device deployment with real-time transcription and speaker diarization, start your [14-day trial](https://app.argmaxinc.com) for [Argmax Pro SDK](https://www.argmaxinc.com/#SDK) with 9x faster and higher accuracy models such as Nvidia Parakeet V3, [pyannoteAI's flagship](https://www.argmaxinc.com/blog/pyannote-argmax) speaker diarization model, and a Deepgram-compatible WebSocket [local server](https://www.argmaxinc.com/blog/argmax-local-server) for easy integration into non-Swift projects.
+> [Argmax Pro SDK](https://www.argmaxinc.com/blog/argmax-sdk-2) supports additional models and advanced features such as:
+> - Real-time transcription with speakers
+> - Frontier accuracy for your use case with custom vocabulary
+> - Argmax Local Server for non-native apps
+> - Android support with Argmax Pro SDK Kotlin
+> 
+> Further resources:
+> - [Open-source vs Pro SDK](https://app.argmaxinc.com/docs/wiki/open-source-vs-pro-sdk)
+> - [Try Pro SDK on TestFlight](https://testflight.apple.com/join/Q1cywTJw)
+> - [Model Gallery](https://app.argmaxinc.com/docs/models)
 
 ## Table of Contents
 
@@ -34,12 +46,12 @@ WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying st
   - [Xcode Steps](#xcode-steps)
   - [Package.swift](#packageswift)
   - [Homebrew](#homebrew)
-- [Getting Started](#getting-started)
+- [WhisperKit](#whisperkit)
   - [Quick Example](#quick-example)
   - [Model Selection](#model-selection)
   - [Generating Models](#generating-models)
   - [Swift CLI](#swift-cli)
-  - [WhisperKit Local Server](#whisperkit-local-server)
+  - [Local Server](#local-server)
     - [Building the Server](#building-the-server)
     - [Starting the Server](#starting-the-server)
     - [API Endpoints](#api-endpoints)
@@ -60,6 +72,12 @@ WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying st
   - [Progress Callbacks](#progress-callbacks)
   - [Swift CLI](#swift-cli-1)
   - [Demo App](#demo-app)
+- [SpeakerKit](#speakerkit)
+  - [Quick Example](#quick-example-2)
+  - [Diarization Options](#diarization-options)
+  - [Combining with Transcription](#combining-with-transcription)
+  - [RTTM Output](#rttm-output)
+  - [Swift CLI](#swift-cli-2)
 - [Contributing \& Roadmap](#contributing--roadmap)
 - [License](#license)
 - [Citation](#citation)
@@ -68,7 +86,7 @@ WhisperKit is an [Argmax](https://www.takeargmax.com) framework for deploying st
 
 ### Swift Package Manager
 
-WhisperKit and TTSKit are separate library products in the same Swift package. Add the package once and pick the products you need.
+WhisperKit, TTSKit, and SpeakerKit are separate library products in the same Swift package. Add the package once and pick the products you need. You can also use the `ArgmaxOSS` umbrella product to import everything at once.
 
 ### Prerequisites
 
@@ -79,17 +97,17 @@ WhisperKit and TTSKit are separate library products in the same Swift package. A
 
 1. Open your Swift project in Xcode.
 2. Navigate to `File` > `Add Package Dependencies...`.
-3. Enter the package repository URL: `https://github.com/argmaxinc/whisperkit`.
+3. Enter the package repository URL: `https://github.com/argmaxinc/argmax-oss-swift`.
 4. Choose the version range or specific version.
-5. When prompted to choose library products, select **WhisperKit**, **TTSKit**, or both.
+5. When prompted to choose library products, select **ArgmaxOSS** (all kits), or individual kits: **WhisperKit**, **TTSKit**, **SpeakerKit**.
 
 ### Package.swift
 
-If you're using WhisperKit or TTSKit as part of a swift package, you can include it in your Package.swift dependencies as follows:
+Add the package dependency:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
+    .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "0.9.0"),
 ],
 ```
 
@@ -99,21 +117,26 @@ Then add the products you need as target dependencies:
 .target(
     name: "YourApp",
     dependencies: [
-        "WhisperKit", // speech-to-text
-        "TTSKit",     // text-to-speech
+        // Import everything at once:
+        .product(name: "ArgmaxOSS", package: "argmax-oss-swift"),
+
+        // Or pick individual kits:
+        // .product(name: "WhisperKit", package: "argmax-oss-swift"),   // speech-to-text
+        // .product(name: "TTSKit", package: "argmax-oss-swift"),       // text-to-speech
+        // .product(name: "SpeakerKit", package: "argmax-oss-swift"),   // speaker diarization
     ]
 ),
 ```
 
 ### Homebrew
 
-You can install `WhisperKit` command line app using [Homebrew](https://brew.sh) by running the following command:
+You can install the command line app using [Homebrew](https://brew.sh) by running the following command:
 
 ```bash
 brew install whisperkit-cli
 ```  
 
-## Getting Started
+## WhisperKit
 
 To get started with WhisperKit, you need to initialize it in your project.
 
@@ -134,16 +157,33 @@ Task {
 
 ### Model Selection
 
+> [!NOTE]
+> Argmax recommends `large-v3-v20240930_626MB` for maximum multilingual accuracy and `tiny` for the fastest debugging workflow.
+
+| Whisper Version                  | WhisperKit Variant                                                                                                 | Description                                                                      |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| Large v3 Turbo (compressed)      | [large-v3-v20240930_626MB](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_626MB) | Recommended across iOS and macOS for maximum accuracy                            |
+| Large v3 Turbo                   | [large-v3-v20240930_turbo](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_turbo) | Recommended on macOS for maximum speed and accuracy                             |
+| Base (multilingual)              | [base](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base)                         |                                                                                  |
+| Base (English-only)              | [base.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-base.en)                   |                                                                                  |
+| Small (Multilingual)             | [small](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small)                       |                                                                                  |
+| Small (English-only)             | [small.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-small.en)                 |                                                                                  |
+| Tiny (Multilingual)              | [tiny](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny)                         |                                                                                  |
+| Tiny (English-only)              | [tiny.en](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-tiny.en)                   | Smallest size, lowest accuracy. Only recommended for development & debugging.     |
+
+
+
 WhisperKit automatically downloads the recommended model for the device if not specified. You can also select a specific model by passing in the model name:
 
+
 ```swift
-let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3"))
+let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3-v20240930_626MB"))
 ```
 
 This method also supports glob search, so you can use wildcards to select a model:
 
 ```swift
-let pipe = try? await WhisperKit(WhisperKitConfig(model: "distil*large-v3"))
+let pipe = try? await WhisperKit(WhisperKitConfig(model: "large-v3-v20240930_626MB"))
 ```
 
 Note that the model search must return a single model from the source repo, otherwise an error will be thrown.
@@ -155,7 +195,7 @@ For a list of available models, see our [HuggingFace repo](https://huggingface.c
 WhisperKit also comes with the supporting repo [`whisperkittools`](https://github.com/argmaxinc/whisperkittools) which lets you create and deploy your own fine tuned versions of Whisper in CoreML format to HuggingFace. Once generated, they can be loaded by simply changing the repo name to the one used to upload the model:
 
 ```swift
-let config = WhisperKitConfig(model: "large-v3", modelRepo: "username/your-model-repo")
+let config = WhisperKitConfig(model: "large-v3-v20240930_626MB", modelRepo: "username/your-model-repo")
 let pipe = try? await WhisperKit(config)
 ```
 
@@ -164,15 +204,15 @@ let pipe = try? await WhisperKit(config)
 The Swift CLI allows for quick testing and debugging outside of an Xcode project. To install it, run the following:
 
 ```bash
-git clone https://github.com/argmaxinc/whisperkit.git
-cd whisperkit
+git clone https://github.com/argmaxinc/argmax-oss-swift.git
+cd argmax-oss-swift
 ```
 
 Then, setup the environment and download your desired model.
 
 ```bash
 make setup
-make download-model MODEL=large-v3
+make download-model MODEL=large-v3-v20240930_626MB
 ```
 
 **Note**:
@@ -189,21 +229,22 @@ make download-models
 You can then run them via the CLI with:
 
 ```bash
-swift run whisperkit-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3" --audio-path "path/to/your/audio.{wav,mp3,m4a,flac}" 
+swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3-v20240930_626MB" --audio-path "path/to/your/audio.{wav,mp3,m4a,flac}"
 ```
 
 Which should print a transcription of the audio file. If you would like to stream the audio directly from a microphone, use:
 
 ```bash
-swift run whisperkit-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3" --stream
+swift run argmax-cli transcribe --model-path "Models/whisperkit-coreml/openai_whisper-large-v3-v20240930_626MB" --stream
 ```
 
-### WhisperKit Local Server
+### Local Server
 
-WhisperKit includes a local server that implements the OpenAI Audio API, allowing you to use existing OpenAI SDK clients or generate new ones. The server supports transcription and translation with **output streaming** capabilities (real-time transcription results as they're generated).
+The Argmax CLI includes a local server that implements the OpenAI Audio API, allowing you to use existing OpenAI SDK clients or generate new ones. The server supports transcription and translation with **output streaming** capabilities (real-time transcription results as they're generated).
 
 > [!NOTE]
-> **For real-time transcription server with full-duplex streaming capabilities**, check out [WhisperKit Pro Local Server](https://www.argmaxinc.com/blog/argmax-local-server) which provides live audio streaming and real-time transcription for applications requiring continuous audio processing.
+> [Argmax Pro Local Server](https://www.argmaxinc.com/blog/argmax-local-server) provides a real-time streaming transcription with a WebSocket local server that is API-compatible with cloud-based providers such as Deepgram.
+
 
 #### Building the Server
 
@@ -212,23 +253,23 @@ WhisperKit includes a local server that implements the OpenAI Audio API, allowin
 make build-local-server
 
 # Or manually with the build flag
-BUILD_ALL=1 swift build --product whisperkit-cli
+BUILD_ALL=1 swift build --product argmax-cli
 ```
 
 #### Starting the Server
 
 ```bash
 # Start server with default settings
-BUILD_ALL=1 swift run whisperkit-cli serve
+BUILD_ALL=1 swift run argmax-cli serve
 
 # Custom host and port
-BUILD_ALL=1 swift run whisperkit-cli serve --host 0.0.0.0 --port 8080
+BUILD_ALL=1 swift run argmax-cli serve --host 0.0.0.0 --port 8080
 
 # With specific model and verbose logging
-BUILD_ALL=1 swift run whisperkit-cli serve --model tiny --verbose
+BUILD_ALL=1 swift run argmax-cli serve --model tiny --verbose
 
 # See all configurable parameters
-BUILD_ALL=1 swift run whisperkit-cli serve --help
+BUILD_ALL=1 swift run argmax-cli serve --help
 ```
 
 #### API Endpoints
@@ -333,7 +374,7 @@ The local server fully supports these OpenAI API features:
 
 ## TTSKit
 
-TTSKit is an on-device text-to-speech framework built on Core ML. It runs [Qwen3 TTS](https://github.com/QwenLM/Qwen3-TTS) models entirely on Apple silicon with real-time streaming playback, no server required.
+TTSKit is an on-device text-to-speech framework built on Core ML. It runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) models entirely on Apple silicon with real-time streaming playback, no server required.
 
 - macOS 15.0 or later.
 - iOS 18.0 or later.
@@ -352,7 +393,7 @@ Task {
 }
 ```
 
-`TTSKit()` automatically downloads the default 0.6B model on first run, loads the tokenizer and six CoreML models concurrently, and is ready to generate.
+`TTSKit()` automatically downloads the default 0.6B model on first run. The tokenizer and CoreML models are loaded lazily on the first `generate()` call.
 
 ### Model Selection
 
@@ -380,7 +421,7 @@ let result = try await tts.generate(
 )
 ```
 
-**Voices:** `.ryan`, `.aiden`, `.onoAnna` (`"ono-anna"`), `.sohee`, `.eric`, `.dylan`, `.serena`, `.vivian`, `.uncleFu` (`"uncle-fu"`)
+**Voices:** `.ryan`, `.aiden`, `.onoAnna`, `.sohee`, `.eric`, `.dylan`, `.serena`, `.vivian`, `.uncleFu`
 
 **Languages:** `.english`, `.chinese`, `.japanese`, `.korean`, `.german`, `.french`, `.russian`, `.portuguese`, `.spanish`, `.italian`
 
@@ -465,39 +506,158 @@ let result = try await tts.generate(text: "Hello!") { progress in
 
 ### Swift CLI
 
-The TTS command is available through the same `whisperkit-cli` tool. You can generate speech and optionally play it back in real time:
+The TTS command is available through the `argmax-cli` tool. You can generate speech and optionally play it back in real time:
 
 ```bash
-swift run whisperkit-cli tts --text "Hello from the command line" --play
-swift run whisperkit-cli tts --text "Save to file" --output-path output.wav
-swift run whisperkit-cli tts --text "日本語テスト" --speaker ono-anna --language japanese
-swift run whisperkit-cli tts --text-file article.txt --model 1.7b --instruction "Read cheerfully"
-swift run whisperkit-cli tts --help
+swift run argmax-cli tts --text "Hello from the command line" --play
+swift run argmax-cli tts --text "Save to file" --output-path output.wav
+swift run argmax-cli tts --text "日本語テスト" --speaker ono-anna --language japanese
+swift run argmax-cli tts --text-file article.txt --model 1.7b --instruction "Read cheerfully"
+swift run argmax-cli tts --help
 ```
 
 ### Demo App
 
 The [TTSKitExample](Examples/TTS/TTSKitExample/) example app showcases real-time streaming, model management, waveform visualization, and generation history on macOS and iOS. See the [TTSKitExample README](Examples/TTS/TTSKitExample/README.md) for build instructions.
 
+## SpeakerKit
+
+SpeakerKit is an on-device speaker diarization framework built on Core ML. It runs [Pyannote v4 (community-1)](https://huggingface.co/argmaxinc/speakerkit-coreml) on Apple silicon to label speakers in audio. Read the [blog post](https://www.argmaxinc.com/blog/speakerkit) for architecture details and benchmarks.
+
+- macOS 13.0 or later.
+- iOS 16.0 or later.
+
+### Quick Example
+
+This example demonstrates how to diarize an audio file:
+
+```swift
+import SpeakerKit
+
+Task {
+    let speakerKit = try await SpeakerKit()
+
+    let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+    let result = try await speakerKit.diarize(audioArray: audioArray)
+
+    print("Detected \(result.speakerCount) speakers")
+    for segment in result.segments {
+        print(segment)
+    }
+}
+```
+
+`SpeakerKit()` uses `PyannoteConfig()` defaults, automatically downloading models from [HuggingFace](https://huggingface.co/argmaxinc/speakerkit-coreml) on first run. The segmenter and embedder CoreML models are loaded lazily (unless `load` is set on config) on the first `diarize()` call.
+
+### Diarization Options
+
+You can control speaker detection via `PyannoteDiarizationOptions`:
+
+```swift
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+let options = PyannoteDiarizationOptions(
+    numberOfSpeakers: 2,               // nil = automatic detection
+    clusterDistanceThreshold: 0.6,     // clustering threshold
+    useExclusiveReconciliation: false   // exclusive speaker assignment per frame
+)
+let result = try await speakerKit.diarize(audioArray: audioArray, options: options)
+```
+
+For local models, skip the download step:
+
+```swift
+let config = PyannoteConfig(modelFolder: "/path/to/models")
+let speakerKit = try await SpeakerKit(config)
+```
+
+### Combining with Transcription
+
+SpeakerKit can merge diarization results with WhisperKit transcriptions to produce speaker-attributed segments:
+
+```swift
+import WhisperKit
+import SpeakerKit
+
+let whisperKit = try await WhisperKit()
+let speakerKit = try await SpeakerKit()
+
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "audio.wav")
+let transcription = try await whisperKit.transcribe(audioArray: audioArray)
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+let speakerSegments = diarization.addSpeakerInfo(to: transcription)
+
+for group in speakerSegments {
+    for segment in group {
+        print("\(segment.speaker): \(segment.text)")
+    }
+}
+```
+
+Two strategies are available for matching speakers to transcription:
+- `.subsegment` (default) -- splits segments at word gaps, then assigns speakers
+- `.segment` -- assigns a speaker to each transcription segment as a whole
+
+### RTTM Output
+
+Generate RTTM output:
+
+```swift
+let speakerKit = try await SpeakerKit()
+
+let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: "meeting.wav")
+let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+let rttmLines = SpeakerKit.generateRTTM(from: diarization, fileName: "meeting")
+for line in rttmLines {
+    print(line)
+}
+```
+
+### Swift CLI
+
+The diarization commands are available through the `argmax-cli` tool:
+
+```bash
+# Standalone diarization
+swift run argmax-cli diarize --audio-path audio.wav --verbose
+
+# Save RTTM output
+swift run argmax-cli diarize --audio-path audio.wav --rttm-path output.rttm
+
+# Specify number of speakers
+swift run argmax-cli diarize --audio-path audio.wav --num-speakers 3
+
+# Transcription with diarization
+swift run argmax-cli transcribe --audio-path audio.wav --diarization
+
+# See all options
+swift run argmax-cli diarize --help
+```
+
 ## Contributing & Roadmap
 
-Our goal is to make WhisperKit better and better over time and we'd love your help! Just search the code for "TODO" for a variety of features that are yet to be built. Please refer to our [contribution guidelines](CONTRIBUTING.md) for submitting issues, pull requests, and coding standards, where we also have a public roadmap of features we are looking forward to building in the future.
+Our goal is to make this SDK better and better over time and we'd love your help! Just search the code for "TODO" for a variety of features that are yet to be built. Please refer to our [contribution guidelines](CONTRIBUTING.md) for submitting issues, pull requests, and coding standards, where we also have a public roadmap of features we are looking forward to building in the future.
+
+**External dependencies:** `Sources/ArgmaxCore/External/` contains a copy of [swift-transformers](https://github.com/huggingface/swift-transformers) (Hub and Tokenizers modules, v1.1.6) with Jinja-dependent code removed. When updating to a newer version, copy the fresh sources over that directory and re-apply the patches marked with `// Argmax-modification:` (`grep -r "Argmax-modification:" Sources/ArgmaxCore/External/`).
 
 ## License
 
-WhisperKit is released under the MIT License. See [LICENSE](LICENSE) for more details.
+Argmax OSS is released under the MIT License. See [LICENSE](LICENSE) for more details.
+
+This project incorporates third-party software under their own license terms. See [NOTICES](NOTICES) for attributions.
 
 ## Citation
 
-If you use WhisperKit for something cool or just find it useful, please drop us a note at [info@argmaxinc.com](mailto:info@argmaxinc.com)!
+If you use this SDK for something cool or just find it useful, please drop us a note at [info@argmaxinc.com](mailto:info@argmaxinc.com)!
 
-If you use WhisperKit for academic work, here is the BibTeX:
+If you use WhisperKit, SpeakerKit or TTSKit for academic work, please cite the project using the following BibTeX:
 
 ```bibtex
 @misc{whisperkit-argmax,
-   title = {WhisperKit},
+   title = {Argmax OSS: On-device Speech AI with WhisperKit, SpeakerKit and TTSKit},
    author = {Argmax, Inc.},
    year = {2024},
-   URL = {https://github.com/argmaxinc/WhisperKit}
+   URL = {https://github.com/argmaxinc/argmax-oss-swift}
 }
 ```

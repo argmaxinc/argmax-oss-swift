@@ -43,6 +43,7 @@
 		1683EFEF2B9FADFE002448CD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1677AFB42B57618A008C61C0 /* Assets.xcassets */; };
 		1683EFF02B9FADFE002448CD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1677AFB62B57618A008C61C0 /* Preview Assets.xcassets */; };
 		16EA36CF2B59E550006CA7CF /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16EA36CE2B59E550006CA7CF /* WhisperKit */; };
+		AAAA36CF2B59E550006CA7CF /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA36CE2B59E550006CA7CF /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -168,6 +169,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				16EA36CF2B59E550006CA7CF /* WhisperKit in Frameworks */,
+				AAAA36CF2B59E550006CA7CF /* SpeakerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,6 +432,7 @@
 			name = WhisperAX;
 			packageProductDependencies = (
 				16EA36CE2B59E550006CA7CF /* WhisperKit */,
+				AAAA36CE2B59E550006CA7CF /* SpeakerKit */,
 			);
 			productName = BasicExample;
 			productReference = 167B345E2B05431E0076F261 /* WhisperAX.app */;
@@ -1225,6 +1228,10 @@
 		16EA36CE2B59E550006CA7CF /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WhisperKit;
+		};
+		AAAA36CE2B59E550006CA7CF /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SpeakerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

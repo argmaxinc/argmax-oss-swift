@@ -48,7 +48,7 @@ extension Logging {
     }
 
     static func formatTimestamp(_ timestamp: Float) -> String {
-        return String(format: "%.2f", timestamp)
+        String(format: "%.2f", timestamp)
     }
 
 // formatTimeWithPercentage is defined in ArgmaxCore/Logging.swift and re-exported here.

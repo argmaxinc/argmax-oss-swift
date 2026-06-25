@@ -114,7 +114,7 @@ extension MLMultiArray {
         let logits = try MLMultiArray(shape: [1, 1, arr.count] as [NSNumber], dataType: .float16)
         let ptr = UnsafeMutablePointer<FloatType>(OpaquePointer(logits.dataPointer))
         for (index, value) in arr.enumerated() {
-            let linearOffset = logits.linearOffset(for: [0, 0, index as NSNumber])
+            let linearOffset = logits.linearOffset(for: [0, 0, index])
             ptr[linearOffset] = value
         }
         return logits
@@ -123,11 +123,11 @@ extension MLMultiArray {
     /// Get the data from `MLMultiArray` for given dimension
     func data(for dimension: Int) -> [FloatType] {
         let count = shape[dimension].intValue
-        let indexes = stride(from: 0, to: count, by: 1).map { [0, 0, $0 as NSNumber] }
+        let indexes = stride(from: 0, to: count, by: 1).map { [0, 0, $0] }
         var result = [FloatType]()
         let ptr = UnsafeMutablePointer<FloatType>(OpaquePointer(dataPointer))
         for index in indexes {
-            let linearOffset = linearOffset(for: index as [NSNumber])
+            let linearOffset = linearOffset(for: index)
             result.append(ptr[linearOffset])
         }
         return result
@@ -138,7 +138,7 @@ extension XCTestCase {
     func transcribe(
         with variant: ModelVariant,
         options: DecodingOptions,
-        callback: TranscriptionCallback = nil,
+        callback: TranscriptionCallback? = nil,
         audioFile: String = "jfk.wav",
         file: StaticString = #file,
         line: UInt = #line
@@ -227,8 +227,19 @@ extension XCTestCase {
     }
 
     func trackForMemoryLeaks(on instance: AnyObject, file: StaticString = #filePath, line: UInt = #line) {
-        addTeardownBlock { [weak instance] in
-            XCTAssertNil(instance, "Detected potential memory leak", file: file, line: line)
+        /// Stores only a weak reference for teardown leak assertions.
+        /// `XCTestCase.addTeardownBlock` uses a sending closure, so this wrapper must be Sendable.
+        final class LeakRefWrapper: @unchecked Sendable {
+            weak var object: AnyObject?
+
+            init(object: AnyObject) {
+                self.object = object
+            }
+        }
+
+        let wrapper = LeakRefWrapper(object: instance)
+        addTeardownBlock { [wrapper, file, line] in
+            XCTAssertNil(wrapper.object, "Detected potential memory leak", file: file, line: line)
         }
     }
 

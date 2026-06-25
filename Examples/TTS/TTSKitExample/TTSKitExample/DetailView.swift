@@ -1,7 +1,6 @@
 //  For licensing see accompanying LICENSE.md file.
 //  Copyright © 2026 Argmax, Inc. All rights reserved.
 
-import ArgmaxCore
 import SwiftUI
 import TTSKit
 import UniformTypeIdentifiers

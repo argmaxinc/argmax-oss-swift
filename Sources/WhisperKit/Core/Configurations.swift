@@ -135,7 +135,6 @@ open class WhisperKitConfig {
 ///   - sampleLength: The maximum number of tokens to sample.
 ///   - topK: Number of candidates when sampling with non-zero temperature.
 ///   - usePrefillPrompt: If true, the prefill tokens will be forced according to task and language settings.
-///   - usePrefillCache: If true, the kv cache will be prefilled based on the prefill data mlmodel.
 ///   - detectLanguage: Use this in conjuntion with `usePrefillPrompt: true` to detect the language of the input audio.
 ///   - skipSpecialTokens: Whether to skip special tokens in the output.
 ///   - withoutTimestamps: Whether to include timestamps in the transcription result.
@@ -147,7 +146,7 @@ open class WhisperKitConfig {
 ///   - promptTokens: Array of token IDs to use as the conditioning prompt for the decoder. These are prepended to the prefill tokens.
 ///   - prefixTokens: Array of token IDs to use as the initial prefix for the decoder. These are appended to the prefill tokens.
 ///   - suppressBlank: If true, blank tokens will be suppressed during decoding.
-///   - supressTokens: List of token IDs to suppress during decoding.
+///   - suppressTokens: List of token IDs to suppress during decoding.
 ///   - compressionRatioThreshold: If the compression ratio of the transcription text is above this value, it is too repetitive and treated as failed.
 ///   - logProbThreshold: If the average log probability over sampled tokens is below this value, treat as failed.
 ///   - firstTokenLogProbThreshold: If the log probability over the first sampled token is below this value, treat as failed.
@@ -163,7 +162,6 @@ public struct DecodingOptions: Codable, Sendable {
     public var sampleLength: Int
     public var topK: Int
     public var usePrefillPrompt: Bool
-    public var usePrefillCache: Bool
     public var detectLanguage: Bool
     public var skipSpecialTokens: Bool
     public var withoutTimestamps: Bool
@@ -175,7 +173,7 @@ public struct DecodingOptions: Codable, Sendable {
     public var promptTokens: [Int]?
     public var prefixTokens: [Int]?
     public var suppressBlank: Bool
-    public var supressTokens: [Int]
+    public var suppressTokens: [Int]
     public var compressionRatioThreshold: Float?
     public var logProbThreshold: Float?
     public var firstTokenLogProbThreshold: Float?
@@ -193,7 +191,6 @@ public struct DecodingOptions: Codable, Sendable {
         sampleLength: Int = Constants.maxTokenContext,
         topK: Int = 5,
         usePrefillPrompt: Bool = true,
-        usePrefillCache: Bool = true,
         detectLanguage: Bool? = nil,
         skipSpecialTokens: Bool = false,
         withoutTimestamps: Bool = false,
@@ -205,7 +202,7 @@ public struct DecodingOptions: Codable, Sendable {
         promptTokens: [Int]? = nil,
         prefixTokens: [Int]? = nil,
         suppressBlank: Bool = false,
-        supressTokens: [Int]? = nil,
+        suppressTokens: [Int]? = nil,
         compressionRatioThreshold: Float? = 2.4,
         logProbThreshold: Float? = -1.0,
         firstTokenLogProbThreshold: Float? = -1.5,
@@ -222,7 +219,6 @@ public struct DecodingOptions: Codable, Sendable {
         self.sampleLength = sampleLength
         self.topK = topK
         self.usePrefillPrompt = usePrefillPrompt
-        self.usePrefillCache = usePrefillCache
         self.detectLanguage = detectLanguage ?? !usePrefillPrompt // If prefill is false, detect language by default
         self.skipSpecialTokens = skipSpecialTokens
         self.withoutTimestamps = withoutTimestamps
@@ -234,7 +230,7 @@ public struct DecodingOptions: Codable, Sendable {
         self.promptTokens = promptTokens
         self.prefixTokens = prefixTokens
         self.suppressBlank = suppressBlank
-        self.supressTokens = supressTokens ?? [] // nonSpeechTokens() // TODO: implement these as default
+        self.suppressTokens = suppressTokens ?? [] // nonSpeechTokens() // TODO: implement these as default
         self.compressionRatioThreshold = compressionRatioThreshold
         self.logProbThreshold = logProbThreshold
         self.firstTokenLogProbThreshold = firstTokenLogProbThreshold

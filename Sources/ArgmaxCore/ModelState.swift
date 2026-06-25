@@ -17,7 +17,7 @@ import Foundation
 /// loaded   → unloading  → unloaded
 /// ```
 @frozen
-public enum ModelState: CustomStringConvertible {
+public enum ModelState: CustomStringConvertible, Equatable, Hashable {
     case unloading
     case unloaded
     case loading
@@ -50,4 +50,4 @@ public enum ModelState: CustomStringConvertible {
 }
 
 /// Callback invoked when the pipeline's `modelState` changes.
-public typealias ModelStateCallback = (_ oldState: ModelState?, _ newState: ModelState) -> Void
+public typealias ModelStateCallback = @Sendable (_ oldState: ModelState?, _ newState: ModelState) -> Void

@@ -8,18 +8,18 @@ let VERSION: String = "development"
 
 var subcommands: [ParsableCommand.Type] {
 #if BUILD_SERVER_CLI
-    [TranscribeCLI.self, TTSCLI.self, ServeCLI.self]
+    [TranscribeCLI.self, TTSCLI.self, DiarizeCLI.self, ServeCLI.self]
 #else
-    [TranscribeCLI.self, TTSCLI.self]
+    [TranscribeCLI.self, TTSCLI.self, DiarizeCLI.self]
 #endif
 }
 
 @main
-struct WhisperKitCLI: AsyncParsableCommand {
+struct ArgmaxCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "whisperkit-cli",
-        abstract: "WhisperKit CLI",
-        discussion: "Swift native speech recognition with Whisper for Apple Silicon",
+        commandName: "argmax-cli",
+        abstract: "Argmax OSS CLI",
+        discussion: "Swift native on-device speech recognition, text-to-speech, and speaker diarization for Apple Silicon",
         version: VERSION,
         subcommands: subcommands
     )

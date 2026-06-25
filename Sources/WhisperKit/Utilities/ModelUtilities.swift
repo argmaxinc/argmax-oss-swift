@@ -3,8 +3,6 @@
 
 import ArgmaxCore
 import CoreML
-import Hub
-import Tokenizers
 
 extension ModelUtilities {
 
@@ -23,8 +21,8 @@ extension ModelUtilities {
         useBackgroundSession: Bool = false
     ) async throws -> WhisperTokenizer {
         let tokenizerName = tokenizerNameForVariant(pretrained)
-        let hubApi = HubApi(downloadBase: tokenizerFolder, useBackgroundSession: useBackgroundSession)
-        let hubTokenizerFolder = hubApi.localRepoLocation(HubApi.Repo(id: tokenizerName))
+        let hubApi = HubApiWrapper(downloadBase: tokenizerFolder, useBackgroundSession: useBackgroundSession)
+        let hubTokenizerFolder = hubApi.localRepoLocation(HubApiWrapper.Repo(id: tokenizerName))
         
         // Determine which local folder to use
         let localTokenizerFolder: URL? = {
@@ -58,16 +56,9 @@ extension ModelUtilities {
         // If we found a local folder with a tokenizer.json, try to load from it
         if let localFolder = localTokenizerFolder {
             do {
-                let localConfig = LanguageModelConfigurationFromHub(modelFolder: localFolder, hubApi: hubApi)
-                if let tokenizerConfig = try await localConfig.tokenizerConfig {
-                    let tokenizerData = try await localConfig.tokenizerData
-                    let whisperTokenizer = try PreTrainedTokenizer(tokenizerConfig: tokenizerConfig, tokenizerData: tokenizerData)
-                    Logging.debug("Loading tokenizer from \(localFolder.path)")
-                    return WhisperTokenizerWrapper(tokenizer: whisperTokenizer, at: localFolder)
-                } else {
-                    // tokenizerConfig is nil, fall through to load from Hub
-                    Logging.debug("Tokenizer configuration not found in local config")
-                }
+                Logging.debug("Loading tokenizer from \(localFolder.path)")
+                let wrapper = try await AutoTokenizerWrapper.from(modelFolder: localFolder, hubApi: hubApi)
+                return WhisperTokenizerWrapper(tokenizer: wrapper, at: localFolder)
             } catch {
                 // Error during the local loading process and fall through to load from Hub
                 Logging.debug("Error loading local tokenizer: \(error)")
@@ -77,7 +68,7 @@ extension ModelUtilities {
         // Fallback to downloading from the Hub if local loading is not possible or fails
         Logging.debug("Downloading tokenizer from Hub at \(hubTokenizerFolder)")
         return try await WhisperTokenizerWrapper(
-            tokenizer: AutoTokenizer.from(
+            tokenizer: AutoTokenizerWrapper.from(
                 pretrained: tokenizerName,
                 hubApi: hubApi
             ),
@@ -212,29 +203,3 @@ extension ModelUtilities {
     }
 }
 
-@available(*, deprecated, message: "Subject to removal in a future version. Use `ModelUtilities.loadTokenizer(for:pretrained:tokenizerFolder:useBackgroundSession:)` instead.")
-public func loadTokenizer(
-    for pretrained: ModelVariant,
-    tokenizerFolder: URL? = nil,
-    useBackgroundSession: Bool = false
-) async throws -> WhisperTokenizer {
-    return try await ModelUtilities.loadTokenizer(for: pretrained, tokenizerFolder: tokenizerFolder, useBackgroundSession: useBackgroundSession)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use ModelUtilities.modelSupport(for:from:) -> ModelSupport instead.")
-public func modelSupport(for deviceName: String, from config: ModelSupportConfig? = nil) -> ModelSupport {
-    return ModelUtilities.modelSupport(for: deviceName, from: config)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use ModelUtilities.modelSupport(for:from:) -> ModelSupport instead.")
-@_disfavoredOverload
-public func modelSupport(for deviceName: String, from config: ModelSupportConfig? = nil) -> (default: String, disabled: [String]) {
-    let modelSupport = ModelUtilities.modelSupport(for: deviceName, from: config)
-    return (modelSupport.default, modelSupport.disabled)
-}
-
-@available(*, deprecated, message: "Subject to removal in a future version. Use `ModelUtilities.detectModelURL(inFolder:named:)` instead.")
-public func detectModelURL(inFolder path: URL, named modelName: String) -> URL {
-    return ModelUtilities.detectModelURL(inFolder: path, named: modelName)
-    
-}

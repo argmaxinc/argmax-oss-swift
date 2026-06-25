@@ -6,7 +6,6 @@ import CoreML
 import Foundation
 import Observation
 import SwiftUI
-import Tokenizers
 import TTSKit
 import WhisperKit
 #if os(macOS)

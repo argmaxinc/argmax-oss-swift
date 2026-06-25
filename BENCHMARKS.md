@@ -7,7 +7,7 @@ This document describes how to run the benchmarks for WhisperKit. The benchmarks
 To download the code to run the test suite, run:
 
 ```sh
-git clone git@github.com:argmaxinc/WhisperKit.git
+git clone git@github.com:argmaxinc/argmax-oss-swift.git
 ```
 
 ## Local Environment
@@ -117,4 +117,4 @@ If you encounter issues while running the tests, heres a few things to try:
    2. If the tests run successfully, you can rule out any issues with the device or the models.
    3. If they dont run successfully, Xcode will provide more detailed error messages.
 2. Try specifying a single device to run the tests on. This can be done by running `make list-devices` and then running the tests with the `DEVICES` option set to the name of the device you want to test on. For example, `make benchmark-devices DEVICES="My Mac"`. This will also enable you to see the logs for that specific device.
-3. If you are still encountering issues, please reach out to us on the [Discord](https://discord.gg/G5F5GZGecC) or create an [issue](https://github.com/argmaxinc/WhisperKit/issues) on GitHub.
+3. If you are still encountering issues, please reach out to us on the [Discord](https://discord.gg/G5F5GZGecC) or create an [issue](https://github.com/argmaxinc/argmax-oss-swift/issues) on GitHub.

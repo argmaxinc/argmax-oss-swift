@@ -58,9 +58,6 @@ struct TranscribeCLIArguments: ParsableArguments {
     @Flag(help: "Force initial prompt tokens based on language, task, and timestamp options")
     var usePrefillPrompt: Bool = false
 
-    @Flag(help: "Use decoder prefill data for faster initial decoding")
-    var usePrefillCache: Bool = false
-
     @Flag(help: "Skip special tokens in the output")
     var skipSpecialTokens: Bool = false
 
@@ -79,8 +76,8 @@ struct TranscribeCLIArguments: ParsableArguments {
     @Option(parsing: .upToNextOption, help: "List of timestamps (in seconds) of start and end values to transcribe as seperate clips in single audio file (example: --clip-timestamps 0 10.2 34.5 60.0)")
     var clipTimestamps: [Float] = []
 
-    @Option(parsing: .upToNextOption, help: "List of tokens to supress in the output (example: --supress-tokens 1 2 3)")
-    var supressTokens: [Int] = []
+    @Option(parsing: .upToNextOption, help: "List of tokens to suppress in the output (example: --suppress-tokens 1 2 3)")
+    var suppressTokens: [Int] = []
 
     @Option(help: "Gzip compression ratio threshold for decoding failure")
     var compressionRatioThreshold: Float?

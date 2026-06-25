@@ -4,9 +4,9 @@
 import Accelerate
 import AVFAudio
 import CoreML
-import Hub
 import NaturalLanguage
-import Tokenizers
+import ArgmaxCore
+
 // MARK: - CoreML
 
 public protocol WhisperMLModel: AnyObject {
@@ -17,11 +17,9 @@ public protocol WhisperMLModel: AnyObject {
 
 public extension WhisperMLModel {
     func loadModel(at modelPath: URL, computeUnits: MLComputeUnits, prewarmMode: Bool = false) async throws {
-        let loadedModel = try await Task {
-            let modelConfig = MLModelConfiguration()
-            modelConfig.computeUnits = computeUnits
-            return try await MLModel.load(contentsOf: modelPath, configuration: modelConfig)
-        }.value
+        let modelConfig = MLModelConfiguration()
+        modelConfig.computeUnits = computeUnits
+        let loadedModel = try await MLModel.load(contentsOf: modelPath, configuration: modelConfig)
 
         model = prewarmMode ? nil : loadedModel
     }
@@ -95,24 +93,20 @@ public struct ModelComputeOptions: Sendable {
     public var melCompute: MLComputeUnits
     public var audioEncoderCompute: MLComputeUnits
     public var textDecoderCompute: MLComputeUnits
-    public var prefillCompute: MLComputeUnits
 
     public init(
         melCompute: MLComputeUnits = .cpuAndGPU,
         audioEncoderCompute: MLComputeUnits? = nil,
-        textDecoderCompute: MLComputeUnits = .cpuAndNeuralEngine,
-        prefillCompute: MLComputeUnits = .cpuOnly
+        textDecoderCompute: MLComputeUnits = .cpuAndNeuralEngine
     ) {
         if WhisperKit.isRunningOnSimulator {
             self.melCompute = .cpuOnly
             self.audioEncoderCompute = .cpuOnly
             self.textDecoderCompute = .cpuOnly
-            self.prefillCompute = .cpuOnly
             return
         }
 
         self.melCompute = melCompute
-        self.prefillCompute = prefillCompute
         self.textDecoderCompute = textDecoderCompute
 
         if #available(macOS 14.0, iOS 17.0, *) {
@@ -303,10 +297,8 @@ open class DecodingInputs: DecodingInputsType {
     public var alignmentWeights: MLMultiArray
     public var kvCacheUpdateMask: MLMultiArray
     public var decoderKeyPaddingMask: MLMultiArray
-    public var prefillKeyCache: MLMultiArray
-    public var prefillValueCache: MLMultiArray
 
-    public init(initialPrompt: [Int], inputIds: MLMultiArray, cacheLength: MLMultiArray, keyCache: MLMultiArray, valueCache: MLMultiArray, alignmentWeights: MLMultiArray, kvCacheUpdateMask: MLMultiArray, decoderKeyPaddingMask: MLMultiArray, prefillKeyCache: MLMultiArray, prefillValueCache: MLMultiArray) {
+    public init(initialPrompt: [Int], inputIds: MLMultiArray, cacheLength: MLMultiArray, keyCache: MLMultiArray, valueCache: MLMultiArray, alignmentWeights: MLMultiArray, kvCacheUpdateMask: MLMultiArray, decoderKeyPaddingMask: MLMultiArray) {
         self.initialPrompt = initialPrompt
         self.inputIds = inputIds
         self.cacheLength = cacheLength
@@ -315,29 +307,17 @@ open class DecodingInputs: DecodingInputsType {
         self.alignmentWeights = alignmentWeights
         self.kvCacheUpdateMask = kvCacheUpdateMask
         self.decoderKeyPaddingMask = decoderKeyPaddingMask
-        self.prefillKeyCache = prefillKeyCache
-        self.prefillValueCache = prefillValueCache
     }
 
-    public func reset(prefilledCacheSize: Int, maxTokenContext: Int) {
-        // NOTE: Because we have a mask on the kvcache,
-        // we can simply shift the masks without touching the data,
-        // it will be overwritten by the new data without impact on the output
-        cacheLength[0] = NSNumber(value: prefilledCacheSize)
+    public func reset(maxTokenContext: Int) {
+        cacheLength[0] = 0
 
-        // Store token history and
         // Reset masks to prepare for next window
-        for i in 0..<maxTokenContext {
-            if i <= prefilledCacheSize {
-                // Inside overlap window
-                decoderKeyPaddingMask[i] = 0
-                kvCacheUpdateMask[i - 1] = 0
-                kvCacheUpdateMask[i] = 1
-            } else {
-                // Padding
-                decoderKeyPaddingMask[i] = -10000
-                kvCacheUpdateMask[i] = 0
-            }
+        decoderKeyPaddingMask[0] = 0
+        kvCacheUpdateMask[0] = 1
+        for i in 1..<maxTokenContext {
+            decoderKeyPaddingMask[i] = -10000
+            kvCacheUpdateMask[i] = 0
         }
     }
 }
@@ -513,7 +493,6 @@ open class TranscriptionResult: Codable, @unchecked Sendable {
         let logmelsTime = Logging.formatTimeWithPercentage(timings.logmels, timings.totalLogmelRuns, fullDecodingDuration)
         let encodingTime = Logging.formatTimeWithPercentage(timings.encoding, timings.totalEncodingRuns, fullDecodingDuration)
         let decodingInitTime = Logging.formatTimeWithPercentage(timings.decodingInit, 1, fullDecodingDuration)
-        let prefillInfo = Logging.formatTimeWithPercentage(timings.prefill, 1, fullDecodingDuration)
         let predictionsInfo = Logging.formatTimeWithPercentage(timings.decodingPredictions, totalLoops, fullDecodingDuration)
         let filteringInfo = Logging.formatTimeWithPercentage(timings.decodingFiltering, totalLoops, fullDecodingDuration)
         let samplingInfo = Logging.formatTimeWithPercentage(timings.decodingSampling, totalLoops, fullDecodingDuration)
@@ -532,7 +511,6 @@ open class TranscriptionResult: Codable, @unchecked Sendable {
         Mels:                \(logmelsTime)
         Encoding:            \(encodingTime)
         Matrices Init:       \(decodingInitTime)
-        Prefill:             \(prefillInfo)
         Decoding:            \(predictionsInfo)
         Non-inference:       \(nonPredTimeInfo)
         - Logit Filtering:   \(filteringInfo)
@@ -687,12 +665,30 @@ public struct TranscriptionProgress: Sendable {
 /// A callback that provides transcription segments as they are discovered.
 /// - Parameters:
 ///   - segments: An array of `TranscriptionSegment` objects representing the transcribed segments
-public typealias SegmentDiscoveryCallback = (_ segments: [TranscriptionSegment]) -> Void
+public typealias SegmentDiscoveryCallback = @Sendable (_ segments: [TranscriptionSegment]) -> Void
 
-/// A callback that reports changes in the model's state.
 /// A callback that reports changes in the transcription process.
 /// - Parameter state: The current `TranscriptionState` of the transcription process
-public typealias TranscriptionStateCallback = (_ state: TranscriptionState) -> Void
+public typealias TranscriptionStateCallback = @Sendable (_ state: TranscriptionState) -> Void
+
+
+/// A callback that reports incremental updates about the progress of a long‑running operation.
+///
+/// WhisperKit uses this closure to surface progress for tasks such as downloading model assets.
+/// The closure is annotated `@Sendable` and may be invoked from a background thread.
+///
+/// - Parameter progress: A Foundation `Progress` instance describing the current state of the task.
+///
+/// - Important: This callback can be called on any thread. If you update UI, hop to the main actor:
+///   `await MainActor.run { ... }`.
+///
+/// - Note: Keep the work performed inside this callback minimal to avoid slowing the underlying
+///   operation. The closure may be invoked many times and typically finishes with
+///   `fractionCompleted == 1.0` when the operation completes (or fewer times if it is cancelled
+///   or fails).
+///
+/// - SeeAlso: `ModelStateCallback`, `TranscriptionStateCallback`, `TranscriptionCallback`
+public typealias ProgressCallback = @Sendable (Progress) -> Void
 
 /// Represents the different states of the transcription process.
 @frozen
@@ -729,7 +725,7 @@ public enum TranscriptionState: CustomStringConvertible {
 ///   - `false`: Stop the transcription process early.
 ///   - `nil`: Continue the transcription process (equivalent to returning `true`).
 /// - Note: This callback should be lightweight and return as quickly as possible to avoid extra decoding loops
-public typealias TranscriptionCallback = ((TranscriptionProgress) -> Bool?)?
+public typealias TranscriptionCallback = @Sendable (TranscriptionProgress) -> Bool?
 
 public struct TranscriptionTimings: Codable, Sendable {
     public var pipelineStart: CFAbsoluteTime
@@ -746,7 +742,6 @@ public struct TranscriptionTimings: Codable, Sendable {
     public var audioProcessing: TimeInterval
     public var logmels: TimeInterval
     public var encoding: TimeInterval
-    public var prefill: TimeInterval
     public var decodingInit: TimeInterval
     public var decodingLoop: TimeInterval
     public var decodingPredictions: TimeInterval
@@ -792,7 +787,6 @@ public struct TranscriptionTimings: Codable, Sendable {
                 audioProcessing: TimeInterval = 0,
                 logmels: TimeInterval = 0,
                 encoding: TimeInterval = 0,
-                prefill: TimeInterval = 0,
                 decodingInit: TimeInterval = 0,
                 decodingLoop: TimeInterval = 0,
                 decodingPredictions: TimeInterval = 0,
@@ -827,7 +821,6 @@ public struct TranscriptionTimings: Codable, Sendable {
         self.audioProcessing = audioProcessing
         self.logmels = logmels
         self.encoding = encoding
-        self.prefill = prefill
         self.decodingInit = decodingInit
         self.decodingLoop = decodingLoop
         self.decodingPredictions = decodingPredictions
@@ -1113,85 +1106,6 @@ public class TextDecoderOutput: MLFeatureProvider {
     }
 }
 
-// MARK: TextDecoderCachePrefill
-
-public class TextDecoderCachePrefillInput: MLFeatureProvider {
-    /// task as 1 element vector of 32-bit integers
-    public var task: MLMultiArray
-
-    /// language as 1 element vector of 32-bit integers
-    public var language: MLMultiArray
-
-    public var featureNames: Set<String> {
-        return ["task", "language"]
-    }
-
-    public func featureValue(for featureName: String) -> MLFeatureValue? {
-        if featureName == "task" {
-            return MLFeatureValue(multiArray: self.task)
-        }
-        if featureName == "language" {
-            return MLFeatureValue(multiArray: self.language)
-        }
-        return nil
-    }
-
-    public init(task: MLMultiArray, language: MLMultiArray) {
-        self.task = task
-        self.language = language
-    }
-
-    public convenience init(task: MLShapedArray<Int32>, language: MLShapedArray<Int32>) {
-        self.init(task: MLMultiArray(task), language: MLMultiArray(language))
-    }
-}
-
-/// Model Prediction Output Type
-public class TextDecoderCachePrefillOutput: MLFeatureProvider {
-    /// Source provided by CoreML
-    private let provider: MLFeatureProvider
-
-    /// key_cache_prefill as 1 × embed_dim * num_layers × 1 × 3 4-dimensional array of 16-bit floats
-    public var key_cache_prefill: MLMultiArray {
-        return self.provider.featureValue(for: "key_cache_prefill")!.multiArrayValue!
-    }
-
-    /// key_cache_prefill as 1 × embed_dim * num_layers × 1 × 3 4-dimensional array of 16-bit floats
-    @available(macOS, unavailable)
-    @available(macCatalyst, unavailable)
-    public var key_cache_prefillShapedArray: MLShapedArray<Float16> {
-        return MLShapedArray<Float16>(self.key_cache_prefill)
-    }
-
-    /// value_cache_prefill as 1 × embed_dim * num_layers × 1 × 3 4-dimensional array of 16-bit floats
-    public var value_cache_prefill: MLMultiArray {
-        return self.provider.featureValue(for: "value_cache_prefill")!.multiArrayValue!
-    }
-
-    /// value_cache_prefill as 1 × embed_dim * num_layers × 1 × 3 4-dimensional array of 16-bit floats
-    @available(macOS, unavailable)
-    @available(macCatalyst, unavailable)
-    public var value_cache_prefillShapedArray: MLShapedArray<Float16> {
-        return MLShapedArray<Float16>(self.value_cache_prefill)
-    }
-
-    public var featureNames: Set<String> {
-        return self.provider.featureNames
-    }
-
-    public func featureValue(for featureName: String) -> MLFeatureValue? {
-        return self.provider.featureValue(for: featureName)
-    }
-
-    public init(key_cache_prefill: MLMultiArray, value_cache_prefill: MLMultiArray) {
-        self.provider = try! MLDictionaryFeatureProvider(dictionary: ["key_cache_prefill": MLFeatureValue(multiArray: key_cache_prefill), "value_cache_prefill": MLFeatureValue(multiArray: value_cache_prefill)])
-    }
-
-    public init(features: MLFeatureProvider) {
-        self.provider = features
-    }
-}
-
 // MARK: SpecialTokens
 
 public struct SpecialTokens: Sendable {
@@ -1249,7 +1163,7 @@ public protocol WhisperTokenizer {
 }
 
 open class WhisperTokenizerWrapper: WhisperTokenizer {
-    let tokenizer: any Tokenizer
+    let tokenizer: TokenizerWrapper
     let tokenizerFolder: URL?
     public let specialTokens: SpecialTokens
     public let allLanguageTokens: Set<Int>
@@ -1285,7 +1199,7 @@ open class WhisperTokenizerWrapper: WhisperTokenizer {
     /// - Note: Special tokens are automatically detected from the tokenizer vocabulary, with
     ///   fallback to default values if tokens are not found. Language tokens are identified
     ///   by matching the pattern `<|language|>` against the tokenizer's vocabulary.
-    init(tokenizer: any Tokenizer, at tokenizerFolder: URL? = nil) {
+    init(tokenizer: TokenizerWrapper, at tokenizerFolder: URL? = nil) {
         let specialTokens = SpecialTokens(
             endToken: tokenizer.convertTokenToId("<|endoftext|>") ?? Self.defaultEndToken,
             englishToken: tokenizer.convertTokenToId("<|en|>") ?? Self.defaultEnglishToken,

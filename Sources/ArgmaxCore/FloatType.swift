@@ -12,7 +12,34 @@ public typealias FloatType = Float16
 public typealias FloatType = Float
 #endif
 
-#if (os(macOS) || targetEnvironment(macCatalyst)) && arch(arm64) && compiler(<6)
-extension Float16: BNNSScalar {}
-extension Float16: MLShapedArrayScalar {}
+#if (os(macOS) || targetEnvironment(macCatalyst)) && arch(arm64)
+
+// MARK: - Float16 BNNSScalar conformance for macOS
+#if os(macOS)
+
+extension Float16: @retroactive BNNSScalar {
+    public static var bnnsDataType: BNNSDataType { .float16 }
+}
+
+extension Float16: @retroactive MLShapedArrayScalar {
+    public static var multiArrayDataType: MLMultiArrayDataType { .float16 }
+}
+
+#endif
+
+// MARK: - Float16 BNNSScalar conformance for Mac Catalyst
+#if targetEnvironment(macCatalyst)
+
+// Catalyst uses its own availability domain.
+@available(macCatalyst, obsoleted: 26.0)
+extension Float16: @retroactive BNNSScalar {
+    public static var bnnsDataType: BNNSDataType { .float16 }
+}
+
+extension Float16: @retroactive MLShapedArrayScalar {
+    public static var multiArrayDataType: MLMultiArrayDataType { .float16 }
+}
+
+#endif
+
 #endif

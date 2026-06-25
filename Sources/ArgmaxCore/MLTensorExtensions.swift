@@ -44,43 +44,5 @@ public extension MLTensor {
             fatalError("Unsupported scalar type: \(scalarType)")
         }
     }
-
-    // MARK: Sync (legacy — uses DispatchSemaphore, unsafe in concurrent async contexts)
-
-    @available(*, deprecated, message: "Use await toIntArray() instead.")
-    func asIntArray() -> [Int] {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: [Int] = []
-        Task(priority: .high) {
-            result = await self.toIntArray()
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return result
-    }
-
-    @available(*, deprecated, message: "Use await toFloatArray() instead.")
-    func asFloatArray() -> [Float] {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: [Float] = []
-        Task(priority: .high) {
-            result = await self.toFloatArray()
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return result
-    }
-
-    @available(*, deprecated, message: "Use await toMLMultiArray() instead.")
-    func asMLMultiArray() -> MLMultiArray {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result = try! MLMultiArray(shape: [1], dataType: .float16, initialValue: 0.0)
-        Task(priority: .high) {
-            result = await self.toMLMultiArray()
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return result
-    }
 }
 #endif
