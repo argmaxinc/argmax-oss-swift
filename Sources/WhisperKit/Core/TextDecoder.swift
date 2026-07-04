@@ -570,12 +570,25 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         let windowUUID = UUID()
         await earlyStopActor.set(false, for: windowUUID)
 
+        // With `promptTokens`, the initial prompt is
+        // `[<|startofprev|>, ...prompt..., <|sot|>, ...]` and every one of those
+        // tokens is force-fed through the loop below. The model's sampled
+        // predictions at those positions are placeholders (the forced token wins),
+        // so they must not drive the early-exit checks: a mid-prompt EOT
+        // prediction would otherwise end the segment before any audio token is
+        // decoded, returning an empty transcript. The first REAL prediction is
+        // the one sampled at the last prefill index. The no-prompt path keeps its
+        // existing behavior (checks from `prefilledIndex`) untouched.
+        let hasPromptTokens = !(options.promptTokens?.isEmpty ?? true)
+        let firstSampledIndex = hasPromptTokens ? max(prefilledIndex, initialPromptIndex - 1) : prefilledIndex
+
         for tokenIndex in prefilledIndex..<loopCount {
             let loopStart = Date()
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            let isFirstToken = tokenIndex == firstSampledIndex
+            let ignoresSampledPrediction = hasPromptTokens && isPrefill
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -666,7 +679,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                     false
                 }
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (sampleResult.completed && !ignoresSampledPrediction) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
