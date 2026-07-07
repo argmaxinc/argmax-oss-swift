@@ -236,6 +236,12 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
             let probsArray = await topKProbs.toFloatArray()
             let idxArray = await topKIndices.toIntArray()
             let probSum = probsArray.reduce(0, +)
+            // Numerically degenerate softmax (all-zero or NaN probs) would make
+            // `Float.random(in: 0..<probSum)` trap. Fall back to argmax instead.
+            guard probSum.isFinite, probSum > 0 else {
+                let maxIdx = probsArray.enumerated().max(by: { $0.element < $1.element })?.offset ?? 0
+                return Int32(idxArray[maxIdx])
+            }
             let randomValue = Float.random(in: 0..<probSum, using: &rng)
             var cumulativeSum: Float = 0
             for (i, probability) in probsArray.enumerated() {

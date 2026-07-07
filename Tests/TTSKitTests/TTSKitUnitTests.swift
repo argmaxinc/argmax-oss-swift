@@ -564,6 +564,30 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(token, 5, "Suppressed token should be skipped, picking next best")
     }
 
+    /// Regression for #478: degenerate softmax output (all logits at -Float.infinity)
+    /// makes the top-K probability sum zero, which used to crash
+    /// `Float.random(in: 0..<probSum)`. The sampler must fall back to argmax
+    /// and return a valid token index.
+    func testGreedySamplerZeroProbSumFallsBackToArgmax() async throws {
+        let sampler = GreedyTokenSampler(seed: 0)
+        let vocabSize = 16
+        let logits = try MLMultiArray(shape: [1, 1, NSNumber(value: vocabSize)], dataType: .float16)
+        let ptr = logits.dataPointer.bindMemory(to: FloatType.self, capacity: vocabSize)
+
+        // Every logit at -inf → softmax → all zeros (or NaN). Tag index 9 with a
+        // slightly less-negative value so argmax has a clear winner to fall back to.
+        for i in 0..<vocabSize { ptr[i] = FloatType(-Float.infinity) }
+        ptr[9] = FloatType(-1e30)
+
+        let token = await sampler.sampleCodec0(
+            logits: logits, temperature: 1.0, topK: 4,
+            generatedTokens: [], repetitionPenalty: 1.0, suppressTokenIds: []
+        )
+
+        XCTAssertGreaterThanOrEqual(token, 0)
+        XCTAssertLessThan(token, Int32(vocabSize))
+    }
+
     func testGreedySamplerMultiHeadDeterministic() async throws {
         let sampler1 = GreedyTokenSampler(seed: 7)
         let sampler2 = GreedyTokenSampler(seed: 7)
