@@ -1701,6 +1701,39 @@ final class UnitTests: XCTestCase {
         XCTAssertFalse(result.text.contains(promptText), "Prompt text should not be present in the result")
     }
 
+    func testPromptTokensWithStrictFirstTokenThreshold() async throws {
+        // Regression test for https://github.com/argmaxinc/WhisperKit/issues/372
+        //
+        // promptTokens shift the decoder's first content token logprob downward.
+        // Measured on tiny model + jfk.wav:
+        //   - Without prompt: firstToken logprob ≈ -0.087
+        //   - With CJK prompt: firstToken logprob ≈ -0.578
+        //
+        // On larger/turbo models with longer audio, this shift is amplified
+        // enough to breach the default threshold (-1.5), causing empty output.
+        // We use -0.5 here to reliably reproduce the issue on the tiny model,
+        // simulating the larger shift seen on turbo variants.
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
+        let whisperKit = try await WhisperKit(config)
+        let tokenizer = try XCTUnwrap(whisperKit.tokenizer)
+
+        let promptText = "繁體中文語音轉錄。"
+        let promptTokens = tokenizer.encode(text: promptText)
+
+        let options = DecodingOptions(
+            skipSpecialTokens: true,
+            promptTokens: promptTokens,
+            firstTokenLogProbThreshold: -0.5
+        )
+
+        let result = try await XCTUnwrapAsync(
+            await transcribe(with: .tiny, options: options),
+            "Failed to transcribe"
+        )
+
+        XCTAssertFalse(result.text.isEmpty, "Transcription should not be empty when promptTokens are set, even with a strict firstTokenLogProbThreshold")
+    }
+
     func testPrefixTokens() async throws {
         let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
         let whisperKit = try await WhisperKit(config)
