@@ -575,7 +575,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            let isInPrefillPhase = isPrefill || isLastPrefillToken // tokenIndex < initialPromptIndex
+            let isFirstToken = tokenIndex == max(prefilledIndex, initialPromptIndex) // First actually decoded token (after prompt)
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -665,8 +666,11 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 } else {
                     false
                 }
+            // During prefill phase (processing prompt tokens), skip early termination checks:
+            // - The model is being force-fed prompt tokens, so EOT predictions and low log probs are expected
+            // - Early stopping should only apply to actually decoded tokens after the prompt
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (!isInPrefillPhase && sampleResult.completed) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
