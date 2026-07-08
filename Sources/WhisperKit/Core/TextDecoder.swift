@@ -491,7 +491,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         // MARK: Non-inference
 
         // Update predicted token as current
-        let logits = languageLogitsFilter.filterLogits(decoderOutput.logits!, withTokens: currentTokens)
+        guard let languageLogits = decoderOutput.logits else {
+            throw WhisperError.decodingFailed("decoderOutput.logits is nil during language logits filter")
+        }
+        let logits = languageLogitsFilter.filterLogits(languageLogits, withTokens: currentTokens)
 
         // MARK: Sampling
 
@@ -555,7 +558,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         let prefilledIndex = decoderInputs.cacheLength[0].intValue
         let initialPromptIndex = decoderInputs.initialPrompt.count
         var currentTokens: [Int] = decoderInputs.initialPrompt
-        var nextToken: Int = decoderInputs.initialPrompt.last!
+        guard let nextTokenInit = decoderInputs.initialPrompt.last else {
+            throw WhisperError.decodingFailed("initialPrompt is empty — cannot start decoding")
+        }
+        var nextToken: Int = nextTokenInit
         var logProbs: [Float] = Array(repeating: 0, count: currentTokens.count)
 
         // Logits filters
@@ -575,7 +581,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            let isInPrefillPhase = isPrefill || isLastPrefillToken // tokenIndex < initialPromptIndex
+            let isFirstToken = tokenIndex == max(prefilledIndex, initialPromptIndex) // First actually decoded token (after prompt)
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -637,7 +644,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             let nonInferenceStartTime = Date()
 
             // Update predicted token as current
-            var logits = decoderOutput.logits!
+            guard let rawLogits = decoderOutput.logits else {
+                throw WhisperError.decodingFailed("decoderOutput.logits is nil at tokenIndex \(tokenIndex)")
+            }
+            var logits = rawLogits
             for filter in logitsFilters {
                 logits = filter.filterLogits(logits, withTokens: currentTokens)
             }
@@ -660,13 +670,16 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             timings.decodingSampling += samplingTime
 
             isFirstTokenLogProbTooLow =
-                if isFirstToken, let firstTokenLogProbThreshold = options.firstTokenLogProbThreshold, nextTokenLogProb < firstTokenLogProbThreshold {
+                if isFirstToken, options.promptTokens == nil, let firstTokenLogProbThreshold = options.firstTokenLogProbThreshold, nextTokenLogProb < firstTokenLogProbThreshold {
                     true
                 } else {
                     false
                 }
+            // During prefill phase (processing prompt tokens), skip early termination checks:
+            // - The model is being force-fed prompt tokens, so EOT predictions and low log probs are expected
+            // - Early stopping should only apply to actually decoded tokens after the prompt
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (!isInPrefillPhase && sampleResult.completed) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
