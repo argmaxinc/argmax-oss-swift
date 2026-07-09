@@ -236,6 +236,9 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
             let probsArray = await topKProbs.toFloatArray()
             let idxArray = await topKIndices.toIntArray()
             let probSum = probsArray.reduce(0, +)
+            if probSum <= 0 {
+                return Int32(await probs.cast(to: Float.self).argmax(alongAxis: -1).toIntArray()[0])
+            }
             let randomValue = Float.random(in: 0..<probSum, using: &rng)
             var cumulativeSum: Float = 0
             for (i, probability) in probsArray.enumerated() {
@@ -245,6 +248,10 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
             return idxArray.last.map(Int32.init) ?? Int32(vocabSize - 1)
         } else {
             let probsArray = await probs.toFloatArray()
+            let probSum = probsArray.reduce(0, +)
+            guard probSum > 0 else {
+                return Int32(await probs.cast(to: Float.self).argmax(alongAxis: -1).toIntArray()[0])
+            }
             let randomValue = Float.random(in: 0..<1, using: &rng)
             var cumulativeSum: Float = 0
             for (i, probability) in probsArray.enumerated() {
@@ -323,6 +330,11 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
         vDSP_sve(mutableLogits, 1, &sum, vDSP_Length(vocabSize))
         if sum > 0 {
             vDSP_vsdiv(mutableLogits, 1, &sum, &mutableLogits, 1, vDSP_Length(vocabSize))
+        } else {
+            var maxValue: Float = 0
+            var maxIndex: vDSP_Length = 0
+            vDSP_maxvi(mutableLogits, 1, &maxValue, &maxIndex, vDSP_Length(vocabSize))
+            return Int32(maxIndex)
         }
 
         let randomValue = Float.random(in: 0..<1, using: &rng)
