@@ -675,7 +675,23 @@ public class AudioOutput: @unchecked Sendable {
         player.scheduleBuffer(buffer)
     }
 
-    /// Stop playback and tear down the audio engine.
+    public func pausePlayback() {
+        playerNode?.pause()
+    }
+
+    public func resumePlayback() {
+        guard let player = playerNode, let engine = audioEngine else { return }
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                print("[TTSKit] AudioOutput.resumePlayback: engine.start() failed: \(error)")
+                return
+            }
+        }
+        player.play()
+    }
+
     /// Optionally waits for any remaining scheduled buffers to finish playing.
     ///
     /// The held tail frame is committed with fade-out (it's the last frame of
