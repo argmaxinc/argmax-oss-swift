@@ -204,11 +204,27 @@ public extension AudioProcessing {
 open class AudioProcessor: NSObject, AudioProcessing {
     private var lastInputDevice: DeviceID?
     public var audioEngine: AVAudioEngine?
-    public var audioSamples: ContiguousArray<Float> = []
-    public var audioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+
+    /// Lock protecting `_audioSamples` and `_audioEnergy` from concurrent access.
+    /// These properties are written from the audio tap callback thread and read
+    /// from arbitrary threads (e.g. main thread for VAD polling).
+    private let audioLock = NSLock()
+    private var _audioSamples: ContiguousArray<Float> = []
+    private var _audioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+
+    public var audioSamples: ContiguousArray<Float> {
+        get { audioLock.withLock { _audioSamples } }
+        set { audioLock.withLock { _audioSamples = newValue } }
+    }
+
+    public var audioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] {
+        get { audioLock.withLock { _audioEnergy } }
+        set { audioLock.withLock { _audioEnergy = newValue } }
+    }
+
     public var relativeEnergyWindow: Int = 20
     public var relativeEnergy: [Float] {
-        return self.audioEnergy.map { $0.rel }
+        return audioLock.withLock { _audioEnergy.map { $0.rel } }
     }
 
     public var audioBufferCallback: (([Float]) -> Void)?
@@ -905,23 +921,29 @@ public extension AudioProcessor {
     /// We have a new buffer, process and store it.
     /// NOTE: Assumes audio is 16khz mono
     func processBuffer(_ buffer: [Float]) {
-        audioSamples.append(contentsOf: buffer)
-
-        // Find the lowest average energy of the last 20 buffers ~2 seconds
-        let minAvgEnergy = self.audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
-        let relativeEnergy = Self.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
-
-        // Update energy for buffers with valid data
+        // Calculate energy values outside the lock (pure computation)
         let signalEnergy = Self.calculateEnergy(of: buffer)
-        let newEnergy = (relativeEnergy, signalEnergy.avg, signalEnergy.max, signalEnergy.min)
-        self.audioEnergy.append(newEnergy)
 
-        // Call the callback with the new buffer
+        // Hold the lock only for reading/writing shared state
+        let (newEnergy, sampleCount) = audioLock.withLock { () -> ((rel: Float, avg: Float, max: Float, min: Float), Int) in
+            _audioSamples.append(contentsOf: buffer)
+
+            // Find the lowest average energy of the last 20 buffers ~2 seconds
+            let minAvgEnergy = _audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
+            let relativeEnergy = Self.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
+
+            let energy = (relativeEnergy, signalEnergy.avg, signalEnergy.max, signalEnergy.min)
+            _audioEnergy.append(energy)
+
+            return (energy, _audioSamples.count)
+        }
+
+        // Call the callback outside the lock to avoid potential deadlocks
         audioBufferCallback?(buffer)
 
         // Print the current size of the audio buffer
-        if self.audioSamples.count % (minBufferLength * Int(relativeEnergyWindow)) == 0 {
-            Logging.debug("Current audio size: \(self.audioSamples.count) samples, most recent buffer: \(buffer.count) samples, most recent energy: \(newEnergy)")
+        if sampleCount % (minBufferLength * Int(relativeEnergyWindow)) == 0 {
+            Logging.debug("Current audio size: \(sampleCount) samples, most recent buffer: \(buffer.count) samples, most recent energy: \(newEnergy)")
         }
     }
 
@@ -1022,14 +1044,18 @@ public extension AudioProcessor {
     }
 
     func purgeAudioSamples(keepingLast keep: Int) {
-        if audioSamples.count > keep {
-            audioSamples.removeFirst(audioSamples.count - keep)
+        audioLock.withLock {
+            if _audioSamples.count > keep {
+                _audioSamples.removeFirst(_audioSamples.count - keep)
+            }
         }
     }
 
     func startRecordingLive(inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)? = nil) throws {
-        audioSamples = []
-        audioEnergy = []
+        audioLock.withLock {
+            _audioSamples = []
+            _audioEnergy = []
+        }
 
         try? setupAudioSessionForDevice()
 
