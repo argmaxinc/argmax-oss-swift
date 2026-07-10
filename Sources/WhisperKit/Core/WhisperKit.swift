@@ -164,7 +164,8 @@ open class WhisperKit {
         downloadBase: URL? = nil,
         token: String? = nil,
         remoteConfigName: String = Constants.defaultRemoteConfigName,
-        endpoint: String = Constants.defaultRemoteEndpoint
+        endpoint: String = Constants.defaultRemoteEndpoint,
+        useBackgroundSession: Bool = false
     ) async -> ModelSupport {
         let deviceName = Self.deviceName()
         let config = await Self.fetchModelSupportConfig(
@@ -172,9 +173,10 @@ open class WhisperKit {
             downloadBase: downloadBase,
             token: token,
             remoteConfigName: remoteConfigName,
-            endpoint: endpoint
+            endpoint: endpoint,
+            useBackgroundSession: useBackgroundSession
         )
-        
+
         return ModelUtilities.modelSupport(for: deviceName, from: config)
     }
 
@@ -183,9 +185,10 @@ open class WhisperKit {
         downloadBase: URL? = nil,
         token: String? = nil,
         remoteConfigName: String = Constants.defaultRemoteConfigName,
-        endpoint: String = Constants.defaultRemoteEndpoint
+        endpoint: String = Constants.defaultRemoteEndpoint,
+        useBackgroundSession: Bool = false
     ) async -> ModelSupportConfig {
-        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint)
+        let hubApi = HubApiWrapper(downloadBase: downloadBase, hfToken: token, endpoint: endpoint, useBackgroundSession: useBackgroundSession)
         let repoRef = HubApiWrapper.Repo(id: repo)
         var modelSupportConfig = Constants.fallbackModelSupportConfig
 
@@ -322,12 +325,16 @@ open class WhisperKit {
                 modelVariant = model
             } else {
                 // Model not specified, fetch remote config to get the recommended default
+                // Propagate useBackgroundDownloadSession so the pre-download config fetch
+                // also runs through the background URLSession when the caller opted in.
+                // ref: https://github.com/argmaxinc/argmax-oss-swift/issues/337
                 let modelSupport = await WhisperKit.recommendedRemoteModels(
                     from: repo,
                     downloadBase: downloadBase,
                     token: modelToken,
                     remoteConfigName: remoteConfigName,
-                    endpoint: endpoint
+                    endpoint: endpoint,
+                    useBackgroundSession: useBackgroundDownloadSession
                 )
                 modelVariant = modelSupport.default
             }
