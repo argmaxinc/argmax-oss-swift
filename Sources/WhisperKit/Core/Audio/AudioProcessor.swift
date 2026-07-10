@@ -237,7 +237,28 @@ open class AudioProcessor: NSObject, AudioProcessing {
             throw WhisperError.loadAudioFailed("Resource path does not exist \(audioFilePath)")
         }
         let audioFileURL = URL(fileURLWithPath: audioFilePath)
-        let audioFile = try AVAudioFile(forReading: audioFileURL, commonFormat: .pcmFormatFloat32, interleaved: false)
+        let audioFile: AVAudioFile
+        do {
+            audioFile = try AVAudioFile(forReading: audioFileURL, commonFormat: .pcmFormatFloat32, interleaved: false)
+        } catch {
+            // AVAudioFile raises an opaque CoreAudio NSError (e.g.
+            // ExtAudioFileOpenURL returning -50 / 1954115647) on containers it
+            // cannot demux. Re-throw as a WhisperError with a concrete hint so
+            // callers see something actionable rather than a raw OSStatus.
+            // ref: https://github.com/argmaxinc/argmax-oss-swift/issues/356
+            let unsupportedContainers: Set<String> = ["mkv", "webm", "avi", "flv", "ts", "mts", "mpg", "mpeg"]
+            let ext = audioFileURL.pathExtension.lowercased()
+            if unsupportedContainers.contains(ext) {
+                throw WhisperError.loadAudioFailed(
+                    "AVAudioFile cannot read the .\(ext) container directly (underlying error: \(error.localizedDescription)). "
+                    + "Extract the audio track first, e.g. `ffmpeg -i \(audioFilePath) -vn -c:a pcm_s16le output.wav`, "
+                    + "and pass the .wav path instead."
+                )
+            }
+            throw WhisperError.loadAudioFailed(
+                "Failed to open audio file at \(audioFilePath): \(error.localizedDescription)"
+            )
+        }
         return try loadAudio(fromFile: audioFile, channelMode: channelMode, startTime: startTime, endTime: endTime, maxReadFrameSize: maxReadFrameSize)
     }
 
