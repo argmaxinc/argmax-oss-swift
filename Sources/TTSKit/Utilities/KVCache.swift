@@ -239,9 +239,10 @@ public extension KVCache {
 
     /// Async update from MLTensor outputs - materializes without blocking the cooperative pool.
     func update(keyTensor: MLTensor, valueTensor: MLTensor) async {
-        let keyArr = await keyTensor.toMLMultiArray()
-        let valArr = await valueTensor.toMLMultiArray()
-        update(keyCacheUpdates: keyArr, valueCacheUpdates: valArr)
+        async let keyArr = keyTensor.toMLMultiArray()
+        async let valArr = valueTensor.toMLMultiArray()
+        let (keyMaterialized, valueMaterialized) = await (keyArr, valArr)
+        update(keyCacheUpdates: keyMaterialized, valueCacheUpdates: valueMaterialized)
     }
 }
 
@@ -440,9 +441,12 @@ public extension SpeechDecoderCache {
         else {
             return
         }
-        let keyArr = await keyUpdateTensor.toMLMultiArray()
-        let valArr = await valueUpdateTensor.toMLMultiArray()
-        update(keyCacheUpdates: keyArr, valueCacheUpdates: valArr)
+        // Key and value outputs are independent. Materialize them concurrently
+        // to avoid serializing two blocking conversions on the cooperative pool.
+        async let keyArr = keyUpdateTensor.toMLMultiArray()
+        async let valArr = valueUpdateTensor.toMLMultiArray()
+        let (keyMaterialized, valueMaterialized) = await (keyArr, valArr)
+        update(keyCacheUpdates: keyMaterialized, valueCacheUpdates: valueMaterialized)
 
         guard let hiddenUpdateTensor = tensorOutputs["hidden_context_update"] else { return }
         let updateArr = await hiddenUpdateTensor.toMLMultiArray()
@@ -473,9 +477,17 @@ public extension KVCache {
         valueTensor: MLTensor,
         position: Int
     ) async {
-        let keyArr = await keyTensor.toMLMultiArray()
-        let valArr = await valueTensor.toMLMultiArray()
-        updateStateCache(state: state, keyCacheUpdates: keyArr, valueCacheUpdates: valArr, position: position)
+        // Key and value outputs are independent. Materialize them concurrently;
+        // the state writes below remain ordered and use the same position.
+        async let keyArr = keyTensor.toMLMultiArray()
+        async let valArr = valueTensor.toMLMultiArray()
+        let (keyMaterialized, valueMaterialized) = await (keyArr, valArr)
+        updateStateCache(
+            state: state,
+            keyCacheUpdates: keyMaterialized,
+            valueCacheUpdates: valueMaterialized,
+            position: position
+        )
     }
 
     static func updateStateCache(
