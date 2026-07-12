@@ -223,6 +223,34 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
         if temperature == 0 {
             return Int32(await headLogits.cast(to: Float.self).argmax(alongAxis: -1).toIntArray()[0])
         }
+        if topK > 0 && topK < vocabSize {
+            // Selecting top-k logits before softmax is mathematically equivalent
+            // to the old full-softmax-then-top-k path after renormalization, but
+            // avoids computing probabilities for the entire vocabulary.
+            let scaledLogits = headLogits.cast(to: Float.self) / temperature
+            let (topKLogits, topKIndices) = scaledLogits.topK(topK)
+            let logitsArray = await topKLogits.toFloatArray()
+            let idxArray = await topKIndices.toIntArray()
+            let maxLogit = logitsArray.max() ?? 0
+            let weights = logitsArray.map { exp($0 - maxLogit) }
+            let weightSum = weights.reduce(0, +)
+            guard weightSum.isFinite, weightSum > 0 else {
+                // Degenerate distribution (e.g. NaN logits, or every logit
+                // -inf). Float.random would trap on an empty/invalid range;
+                // fall back to the highest-scoring index deterministically
+                // (topK returns values sorted descending).
+                return idxArray.first.map(Int32.init) ?? 0
+            }
+            let randomValue = Float.random(in: 0..<weightSum, using: &rng)
+            var cumulativeWeight: Float = 0
+            for (index, weight) in weights.enumerated() {
+                cumulativeWeight += weight
+                if cumulativeWeight >= randomValue {
+                    return Int32(idxArray[index])
+                }
+            }
+            return idxArray.last.map(Int32.init) ?? Int32(vocabSize - 1)
+        }
         let probs = (headLogits.cast(to: Float.self) / temperature).softmax(alongAxis: -1)
         return await sampleFromProbs(probs, vocabSize: vocabSize, topK: topK)
     }
