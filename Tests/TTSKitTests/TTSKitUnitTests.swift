@@ -210,8 +210,10 @@ final class TTSKitUnitTests: XCTestCase {
         cache.update()
 
         XCTAssertEqual(cache.cacheLength, 1)
-        let updateMask = cache.kvCacheUpdateMask.dataPointer.bindMemory(to: FloatType.self, capacity: 8)
-        let paddingMask = cache.keyPaddingMask.dataPointer.bindMemory(to: FloatType.self, capacity: 8)
+        let updateMask = cache.kvCacheUpdateMask.dataPointer.bindMemory(
+            to: FloatType.self, capacity: cache.kvCacheUpdateMask.count)
+        let paddingMask = cache.keyPaddingMask.dataPointer.bindMemory(
+            to: FloatType.self, capacity: cache.keyPaddingMask.count)
         XCTAssertEqual(updateMask[0], 0)
         XCTAssertEqual(updateMask[1], 1)
         XCTAssertEqual(paddingMask[1], 0)

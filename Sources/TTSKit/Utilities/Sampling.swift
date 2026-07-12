@@ -234,6 +234,13 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
             let maxLogit = logitsArray.max() ?? 0
             let weights = logitsArray.map { exp($0 - maxLogit) }
             let weightSum = weights.reduce(0, +)
+            guard weightSum.isFinite, weightSum > 0 else {
+                // Degenerate distribution (e.g. NaN logits, or every logit
+                // -inf). Float.random would trap on an empty/invalid range;
+                // fall back to the highest-scoring index deterministically
+                // (topK returns values sorted descending).
+                return idxArray.first.map(Int32.init) ?? 0
+            }
             let randomValue = Float.random(in: 0..<weightSum, using: &rng)
             var cumulativeWeight: Float = 0
             for (index, weight) in weights.enumerated() {

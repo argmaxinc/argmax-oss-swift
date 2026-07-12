@@ -118,9 +118,12 @@ public class Qwen3CodeDecoder: CodeDecoding, @unchecked Sendable {
         }
 
         let cacheUpdateStart = CFAbsoluteTimeGetCurrent()
-        if let _ = state as? MLState, isStateful {
+        if state is MLState, isStateful, cache.isStateful {
             // Stateful MLState already received the materialized outputs above;
-            // only advance the host-side position and masks here.
+            // only advance the host-side position and masks here. Guarding on
+            // cache.isStateful keeps a mismatched external-cache KVCache on the
+            // materializing path below instead of silently skipping its
+            // key/value writes.
             cache.update()
         } else {
             await cache.update(keyTensor: keyTensor, valueTensor: valueTensor)
