@@ -118,7 +118,13 @@ public class Qwen3CodeDecoder: CodeDecoding, @unchecked Sendable {
         }
 
         let cacheUpdateStart = CFAbsoluteTimeGetCurrent()
-        await cache.update(keyTensor: keyTensor, valueTensor: valueTensor)
+        if let _ = state as? MLState, isStateful {
+            // Stateful MLState already received the materialized outputs above;
+            // only advance the host-side position and masks here.
+            cache.update()
+        } else {
+            await cache.update(keyTensor: keyTensor, valueTensor: valueTensor)
+        }
         let cacheTime = CFAbsoluteTimeGetCurrent() - cacheUpdateStart
 
         guard let logitsTensor = outputs["logits"],
