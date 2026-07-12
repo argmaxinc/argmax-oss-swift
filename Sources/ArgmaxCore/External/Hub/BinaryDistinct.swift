@@ -58,7 +58,14 @@ public struct BinaryDistinctString: Equatable, Hashable, Sendable, Comparable, C
     ///
     /// - Parameter str: The NSString to convert
     public init(_ str: NSString) {
-        value = Array(str as String).flatMap { $0.utf16 }
+        // Copy the underlying UTF-16 code units directly. Going through
+        // `Array(String)` walks Swift extended grapheme clusters and then
+        // expands them back to UTF-16, which is needlessly expensive while
+        // loading large tokenizer vocabularies and can lose the exact
+        // NSString representation this type is intended to preserve.
+        var codeUnits = [UInt16](repeating: 0, count: str.length)
+        str.getCharacters(&codeUnits, range: NSRange(location: 0, length: str.length))
+        value = codeUnits
     }
 
     /// Creates a binary-distinct string from a Swift String.
