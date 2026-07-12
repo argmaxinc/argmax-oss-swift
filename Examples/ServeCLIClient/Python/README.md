@@ -18,10 +18,10 @@ A simple Python client for the WhisperKit local server using OpenAI's SDK.
    ```bash
    # Transcribe an audio file
    python whisperkit_client.py transcribe audio.wav
-   
+
    # Translate an audio file to English
    python whisperkit_client.py translate audio.wav
-   
+
    # Test with sample files
    python whisperkit_client.py test
    ```

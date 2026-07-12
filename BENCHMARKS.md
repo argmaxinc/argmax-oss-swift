@@ -40,7 +40,7 @@ xed Examples/WhisperAX
 > [!IMPORTANT]
 > An active developer account is required to run the tests on physical devices.
 
-Before running tests, all external devices need to be connected and paired to your Mac, as well as registered with your developer account. Ensure the devices are in Developer Mode. If nothing appears after connecting the devices via cable, press `Command + Shift + 2` to open the list of devices and track their progress. 
+Before running tests, all external devices need to be connected and paired to your Mac, as well as registered with your developer account. Ensure the devices are in Developer Mode. If nothing appears after connecting the devices via cable, press `Command + Shift + 2` to open the list of devices and track their progress.
 
 ## Datasets
 
@@ -66,12 +66,12 @@ The output will be a list with entries that look something like this:
 
 ```ruby
 {
-   :name=>"My Mac", 
-   :type=>"Apple M2 Pro", 
-   :platform=>"macOS", 
-   :os_version=>"15.0.1", 
-   :product=>"Mac14,12", 
-   :id=>"XXXXXXXX-1234-5678-9012-XXXXXXXXXXXX", 
+   :name=>"My Mac",
+   :type=>"Apple M2 Pro",
+   :platform=>"macOS",
+   :os_version=>"15.0.1",
+   :product=>"Mac14,12",
+   :id=>"XXXXXXXX-1234-5678-9012-XXXXXXXXXXXX",
    :state=>"connected"
 }
 ```

@@ -32,7 +32,7 @@
 > - Frontier accuracy for your use case with custom vocabulary
 > - Argmax Local Server for non-native apps
 > - Android support with Argmax Pro SDK Kotlin
-> 
+>
 > Further resources:
 > - [Open-source vs Pro SDK](https://app.argmaxinc.com/docs/wiki/open-source-vs-pro-sdk)
 > - [Try Pro SDK on TestFlight](https://testflight.apple.com/join/Q1cywTJw)
@@ -134,7 +134,7 @@ You can install the command line app using [Homebrew](https://brew.sh) by runnin
 
 ```bash
 brew install whisperkit-cli
-```  
+```
 
 ## WhisperKit
 

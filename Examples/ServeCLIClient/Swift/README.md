@@ -18,10 +18,10 @@ A simple Swift client for the WhisperKit local server.
    ```bash
    # Transcribe an audio file
    swift run whisperkit-client transcribe audio.wav
-   
+
    # Translate an audio file to English
    swift run whisperkit-client translate audio.wav
-   
+
    # Test with sample files
    swift run whisperkit-client test
    ```

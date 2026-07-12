@@ -26,7 +26,7 @@ We welcome and encourage contributions to Argmax OSS! Whether you're fixing bugs
 2. **Download Models**: Run `make download-models` to download the required models to run and test locally.
 
    ```bash
-   make download-model MODEL=tiny 
+   make download-model MODEL=tiny
    ```
 
 ## Making Changes

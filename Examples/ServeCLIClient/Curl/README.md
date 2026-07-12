@@ -18,10 +18,10 @@ A simple, lightweight client for the WhisperKit Local Server using shell scripts
    ```bash
    # Transcribe audio
    ./transcribe.sh audio.wav
-   
+
    # Translate audio to English
    ./translate.sh audio.wav --language es
-   
+
    # Run test suite
    ./test.sh
    ```
