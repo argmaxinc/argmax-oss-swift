@@ -12,7 +12,7 @@ public typealias DeviceID = AudioDeviceID
 #else
 public typealias DeviceID = String
 #endif
-public typealias ChannelMode = AudioInputConfig.ChannelMode
+public typealias ChannelMode = AudioInputOptions.ChannelMode
 
 public struct AudioDevice: Identifiable, Hashable, Sendable {
     public let id: DeviceID
@@ -25,7 +25,7 @@ public struct AudioDevice: Identifiable, Hashable, Sendable {
 }
 
 /// Configuration for audio input including device selection and channel processing options.
-public struct AudioInputConfig: Sendable {
+public struct AudioInputOptions: Sendable {
     /// Specifies how to handle audio channels when processing multi-channel audio.
     public enum ChannelMode: Hashable, Codable, Sendable {
         /// Selects a single specific channel by index.
@@ -41,10 +41,47 @@ public struct AudioInputConfig: Sendable {
         case sumChannels([Int]?)
     }
 
+    /// Controls how audio files are loaded and processed during transcription.
+    public enum AudioLoadingMode: Sendable {
+        /// Default seconds of audio read per staging step.
+        public static let defaultChunkDurationSeconds: Double = 120
+
+        /// Default number of chunks buffered ahead of the consumer before back-pressure pauses
+        /// loading.
+        public static let defaultMaxBufferedChunks: Int = 2
+
+        /// Loads the whole file into memory before transcribing (default; higher peak memory).
+        case fullFile
+
+        /// Streams the file in bounded-memory chunks. Best for large files.
+        /// - Parameters:
+        ///   - chunkDurationSeconds: Seconds of audio read per staging step.
+        ///   - maxBufferedChunks: Max chunks buffered before back-pressure pauses loading.
+        case incremental(chunkDurationSeconds: Double, maxBufferedChunks: Int)
+
+        /// Incremental loading with the default chunk duration and buffer size.
+        public static let incremental: AudioLoadingMode = .incremental(
+            chunkDurationSeconds: defaultChunkDurationSeconds,
+            maxBufferedChunks: defaultMaxBufferedChunks
+        )
+    }
+
     /// Specifies how to process channels from multi-channel audio sources.
     /// Defaults to summing all channels if not explicitly set.
     public var channelMode: ChannelMode = .sumChannels(nil)
+
+    /// Specifies how audio files are loaded during transcription. Defaults to `.fullFile`.
+    public var audioLoadingMode: AudioLoadingMode = .fullFile
+
+    public init(channelMode: ChannelMode = .sumChannels(nil), audioLoadingMode: AudioLoadingMode = .fullFile) {
+        self.channelMode = channelMode
+        self.audioLoadingMode = audioLoadingMode
+    }
 }
+
+/// Deprecated name for ``AudioInputOptions``.
+@available(*, deprecated, renamed: "AudioInputOptions")
+public typealias AudioInputConfig = AudioInputOptions
 
 public protocol AudioProcessorOutputType {}
 extension MLMultiArray : AudioProcessorOutputType {}
@@ -269,22 +306,18 @@ open class AudioProcessor: NSObject, AudioProcessing {
         var outputBuffer: AVAudioPCMBuffer?
 
         // If the audio file already meets the desired format, read directly into the output buffer
-        if sampleRate == 16000 && channelCount == 1 {
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
-                throw WhisperError.loadAudioFailed("Unable to create audio buffer")
-            }
+        if sampleRate == Double(WhisperKit.sampleRate) && channelCount == 1 {
             do {
-                try audioFile.read(into: buffer, frameCount: frameCount)
+                outputBuffer = try audioFile.readFully(frameCount: frameCount)
             } catch {
                 throw WhisperError.loadAudioFailed("Failed to read audio file: \(error)")
             }
-            outputBuffer = buffer
         } else {
             // Audio needs resampling to 16khz
             let maxReadSize = maxReadFrameSize ?? Constants.defaultAudioReadFrameSize
             outputBuffer = resampleAudio(
                 fromFile: audioFile,
-                toSampleRate: 16000,
+                toSampleRate: Double(WhisperKit.sampleRate),
                 channelCount: 1,
                 channelMode: channelMode,
                 frameCount: frameCount,
@@ -1111,5 +1144,35 @@ public extension AudioProcessor {
             guard let base = ptr.baseAddress else { return }
             vDSP_vclr(base, 1, vDSP_Length(ptr.count))
         }
+    }
+}
+
+private extension AVAudioFile {
+    /// Reads `frameCount` frames into a new buffer, continuing past short reads until the request
+    /// is satisfied or the file ends. Some inputs (observed with 32-bit float PCM near end-of-file)
+    /// return fewer frames than requested from a single `read`, which would otherwise drop frames.
+    func readFully(frameCount: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: frameCount) else {
+            throw WhisperError.loadAudioFailed("Unable to create audio buffer")
+        }
+        try read(into: buffer, frameCount: frameCount)
+        while buffer.frameLength < frameCount {
+            let framesRemaining = frameCount - buffer.frameLength
+            guard let scratch = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: framesRemaining) else {
+                throw WhisperError.loadAudioFailed("Unable to create audio buffer")
+            }
+            try read(into: scratch, frameCount: framesRemaining)
+            guard scratch.frameLength > 0 else { break }
+            guard let destination = buffer.floatChannelData, let source = scratch.floatChannelData else {
+                throw WhisperError.loadAudioFailed("Audio buffer is missing float channel data")
+            }
+            memcpy(
+                destination[0].advanced(by: Int(buffer.frameLength)),
+                source[0],
+                Int(scratch.frameLength) * MemoryLayout<Float>.size
+            )
+            buffer.frameLength += scratch.frameLength
+        }
+        return buffer
     }
 }

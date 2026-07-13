@@ -5,7 +5,10 @@ import Foundation
 
 /// A base class for Voice Activity Detection (VAD), used to identify and separate segments of audio that contain human speech from those that do not.
 /// Subclasses must implement the `voiceActivity(in:)` method to provide specific voice activity detection functionality.
-open class VoiceActivityDetector {
+///
+/// Conforms to `Sendable` (unchecked): the base type is immutable and `voiceActivity(in:)` is a pure
+/// function, so instances are safe to share across concurrency domains. Subclasses must preserve this.
+open class VoiceActivityDetector: @unchecked Sendable {
     /// The sample rate of the audio signal, in samples per second.
     public let sampleRate: Int
 
