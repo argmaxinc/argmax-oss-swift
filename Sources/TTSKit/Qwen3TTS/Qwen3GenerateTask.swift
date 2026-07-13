@@ -399,38 +399,61 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 guard let hiddenStatesTensor = lastCdOutput.hiddenStates as? MLTensor else {
                     throw TTSError.generationFailed("Expected MLTensor hidden states on async path")
                 }
-                let mcdResult = try await multiCodeDecoder.generateMultiCodes(
-                    hiddenStatesTensor: hiddenStatesTensor,
-                    code0EmbedTensor: code0EmbedTensor,
-                    multiCodeEmbedder: multiCodeEmbedder,
-                    sampler: sampler, options: options
-                )
-                timings.multiCodeDecoder += CFAbsoluteTimeGetCurrent() - mcdStart
-                timings.multiCodeDecoderPredictions += mcdResult.timings.multiCodeDecoderPredictions
-                timings.multiCodeDecoderSampling += mcdResult.timings.multiCodeDecoderSampling
-                timings.multiCodeDecoderEmbedding += mcdResult.timings.multiCodeDecoderEmbedding
-                timings.decodingKvCaching += mcdResult.timings.decodingKvCaching
-                timings.totalMultiCodeDecoderPredictions += mcdResult.timings.totalMultiCodeDecoderPredictions
-
                 // Captured before `code0` is resampled below; ingested into the writer
                 // after sampling (nothing between here and then reads the buffer).
-                let rvqFrame = [code0] + mcdResult.codes
+                let rvqFrame: [Int32]
+                let codecHiddenTensor: MLTensor
+                if multiCodeDecoder.isFused {
+                    // Whole 15-code frame in ONE CoreML call: prediction,
+                    // in-graph sampling, and embedding lookups fused - no
+                    // per-code host round-trips. embed_sum already holds the
+                    // 15 code embeddings; add code0's to complete the codec
+                    // hidden input for the next talker step.
+                    let fused = try await multiCodeDecoder.generateMultiCodesFused(
+                        hiddenStatesTensor: hiddenStatesTensor,
+                        code0EmbedTensor: code0EmbedTensor,
+                        options: options
+                    )
+                    timings.multiCodeDecoder += CFAbsoluteTimeGetCurrent() - mcdStart
+                    timings.multiCodeDecoderPredictions += fused.predictionTime
+                    timings.totalMultiCodeDecoderPredictions += 1
+                    rvqFrame = [code0] + fused.codes
 
-                let codecHiddenStart = CFAbsoluteTimeGetCurrent()
-                guard let lastMcdCode = mcdResult.codes.last else {
-                    throw TTSError.generationFailed("Multi-code generation result has no codes")
-                }
-                let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
-                let code15EmbedTensor: MLTensor = try await multiCodeEmbedder.embed(tokenId: code15OffsetId)
-                var allCodeEmbedTensors: [MLTensor] = [code0EmbedTensor]
-                if let tensorEmbeds = mcdResult.offsetCodeEmbedTensors {
-                    allCodeEmbedTensors += tensorEmbeds
+                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
+                    codecHiddenTensor = EmbedUtilities.addEmbeddings(code0EmbedTensor, fused.embedSum)
+                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
                 } else {
-                    allCodeEmbedTensors += mcdResult.offsetCodeEmbeds.map { $0.asMLTensor() }
+                    let mcdResult = try await multiCodeDecoder.generateMultiCodes(
+                        hiddenStatesTensor: hiddenStatesTensor,
+                        code0EmbedTensor: code0EmbedTensor,
+                        multiCodeEmbedder: multiCodeEmbedder,
+                        sampler: sampler, options: options
+                    )
+                    timings.multiCodeDecoder += CFAbsoluteTimeGetCurrent() - mcdStart
+                    timings.multiCodeDecoderPredictions += mcdResult.timings.multiCodeDecoderPredictions
+                    timings.multiCodeDecoderSampling += mcdResult.timings.multiCodeDecoderSampling
+                    timings.multiCodeDecoderEmbedding += mcdResult.timings.multiCodeDecoderEmbedding
+                    timings.decodingKvCaching += mcdResult.timings.decodingKvCaching
+                    timings.totalMultiCodeDecoderPredictions += mcdResult.timings.totalMultiCodeDecoderPredictions
+
+                    rvqFrame = [code0] + mcdResult.codes
+
+                    let codecHiddenStart = CFAbsoluteTimeGetCurrent()
+                    guard let lastMcdCode = mcdResult.codes.last else {
+                        throw TTSError.generationFailed("Multi-code generation result has no codes")
+                    }
+                    let code15OffsetId = lastMcdCode + Int32(multiCodeDecoder.codecVocabSize * 14)
+                    let code15EmbedTensor: MLTensor = try await multiCodeEmbedder.embed(tokenId: code15OffsetId)
+                    var allCodeEmbedTensors: [MLTensor] = [code0EmbedTensor]
+                    if let tensorEmbeds = mcdResult.offsetCodeEmbedTensors {
+                        allCodeEmbedTensors += tensorEmbeds
+                    } else {
+                        allCodeEmbedTensors += mcdResult.offsetCodeEmbeds.map { $0.asMLTensor() }
+                    }
+                    allCodeEmbedTensors.append(code15EmbedTensor)
+                    codecHiddenTensor = EmbedUtilities.sumEmbeddings(allCodeEmbedTensors)
+                    timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
                 }
-                allCodeEmbedTensors.append(code15EmbedTensor)
-                let codecHiddenTensor = EmbedUtilities.sumEmbeddings(allCodeEmbedTensors)
-                timings.codecHidden += CFAbsoluteTimeGetCurrent() - codecHiddenStart
 
                 let textProjStart = CFAbsoluteTimeGetCurrent()
                 let textEmbedTensor: MLTensor =
