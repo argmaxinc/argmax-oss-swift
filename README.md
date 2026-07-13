@@ -48,6 +48,7 @@
   - [Homebrew](#homebrew)
 - [WhisperKit](#whisperkit)
   - [Quick Example](#quick-example)
+  - [Memory-Efficient Loading for Large Files](#memory-efficient-loading-for-large-files)
   - [Model Selection](#model-selection)
   - [Generating Models](#generating-models)
   - [Swift CLI](#swift-cli)
@@ -149,10 +150,36 @@ import WhisperKit
 
 // Initialize WhisperKit with default settings
 Task {
-   let pipe = try? await WhisperKit()
-   let transcription = try? await pipe!.transcribe(audioPath: "path/to/your/audio.{wav,mp3,m4a,flac}")?.text
-    print(transcription)
+    let pipe = try? await WhisperKit()
+    let results = try? await pipe?.transcribe(audioPath: "path/to/your/audio.{wav,mp3,m4a,flac}")
+    let transcription = results?.map(\.text).joined(separator: " ")
+    print(transcription ?? "")
 }
+```
+
+### Memory-Efficient Loading for Large Files
+
+By default WhisperKit loads the whole audio file into memory before transcribing. For long recordings, `.incremental` streams it from disk in bounded-memory chunks instead:
+
+```swift
+import WhisperKit
+
+let pipe = try await WhisperKit()
+
+let options = AudioInputOptions(audioLoadingMode: .incremental)
+let results = try await pipe.transcribe(
+    audioPath: "path/to/large-audio.wav",
+    audioInputOptions: options
+)
+print(results.map(\.text).joined(separator: " "))
+```
+
+It splits the audio at silence (VAD) boundaries, so the result matches a full-file transcription run with `chunkingStrategy: .vad` — only peak memory differs. Tune the chunking with `.incremental(chunkDuration:chunkBufferSize:)`, or pick channels with `AudioInputOptions(channelMode:)`.
+
+From the CLI, add `--incremental-loading` (optionally `--incremental-chunk-duration` / `--incremental-chunk-buffer-size`):
+
+```bash
+swift run argmax-cli transcribe --model large-v3-v20240930_626MB --audio-path "path/to/large-audio.wav" --incremental-loading
 ```
 
 ### Model Selection

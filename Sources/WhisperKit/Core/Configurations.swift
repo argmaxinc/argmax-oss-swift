@@ -22,8 +22,15 @@ open class WhisperKitConfig {
 
     /// Model compute options, see `ModelComputeOptions`
     public var computeOptions: ModelComputeOptions?
-    /// Audio input config to define how to process audio input
-    public var audioInputConfig: AudioInputConfig?
+    /// Backing store for the deprecated ``audioInputConfig``.
+    var audioInputConfigStorage: AudioInputOptions?
+
+    /// Audio input config to define how to process audio input.
+    @available(*, deprecated, message: "Pass audioInputOptions per call to transcribe(audioPath:audioInputOptions:) instead of setting it on WhisperKitConfig.")
+    public var audioInputConfig: AudioInputOptions? {
+        get { audioInputConfigStorage }
+        set { audioInputConfigStorage = newValue }
+    }
     /// Audio processor for the model
     public var audioProcessor: (any AudioProcessing)?
     public var featureExtractor: (any FeatureExtracting)?
@@ -80,7 +87,7 @@ open class WhisperKitConfig {
                 modelFolder: String? = nil,
                 tokenizerFolder: URL? = nil,
                 computeOptions: ModelComputeOptions? = nil,
-                audioInputConfig: AudioInputConfig? = nil,
+                audioInputConfig: AudioInputOptions? = nil,
                 audioProcessor: (any AudioProcessing)? = nil,
                 featureExtractor: (any FeatureExtracting)? = nil,
                 audioEncoder: (any AudioEncoding)? = nil,
@@ -103,7 +110,7 @@ open class WhisperKitConfig {
         self.modelFolder = modelFolder
         self.tokenizerFolder = tokenizerFolder
         self.computeOptions = computeOptions
-        self.audioInputConfig = audioInputConfig
+        self.audioInputConfigStorage = audioInputConfig
         self.audioProcessor = audioProcessor
         self.featureExtractor = featureExtractor
         self.audioEncoder = audioEncoder

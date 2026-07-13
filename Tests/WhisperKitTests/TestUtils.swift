@@ -305,7 +305,7 @@ extension XCTestCase {
     }
 
     /// Helper to measure channel processing operations
-    func measureChannelProcessing(buffer: AVAudioPCMBuffer, mode: AudioInputConfig.ChannelMode, iterations: Int = 5) -> Double {
+    func measureChannelProcessing(buffer: AVAudioPCMBuffer, mode: AudioInputOptions.ChannelMode, iterations: Int = 5) -> Double {
         // Add warm-up iterations
         for _ in 0..<3 {
             _ = AudioProcessor.convertToMono(buffer, mode: mode)
@@ -321,6 +321,33 @@ extension XCTestCase {
         }
 
         return totalTime / Double(iterations)
+    }
+
+    /// Helper function to run an operation with a timeout
+    /// - Parameters:
+    ///   - seconds: Timeout duration in seconds
+    ///   - operation: The async operation to run
+    /// - Returns: true if the operation timed out, false if it completed
+    func withTimeout<T>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async -> Bool {
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                do {
+                    _ = try await operation()
+                    return false // Operation completed
+                } catch {
+                    return false // Operation failed but didn't timeout
+                }
+            }
+
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return true // Timeout occurred
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 }
 

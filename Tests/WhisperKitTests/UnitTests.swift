@@ -3034,7 +3034,7 @@ final class UnitTests: XCTestCase {
         )
         let modelPath = try await tinyModelPath()
 
-        // .sumChannels is default for AudioInputConfig
+        // .sumChannels is default for AudioInputOptions
         let config = WhisperKitConfig(modelFolder: modelPath, verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
 
@@ -3052,10 +3052,12 @@ final class UnitTests: XCTestCase {
         )
         let modelPath = try await tinyModelPath()
 
-        let config = WhisperKitConfig(modelFolder: modelPath, audioInputConfig: AudioInputConfig(channelMode: .sumChannels([1, 3, 5])), verbose: true, logLevel: .debug)
-        let whisperKit = try await WhisperKit(config)
+        let whisperKit = try await WhisperKit(WhisperKitConfig(modelFolder: modelPath, verbose: true, logLevel: .debug))
 
-        let result: TranscriptionResult = try await whisperKit.transcribe(audioPath: audioPath).first!
+        let result: TranscriptionResult = try await whisperKit.transcribe(
+            audioPath: audioPath,
+            audioInputOptions: AudioInputOptions(channelMode: .sumChannels([1, 3, 5]))
+        ).first!
         let expectedText = "front left"
         let containsExpectedText = result.text.normalized.contains(expectedText)
         XCTAssert(containsExpectedText, "Expected text not found in transcription and the transcription was \(result)")
@@ -3069,10 +3071,12 @@ final class UnitTests: XCTestCase {
         )
         let modelPath = try await tinyModelPath()
 
-        let config = WhisperKitConfig(modelFolder: modelPath, audioInputConfig: AudioInputConfig(channelMode: .specificChannel(0)), verbose: true, logLevel: .debug)
-        let whisperKit = try await WhisperKit(config)
+        let whisperKit = try await WhisperKit(WhisperKitConfig(modelFolder: modelPath, verbose: true, logLevel: .debug))
 
-        let result: TranscriptionResult = try await whisperKit.transcribe(audioPath: audioPath).first!
+        let result: TranscriptionResult = try await whisperKit.transcribe(
+            audioPath: audioPath,
+            audioInputOptions: AudioInputOptions(channelMode: .specificChannel(0))
+        ).first!
         let expectedText = "center"
         let containsExpectedText = result.text.normalized.contains(expectedText)
         XCTAssert(containsExpectedText, "Expected text not found in transcription and the transcription was \(result)")
