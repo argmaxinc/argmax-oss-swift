@@ -34,6 +34,8 @@ public enum Qwen3TTSConstants {
 
     /// Vocabulary size for the multi-code decoder heads (codes 1-15).
     public static let codecVocabSize: Int = 2048
+    /// Number of code_predictor lm_heads (codes 1-15 of an RVQ frame).
+    public static let mcdHeads: Int = 15
 
     // MARK: Audio format
 

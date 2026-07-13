@@ -55,6 +55,11 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
 
         self.model = loaded
 
+        // Fused variant: the entire 15-code frame is ONE CoreML program with
+        // in-graph Gumbel-max top-k sampling and embedding lookups -
+        // identified by its `gumbel` noise input (stepped models have none).
+        self.isFused = loaded.modelDescription.inputDescriptionsByName["gumbel"] != nil
+
         // Detect dimensions from model description
         if let dim = ModelUtilities.getModelOutputDimension(model, named: "key_cache_updates", position: 1) {
             self.kvCacheEmbedDim = dim
@@ -74,6 +79,51 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
 
     /// Embedding dimension for `input_embeds`, detected from the model at load time.
     public private(set) var inputEmbedDim: Int = Qwen3TTSConstants.embedDim
+
+    /// True when the loaded model is the fused one-call-per-frame variant.
+    public private(set) var isFused = false
+
+    /// One CoreML call for the whole 15-code frame. Sampling runs in-graph via
+    /// the Gumbel-max trick: `argmax(logits/T + G)` with `G = -log(-log(U))`
+    /// draws from `softmax(logits/T)` - the same distribution as the stepped
+    /// host sampler (top-k is baked into the graph). The host supplies the
+    /// noise, so the call is deterministic given it. `embed_sum` is the sum of
+    /// the sampled codes' MultiCodeEmbedder rows - the caller adds
+    /// CodeEmbedder(code0) and the text embed to form the next talker input.
+    ///
+    /// Note: noise comes from the system RNG, so `GenerationOptions.seed` does
+    /// not reproduce fused-path audio (the stepped path keeps that property).
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    public func generateMultiCodesFused(
+        hiddenStatesTensor: MLTensor,
+        code0EmbedTensor: MLTensor,
+        options: GenerationOptions
+    ) async throws -> (codes: [Int32], embedSum: MLTensor, predictionTime: TimeInterval) {
+        guard let model else { throw TTSError.generationFailed("MultiCodeDecoder model not loaded") }
+        // The graph divides logits by temperature; keep it strictly positive.
+        let temperature = max(options.temperature, 0.05)
+        var noise = [FloatType](repeating: 0, count: Qwen3TTSConstants.mcdHeads * codecVocabSize)
+        for index in noise.indices {
+            let uniform = Float.random(in: Float.leastNormalMagnitude..<1)
+            noise[index] = FloatType(-log(-log(uniform)))
+        }
+        let inputs: [String: MLTensor] = [
+            "talker_hidden": hiddenStatesTensor,
+            "code0_embed": code0EmbedTensor,
+            "gumbel": MLTensor(shape: [Qwen3TTSConstants.mcdHeads, codecVocabSize], scalars: noise),
+            "temperature": MLTensor(shape: [1], scalars: [FloatType(temperature)]),
+        ]
+        let predictionStart = CFAbsoluteTimeGetCurrent()
+        let outputs = try await model.prediction(from: inputs)
+        guard let codesTensor = outputs["codes"], let embedSum = outputs["embed_sum"] else {
+            throw TTSError.generationFailed("Fused MultiCodeDecoder: missing codes/embed_sum outputs")
+        }
+        let codes = await codesTensor.toIntArray().map(Int32.init)
+        guard codes.count == Qwen3TTSConstants.mcdHeads else {
+            throw TTSError.generationFailed("Fused MultiCodeDecoder: expected 15 codes, got \(codes.count)")
+        }
+        return (codes, embedSum, CFAbsoluteTimeGetCurrent() - predictionStart)
+    }
 
     public var isStateful: Bool {
         guard let model else { return false }
@@ -103,6 +153,20 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public func prewarmInference() async throws {
         guard let model else { return }
+        if isFused {
+            // The fused model has different inputs (no external caches/masks);
+            // a few dummy full-frame calls pipeline the ANE the same way.
+            let dummyHidden = MLTensor(zeros: [1, inputEmbedDim, 1, 1], scalarType: FloatType.self)
+            let dummyGumbel = MLTensor(zeros: [Qwen3TTSConstants.mcdHeads, codecVocabSize], scalarType: FloatType.self)
+            let dummyTemp = MLTensor(shape: [1], scalars: [FloatType(1)])
+            for _ in 0..<4 {
+                _ = try await model.prediction(from: [
+                    "talker_hidden": dummyHidden, "code0_embed": dummyHidden,
+                    "gumbel": dummyGumbel, "temperature": dummyTemp,
+                ])
+            }
+            return
+        }
         let sequenceLength = kvCacheMaxSequenceLength
         let dummyInput = MLTensor(zeros: [1, inputEmbedDim, 1, 1], scalarType: FloatType.self)
         for _ in 0..<4 {
