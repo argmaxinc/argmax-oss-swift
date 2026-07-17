@@ -144,20 +144,6 @@ open class TimestampRulesFilter: LogitsFiltering {
     private func sumOfProbabilityOverTimestampsIsAboveAnyOtherToken(logits: MLMultiArray, timeTokenBegin: Int) -> Bool {
         let timeTokenBeginOffset = logits.linearOffset(for: [0, 0, timeTokenBegin])
 
-        let logprobsInputPointer = UnsafeMutableRawBufferPointer(
-            start: logits.dataPointer,
-            count: logits.count * MemoryLayout<FloatType>.stride
-        )
-
-        guard let logprobsInputDescriptor = BNNSNDArrayDescriptor(
-            data: logprobsInputPointer,
-            scalarType: FloatType.self,
-            shape: .vector(logits.count, stride: 1)
-        ) else {
-            Logging.error("Cannot create `logprobsInputDescriptor`")
-            return false
-        }
-
         let logprobs = BNNSNDArrayDescriptor.allocateUninitialized(
             scalarType: FloatType.self,
             shape: .vector(logits.count, stride: 1)
@@ -165,12 +151,11 @@ open class TimestampRulesFilter: LogitsFiltering {
         defer { logprobs.deallocate() }
 
         do {
-            try BNNS.applyActivation(
-                activation: BNNS.ActivationFunction.logSoftmax,
-                input: logprobsInputDescriptor,
-                output: logprobs,
-                batchSize: 1
-            )
+            // Read logits and compute log-softmax (avoids deprecated BNNS.applyActivation)
+            let logitsPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: logits.count)
+            let logitsArray = Array(UnsafeBufferPointer(start: logitsPtr, count: logits.count))
+            let logprobsArray = ActivationHelper.logSoftmax(logitsArray)
+            ActivationHelper.writeArray(logprobsArray, to: logprobs)
 
             let timeTokenCount = logits.count - timeTokenBeginOffset
             let noTimeTokenCount = timeTokenBeginOffset

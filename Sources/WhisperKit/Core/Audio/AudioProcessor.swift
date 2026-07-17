@@ -956,7 +956,7 @@ public extension AudioProcessor {
         #if !os(macOS) // AVAudioSession is not available on macOS
 
         #if !os(watchOS) // watchOS does not support .defaultToSpeaker
-        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
+        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
         #else
         let options: AVAudioSession.CategoryOptions = .mixWithOthers
         #endif
