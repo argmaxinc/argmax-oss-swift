@@ -504,7 +504,9 @@ open class WhisperKit {
     }
 
     deinit {
-        audioProcessor.stopRecording()
+        // AudioProcessor's own deinit handles stopRecording().
+        // Calling it here as well causes a double-stop race on AVAudioEngine
+        // taps → EXC_BAD_ACCESS (zombie pointer).
     }
 
     /// Pass in your own logging callback here
