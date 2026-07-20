@@ -895,7 +895,30 @@ open class AudioProcessor: NSObject, AudioProcessing {
     #endif
 
     deinit {
-        stopRecording()
+        // AVAudioEngine operations must be on the main thread.
+        // Capture engine before nil-ing to dispatch cleanup safely —
+        // avoids EXC_BAD_ACCESS when AudioProcessor is released off-main.
+        let engine = audioEngine
+        audioEngine = nil
+        guard let engine = engine else { return }
+
+        if Thread.isMainThread {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.attachedNodes.forEach { $0.removeTap(onBus: 0) }
+            engine.disconnectNodeInput(engine.inputNode)
+            engine.stop()
+            engine.reset()
+        } else {
+            // Capture engine (not self) — engine stays alive until the async
+            // block completes, then is released safely on the main thread.
+            DispatchQueue.main.async {
+                engine.inputNode.removeTap(onBus: 0)
+                engine.attachedNodes.forEach { $0.removeTap(onBus: 0) }
+                engine.disconnectNodeInput(engine.inputNode)
+                engine.stop()
+                engine.reset()
+            }
+        }
     }
 }
 
@@ -956,7 +979,7 @@ public extension AudioProcessor {
         #if !os(macOS) // AVAudioSession is not available on macOS
 
         #if !os(watchOS) // watchOS does not support .defaultToSpeaker
-        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
+        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
         #else
         let options: AVAudioSession.CategoryOptions = .mixWithOthers
         #endif
