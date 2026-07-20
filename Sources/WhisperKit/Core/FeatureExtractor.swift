@@ -2,6 +2,7 @@
 //  Copyright © 2024 Argmax, Inc. All rights reserved.
 
 import Accelerate
+import ArgmaxCore
 import AVFoundation
 import CoreGraphics
 import CoreML
@@ -17,7 +18,7 @@ public protocol FeatureExtracting {
 }
 
 open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     public init() {}
 

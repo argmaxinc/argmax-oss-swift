@@ -89,6 +89,16 @@ let package = Package(
             swiftSettings: swiftSettings()
         ),
         .testTarget(
+            name: "ArgmaxCoreTests",
+            dependencies: [
+                "ArgmaxCore",
+            ],
+            resources: [
+                .process("External/Resources"),
+            ],
+            swiftSettings: swiftSettings(libraryEvolution: false)
+        ),
+        .testTarget(
             name: "WhisperKitTests",
             dependencies: [
                 "WhisperKit",

@@ -297,7 +297,7 @@ public extension TextDecoding {
 }
 
 open class TextDecoder: TextDecoding, WhisperMLModel {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
     public var tokenizer: WhisperTokenizer?
     public var isModelMultilingual: Bool = false
     public var logitsFilters: [any LogitsFiltering]? = []

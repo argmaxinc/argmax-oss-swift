@@ -1,0 +1,1196 @@
+{
+  "openai/whisper-tiny.en": [
+    {
+      "input": "hello world",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          31373,
+          995,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>hello world<|endoftext|>",
+      "decoded_without_special": "hello world"
+    },
+    {
+      "input": "Hello World",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          15496,
+          2159,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>Hello World<|endoftext|>",
+      "decoded_without_special": "Hello World"
+    },
+    {
+      "input": "How are you doing?",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          2437,
+          389,
+          345,
+          1804,
+          30,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>How are you doing?<|endoftext|>",
+      "decoded_without_special": "How are you doing?"
+    },
+    {
+      "input": "You should've done this",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          1639,
+          815,
+          1053,
+          1760,
+          428,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>You should've done this<|endoftext|>",
+      "decoded_without_special": "You should've done this"
+    },
+    {
+      "input": "A\n'll !!to?'d''d of, can't.",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          32,
+          198,
+          1183,
+          37867,
+          1462,
+          8348,
+          67,
+          7061,
+          67,
+          286,
+          11,
+          460,
+          470,
+          13,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>A\n'll!!to?'d''d of, can't.<|endoftext|>",
+      "decoded_without_special": "A\n'll!!to?'d''d of, can't."
+    },
+    {
+      "input": "def main():\n\tpass",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          4299,
+          1388,
+          33529,
+          198,
+          197,
+          6603,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>def main():\n\tpass<|endoftext|>",
+      "decoded_without_special": "def main():\n\tpass"
+    },
+    {
+      "input": "This\n\nis\na\ntest.",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          1212,
+          198,
+          198,
+          271,
+          198,
+          64,
+          198,
+          9288,
+          13,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>This\n\nis\na\ntest.<|endoftext|>",
+      "decoded_without_special": "This\n\nis\na\ntest."
+    },
+    {
+      "input": "let a = obj.toString();\ntoString();",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          1616,
+          257,
+          796,
+          26181,
+          13,
+          1462,
+          10100,
+          9783,
+          198,
+          1462,
+          10100,
+          9783,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>let a = obj.toString();\ntoString();<|endoftext|>",
+      "decoded_without_special": "let a = obj.toString();\ntoString();"
+    },
+    {
+      "input": "Hi  Hello",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          17250,
+          220,
+          18435,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>Hi  Hello<|endoftext|>",
+      "decoded_without_special": "Hi  Hello"
+    },
+    {
+      "input": "trailing space   ",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          9535,
+          4386,
+          2272,
+          220,
+          220,
+          220,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>trailing space   <|endoftext|>",
+      "decoded_without_special": "trailing space   "
+    },
+    {
+      "input": "   leading space",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          220,
+          220,
+          3756,
+          2272,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>   leading space<|endoftext|>",
+      "decoded_without_special": "   leading space"
+    },
+    {
+      "input": "生活的真谛是",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          37955,
+          162,
+          112,
+          119,
+          21410,
+          40367,
+          253,
+          164,
+          108,
+          249,
+          42468,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>生活的真谛是<|endoftext|>",
+      "decoded_without_special": "生活的真谛是"
+    },
+    {
+      "input": "The company was founded in 2016.",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          464,
+          1664,
+          373,
+          9393,
+          287,
+          1584,
+          13,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>The company was founded in 2016.<|endoftext|>",
+      "decoded_without_special": "The company was founded in 2016."
+    },
+    {
+      "input": "test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          9288,
+          720,
+          16,
+          371,
+          17,
+          1303,
+          18,
+          10432,
+          19,
+          4248,
+          20,
+          38221,
+          21,
+          2343,
+          224,
+          96,
+          22,
+          2343,
+          224,
+          117,
+          23,
+          2343,
+          224,
+          109,
+          24,
+          1332,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test<|endoftext|>",
+      "decoded_without_special": "test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test"
+    },
+    {
+      "input": "I bought an apple for $1.00 at the store.",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          40,
+          5839,
+          281,
+          17180,
+          329,
+          720,
+          16,
+          13,
+          405,
+          379,
+          262,
+          3650,
+          13,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>I bought an apple for $1.00 at the store.<|endoftext|>",
+      "decoded_without_special": "I bought an apple for $1.00 at the store."
+    },
+    {
+      "input": "you…  ",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          5832,
+          1399,
+          220,
+          220,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  <|endoftext|>",
+      "decoded_without_special": "you…  "
+    },
+    {
+      "input": "you…  ",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          5832,
+          1399,
+          4603,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  <|endoftext|>",
+      "decoded_without_special": "you…  "
+    },
+    {
+      "input": "you…  you…  ",
+      "encoded": {
+        "input_ids": [
+          50257,
+          50362,
+          5832,
+          1399,
+          1849,
+          1849,
+          5832,
+          1399,
+          4603,
+          50256
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  you…  <|endoftext|>",
+      "decoded_without_special": "you…  you…  "
+    }
+  ],
+  "openai/whisper-large-v2": [
+    {
+      "input": "hello world",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          675,
+          1913,
+          1002,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>hello world<|endoftext|>",
+      "decoded_without_special": "hello world"
+    },
+    {
+      "input": "Hello World",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          15947,
+          3937,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>Hello World<|endoftext|>",
+      "decoded_without_special": "Hello World"
+    },
+    {
+      "input": "How are you doing?",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          6462,
+          366,
+          291,
+          884,
+          30,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>How are you doing?<|endoftext|>",
+      "decoded_without_special": "How are you doing?"
+    },
+    {
+      "input": "You should've done this",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          3223,
+          820,
+          600,
+          1096,
+          341,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>You should've done this<|endoftext|>",
+      "decoded_without_special": "You should've done this"
+    },
+    {
+      "input": "A\n'll !!to?'d''d of, can't.",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          32,
+          198,
+          603,
+          15138,
+          1353,
+          8569,
+          67,
+          15025,
+          67,
+          295,
+          11,
+          393,
+          380,
+          13,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>A\n'll!!to?'d''d of, can't.<|endoftext|>",
+      "decoded_without_special": "A\n'll!!to?'d''d of, can't."
+    },
+    {
+      "input": "def main():\n\tpass",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          20595,
+          2135,
+          7,
+          4507,
+          198,
+          197,
+          9216,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>def main():\n\tpass<|endoftext|>",
+      "decoded_without_special": "def main():\n\tpass"
+    },
+    {
+      "input": "This\n\nis\na\ntest.",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          5723,
+          198,
+          198,
+          271,
+          198,
+          64,
+          198,
+          31636,
+          13,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>This\n\nis\na\ntest.<|endoftext|>",
+      "decoded_without_special": "This\n\nis\na\ntest."
+    },
+    {
+      "input": "let a = obj.toString();\ntoString();",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          2631,
+          257,
+          6585,
+          1111,
+          73,
+          13,
+          1353,
+          4520,
+          2937,
+          7,
+          34446,
+          198,
+          1353,
+          4520,
+          2937,
+          7,
+          34446,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>let a = obj.toString();\ntoString();<|endoftext|>",
+      "decoded_without_special": "let a = obj.toString();\ntoString();"
+    },
+    {
+      "input": "Hi  Hello",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          17155,
+          220,
+          2425,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>Hi  Hello<|endoftext|>",
+      "decoded_without_special": "Hi  Hello"
+    },
+    {
+      "input": "trailing space   ",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          17227,
+          4883,
+          1901,
+          220,
+          220,
+          220,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>trailing space   <|endoftext|>",
+      "decoded_without_special": "trailing space   "
+    },
+    {
+      "input": "   leading space",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          220,
+          220,
+          5775,
+          1901,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>   leading space<|endoftext|>",
+      "decoded_without_special": "   leading space"
+    },
+    {
+      "input": "生活的真谛是",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          49958,
+          1546,
+          6303,
+          8897,
+          249,
+          1541,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>生活的真谛是<|endoftext|>",
+      "decoded_without_special": "生活的真谛是"
+    },
+    {
+      "input": "The company was founded in 2016.",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          2278,
+          2237,
+          390,
+          13234,
+          294,
+          6549,
+          13,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>The company was founded in 2016.<|endoftext|>",
+      "decoded_without_special": "The company was founded in 2016."
+    },
+    {
+      "input": "test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          31636,
+          1848,
+          16,
+          497,
+          17,
+          3536,
+          18,
+          17450,
+          19,
+          14378,
+          20,
+          1815,
+          98,
+          21,
+          672,
+          224,
+          96,
+          22,
+          672,
+          224,
+          117,
+          23,
+          672,
+          224,
+          109,
+          24,
+          1500,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test<|endoftext|>",
+      "decoded_without_special": "test $1 R2 #3 €4 £5 ¥6 ₣7 ₹8 ₱9 test"
+    },
+    {
+      "input": "I bought an apple for $1.00 at the store.",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          40,
+          4243,
+          364,
+          10606,
+          337,
+          1848,
+          16,
+          13,
+          628,
+          412,
+          264,
+          3531,
+          13,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>I bought an apple for $1.00 at the store.<|endoftext|>",
+      "decoded_without_special": "I bought an apple for $1.00 at the store."
+    },
+    {
+      "input": "you…  ",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          5616,
+          1260,
+          220,
+          220,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  <|endoftext|>",
+      "decoded_without_special": "you…  "
+    },
+    {
+      "input": "you…  ",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          5616,
+          1260,
+          126,
+          254,
+          126,
+          254,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  <|endoftext|>",
+      "decoded_without_special": "you…  "
+    },
+    {
+      "input": "you…  you…  ",
+      "encoded": {
+        "input_ids": [
+          50258,
+          50363,
+          5616,
+          1260,
+          126,
+          254,
+          126,
+          254,
+          5616,
+          1260,
+          126,
+          254,
+          126,
+          254,
+          50257
+        ],
+        "attention_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "decoded_with_special": "<|startoftranscript|><|notimestamps|>you…  you…  <|endoftext|>",
+      "decoded_without_special": "you…  you…  "
+    }
+  ]
+}

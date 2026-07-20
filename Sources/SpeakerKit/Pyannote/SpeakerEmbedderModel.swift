@@ -136,7 +136,7 @@ struct SpeakerEmbedderContext {
 public final class SpeakerEmbedderModel: @unchecked Sendable {
     private var modelURL: URL
     private var computeUnits: MLComputeUnits
-    private var model: MLModel?
+    @Protected private var model: MLModel?
     private(set) var modelState: ModelState = .unloaded
 
     private let preprocessorModel: SpeakerPreEmbedderModel
@@ -509,7 +509,7 @@ fileprivate class SpeakerPLDAEmbedderInput: MLFeatureProvider, CustomDebugString
 fileprivate final class PLDAEmbedderModel {
     private var modelURL: URL
     private var computeUnits: MLComputeUnits
-    var model: MLModel?
+    @Protected var model: MLModel?
 
     init(modelURL: URL) {
         self.modelURL = modelURL

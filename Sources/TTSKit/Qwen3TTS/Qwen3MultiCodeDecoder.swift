@@ -34,7 +34,7 @@ struct MLTensorStepResult {
 /// Per-call state is created locally within `generateMultiCodes()` and never stored
 /// on this shared instance.
 public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     /// KV cache embedding dimension, detected from model at load time
     public private(set) var kvCacheEmbedDim: Int = Qwen3TTSConstants.mcdCacheDim

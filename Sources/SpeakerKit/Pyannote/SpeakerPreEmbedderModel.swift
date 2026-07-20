@@ -7,7 +7,7 @@ import ArgmaxCore
 final class SpeakerPreEmbedderModel {
     private var modelURL: URL
     private var computeUnits: MLComputeUnits
-    var model: MLModel?
+    @Protected var model: MLModel?
 
     init(modelURL: URL) {
         self.modelURL = modelURL

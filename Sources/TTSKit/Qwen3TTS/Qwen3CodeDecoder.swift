@@ -14,7 +14,7 @@ import Foundation
 /// Per-generation `MLState` is created via `makeState()` and owned by each task,
 /// never stored on this shared instance.
 public class Qwen3CodeDecoder: CodeDecoding, @unchecked Sendable {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     /// KV cache embedding dimension, detected from model at load time
     public private(set) var kvCacheEmbedDim: Int = Qwen3TTSConstants.cdCacheDim

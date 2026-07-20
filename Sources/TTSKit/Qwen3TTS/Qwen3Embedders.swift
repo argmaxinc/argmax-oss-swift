@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Thread safety: per-call input tensors - safe for concurrent use from multiple tasks.
 public class Qwen3CodeEmbedder: CodeEmbedding, @unchecked Sendable {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     public init() {}
 
@@ -60,7 +60,7 @@ public class Qwen3CodeEmbedder: CodeEmbedding, @unchecked Sendable {
 ///
 /// Thread safety: same as Qwen3CodeEmbedder - per-call input tensors, safe for concurrent use.
 public class Qwen3MultiCodeEmbedder: MultiCodeEmbedding, @unchecked Sendable {
-    public var model: MLModel?
+    @Protected public var model: MLModel?
 
     public init() {}
 

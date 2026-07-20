@@ -17,6 +17,13 @@
     {
       "target" : {
         "containerPath" : "container:",
+        "identifier" : "ArgmaxCoreTests",
+        "name" : "ArgmaxCoreTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
         "identifier" : "SpeakerKitTests",
         "name" : "SpeakerKitTests"
       }
