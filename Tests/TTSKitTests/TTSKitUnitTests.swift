@@ -91,6 +91,20 @@ final class TTSKitUnitTests: XCTestCase {
         )
     }
 
+    /// Asserts whitespace-normalized chunks reassemble to the input text.
+    private func assertReconstructs(
+        _ chunks: [String],
+        _ text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let joined = chunks.joined(separator: " ")
+            .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        let original = text
+            .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        XCTAssertEqual(joined, original, "Chunks must reconstruct the input", file: file, line: line)
+    }
+
     func testChunkerShortText() {
         let chunker = makeChunker(targetChunkSize: 50, minChunkSize: 5)
         XCTAssertEqual(chunker.chunk("Hello world."), ["Hello world."])
@@ -109,9 +123,7 @@ final class TTSKitUnitTests: XCTestCase {
         let text = "This is the first sentence. This is the second sentence. And here is a third one."
         let chunks = chunker.chunk(text)
         XCTAssertGreaterThan(chunks.count, 1, "Should split into multiple chunks")
-        let recombined = chunks.joined(separator: " ")
-        XCTAssertTrue(recombined.contains("first sentence"))
-        XCTAssertTrue(recombined.contains("third one"))
+        assertReconstructs(chunks, text)
     }
 
     func testChunkerMergesTinyTrailing() {
@@ -122,6 +134,66 @@ final class TTSKitUnitTests: XCTestCase {
         let text = "A reasonably long sentence that is here. X."
         let chunks = chunker.chunk(text)
         XCTAssertEqual(chunks.count, 1, "Tiny trailing chunk should merge with previous")
+        assertReconstructs(chunks, text)
+    }
+
+    func testChunkerReconstructsAcrossParagraphBreaks() {
+        // Paragraph whitespace must not leak boundary characters into the next chunk:
+        //
+        //   bad:  ["First sentence.", ". Second sentence."]
+        //   good: ["First sentence.", "Second sentence."]
+        //
+        let text = "First sentence.\n\nSecond sentence."
+        let chunker = makeChunker(targetChunkSize: 20, minChunkSize: 5)
+        let chunks = chunker.chunk(text)
+        XCTAssertEqual(chunks, ["First sentence.", "Second sentence."])
+        assertReconstructs(chunks, text)
+    }
+
+    func testChunkerDoesNotSplitDecimalsEmailsEllipses() {
+        // Periods inside decimals, emails, and ellipses are not sentence boundaries:
+        //
+        //   bad:  ["It costs $8.", "50 today. Email info@test.", "org ..."]
+        //   good: ["It costs $8.50 today.", "Email info@test.org for offers."]
+        //
+        let text = "It costs $8.50 today. Email info@test.org for offers. Probably... the end."
+        let chunker = makeChunker(targetChunkSize: 45, minChunkSize: 5)
+        let chunks = chunker.chunk(text)
+        assertReconstructs(chunks, text)
+        XCTAssertTrue(chunks.contains { $0.contains("$8.50") }, "Decimal split across chunks: \(chunks)")
+        XCTAssertTrue(chunks.contains { $0.contains("info@test.org") }, "Email split across chunks: \(chunks)")
+        XCTAssertTrue(chunks.contains { $0.contains("Probably...") }, "Ellipsis split across chunks: \(chunks)")
+        for chunk in chunks {
+            XCTAssertFalse(chunk.hasPrefix("50 "), "Decimal fraction stranded: \(chunk)")
+            XCTAssertFalse(chunk.hasPrefix("org "), "Email TLD stranded: \(chunk)")
+        }
+    }
+
+    func testChunkerQuoteAttachedSentenceEnd() {
+        // A closing quote after a sentence ender stays on the sentence's chunk:
+        //
+        //   bad:  ["He said \"Hello.", "\" Then left."]
+        //   good: ["He said \"Hello.\"", "Then left."]
+        //
+        let text = "He said \"Hello.\" Then left."
+        let chunker = makeChunker(targetChunkSize: 20, minChunkSize: 5)
+        let chunks = chunker.chunk(text)
+        XCTAssertEqual(chunks, ["He said \"Hello.\"", "Then left."])
+        assertReconstructs(chunks, text)
+    }
+
+    func testChunkerSkipsTruncatedSentenceEndingInWhitespace() {
+        // "First sentence. Second incomplete " = 34 chars, so a 34-char window ends on a
+        // trailing space mid-sentence. That fragment must not count as a full sentence:
+        //
+        //   bad:  ["First sentence. Second incomplete and more"]
+        //   good: ["First sentence.", "Second incomplete and more words here."]
+        //
+        let text = "First sentence. Second incomplete and more words here."
+        let chunker = makeChunker(targetChunkSize: 34, minChunkSize: 5)
+        let chunks = chunker.chunk(text)
+        XCTAssertEqual(chunks.first, "First sentence.")
+        assertReconstructs(chunks, text)
     }
 
     // MARK: - Embedding Math
@@ -1032,11 +1104,7 @@ final class TTSKitUnitTests: XCTestCase {
         let sentences = (1...10).map { "Sentence number \($0) is here." }
         let text = sentences.joined(separator: " ")
         let chunks = chunker.chunk(text)
-        let rejoined = chunks.joined(separator: " ")
-        for sentence in sentences {
-            XCTAssertTrue(rejoined.contains(sentence.dropLast(1)), // drop period; joins may vary
-                "Missing content: \(sentence)")
-        }
+        assertReconstructs(chunks, text)
     }
 
     func testChunkerWordBoundaryFallback() {

@@ -92,20 +92,21 @@ public struct TextChunker {
                 break
             }
 
-            // Decode a window of targetChunkSize tokens, then find the best boundary within it
+            // Decode a window of targetChunkSize tokens, then find the best boundary.
+            // Keep the window untrimmed so the accepted prefix matches the token stream
+            // exactly; trim only when appending the display chunk below.
             let window = Array(tokens.prefix(targetChunkSize))
             let windowText = decodeTokens(window)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let accepted = windowText.lastNaturalBoundary(minTokenCount: minChunkSize, encode: encodeText) ?? windowText
-
+            let acceptedPrefix = windowText.lastNaturalBoundary(minTokenCount: minChunkSize, encode: encodeText) ?? windowText
+            let accepted = acceptedPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
             if !accepted.isEmpty {
                 chunks.append(accepted)
             }
 
-            // Re-tokenize the accepted text to advance by its exact token count,
-            // avoiding drift from imperfect encode/decode round-trips
-            let consumed = encodeText(accepted).count
+            // Re-tokenize the accepted prefix to advance by its exact token count,
+            // avoiding drift from imperfect encode/decode round-trips.
+            let consumed = encodeText(acceptedPrefix).count
             tokens.removeFirst(min(max(consumed, 1), tokens.count))
         }
 
