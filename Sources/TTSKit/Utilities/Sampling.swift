@@ -29,6 +29,25 @@ public protocol TokenSampling {
         temperature: Float,
         topK: Int
     ) async -> Int32
+
+    /// Pre-drawn Gumbel(0,1) noise (`-log(-log(U))`) for models that sample in-graph
+    /// via the Gumbel-max trick, drawn from the sampler's RNG so seeded runs reproduce.
+    func gumbelNoise(count: Int) -> [Float]
+}
+
+public extension TokenSampling {
+    /// Unseeded default from the system RNG.
+    func gumbelNoise(count: Int) -> [Float] {
+        var rng: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        return Self.gumbelNoise(count: count, using: &rng)
+    }
+
+    static func gumbelNoise(count: Int, using rng: inout any RandomNumberGenerator) -> [Float] {
+        (0..<count).map { _ in
+            // The uniform draw excludes 0 and 1 so both logs stay finite.
+            -log(-log(Float.random(in: Float.leastNormalMagnitude..<1, using: &rng)))
+        }
+    }
 }
 
 // MARK: - Greedy / Top-k Sampler
@@ -49,6 +68,10 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
         } else {
             self.rng = SystemRandomNumberGenerator()
         }
+    }
+
+    public func gumbelNoise(count: Int) -> [Float] {
+        Self.gumbelNoise(count: count, using: &rng)
     }
 
     public func sampleCodec0(

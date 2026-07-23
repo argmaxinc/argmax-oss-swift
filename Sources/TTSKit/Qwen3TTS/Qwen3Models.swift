@@ -34,6 +34,8 @@ public enum Qwen3TTSConstants {
 
     /// Vocabulary size for the multi-code decoder heads (codes 1-15).
     public static let codecVocabSize: Int = 2048
+    /// Number of code_predictor lm_heads (codes 1-15 of an RVQ frame).
+    public static let mcdHeads: Int = 15
 
     // MARK: Audio format
 
@@ -190,4 +192,20 @@ public enum Qwen3SpeechDecoderMode: String, Sendable, CaseIterable {
             case .throughputOptimized: return "throughput"
         }
     }
+}
+
+// MARK: - MultiCodeDecoder Mode
+
+/// Selects which MultiCodeDecoder graph expands a talker frame into its 15
+/// residual codes. `.stepped` decodes one position per prediction; `.fused`
+/// decodes the whole frame in one prediction with in-graph sampling.
+/// Loading requires a multifunction asset exposing both functions; legacy
+/// single-function assets fail to load with a function-selection error.
+@frozen
+public enum Qwen3MultiCodeDecoderMode: String, Sendable, CaseIterable {
+    case stepped
+    case fused
+
+    /// CoreML function name corresponding to this mode.
+    public var functionName: String { rawValue }
 }

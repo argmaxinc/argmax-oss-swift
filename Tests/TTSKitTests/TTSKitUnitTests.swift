@@ -506,6 +506,45 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(config.speechDecoderVariant, "W8A16-multifunction")
     }
 
+    // MARK: - MultiCodeDecoder mode enum
+
+    func testMultiCodeDecoderModeFunctionNames() {
+        XCTAssertEqual(Qwen3MultiCodeDecoderMode.stepped.functionName, "stepped")
+        XCTAssertEqual(Qwen3MultiCodeDecoderMode.fused.functionName, "fused")
+    }
+
+    func testMultiCodeDecoderModeDefaults() {
+        let decoder = Qwen3MultiCodeDecoder()
+        XCTAssertEqual(decoder.mode, .stepped)
+        XCTAssertFalse(decoder.isFused)
+    }
+
+    func testTTSKitConfigMultiCodeDecoderModeDefault() {
+        let config = TTSKitConfig()
+        XCTAssertEqual(config.multiCodeDecoderMode, .stepped)
+        XCTAssertEqual(config.multiCodeDecoderVariant, "W8A16-multifunction")
+    }
+
+    // MARK: - Gumbel noise (fused MultiCodeDecoder sampling input)
+
+    func testGumbelNoiseSeededDeterminism() {
+        let noise1 = GreedyTokenSampler(seed: 42).gumbelNoise(count: 256)
+        let noise2 = GreedyTokenSampler(seed: 42).gumbelNoise(count: 256)
+        let noise3 = GreedyTokenSampler(seed: 43).gumbelNoise(count: 256)
+
+        XCTAssertEqual(noise1, noise2, "Same seed should produce identical Gumbel noise")
+        XCTAssertNotEqual(noise1, noise3, "Different seeds should produce different Gumbel noise")
+        XCTAssertEqual(noise1.count, 256)
+        XCTAssertTrue(noise1.allSatisfy(\.isFinite), "Gumbel noise must be finite")
+    }
+
+    func testGumbelNoiseConsumesSamplerRNG() {
+        let sampler = GreedyTokenSampler(seed: 7)
+        let first = sampler.gumbelNoise(count: 64)
+        let second = sampler.gumbelNoise(count: 64)
+        XCTAssertNotEqual(first, second, "Consecutive draws should consume the RNG stream")
+    }
+
     // MARK: - Sampler
 
     func testGreedySamplerDeterministic() async throws {

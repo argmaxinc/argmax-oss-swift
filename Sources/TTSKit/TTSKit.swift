@@ -476,6 +476,9 @@ open class TTSKit: @unchecked Sendable {
         if let qwen3SD = speechDecoder as? Qwen3SpeechDecoder {
             qwen3SD.mode = config.speechDecoderMode
         }
+        if let qwen3MCD = multiCodeDecoder as? Qwen3MultiCodeDecoder {
+            qwen3MCD.mode = config.multiCodeDecoderMode
+        }
 
         // Load the six CoreML models.
         // Prewarm: sequential to serialize compilation -> lower peak memory.

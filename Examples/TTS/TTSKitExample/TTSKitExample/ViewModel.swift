@@ -159,6 +159,9 @@ private class Settings {
 
     /// Which function of the multifunction SpeechDecoder asset to load.
     @AppStorage("speechDecoderMode") var speechDecoderModeRaw: String = Qwen3SpeechDecoderMode.latencyOptimized.rawValue
+
+    /// Which function of the multifunction MultiCodeDecoder asset to load.
+    @AppStorage("multiCodeDecoderMode") var multiCodeDecoderModeRaw: String = Qwen3MultiCodeDecoderMode.stepped.rawValue
 }
 
 // MARK: - View Model
@@ -260,6 +263,12 @@ final class ViewModel: @unchecked Sendable {
         didSet { settings.speechDecoderModeRaw = speechDecoderMode.rawValue }
     }
 
+    /// Which function of the multifunction MultiCodeDecoder asset to load
+    /// (`.stepped` for one position per call; `.fused` for the whole RVQ frame in one call).
+    var multiCodeDecoderMode: Qwen3MultiCodeDecoderMode {
+        didSet { settings.multiCodeDecoderModeRaw = multiCodeDecoderMode.rawValue }
+    }
+
     var computeOptions: ComputeOptions {
         ComputeOptions(
             embedderComputeUnits: embedderComputeUnits,
@@ -296,6 +305,7 @@ final class ViewModel: @unchecked Sendable {
         multiCodeDecoderComputeUnits = MLComputeUnits(rawValue: settings.multiCodeDecoderComputeUnitsRaw) ?? .cpuAndNeuralEngine
         speechDecoderComputeUnits = MLComputeUnits(rawValue: settings.speechDecoderComputeUnitsRaw) ?? .cpuAndNeuralEngine
         speechDecoderMode = Qwen3SpeechDecoderMode(rawValue: settings.speechDecoderModeRaw) ?? .latencyOptimized
+        multiCodeDecoderMode = Qwen3MultiCodeDecoderMode(rawValue: settings.multiCodeDecoderModeRaw) ?? .stepped
     }
 
     // MARK: - Generation output
@@ -514,6 +524,7 @@ final class ViewModel: @unchecked Sendable {
                 model: selectedPreset,
                 modelFolder: localModelPaths[selectedPreset].map { URL(fileURLWithPath: $0) },
                 speechDecoderMode: speechDecoderMode,
+                multiCodeDecoderMode: multiCodeDecoderMode,
                 computeOptions: computeOptions,
                 verbose: true
             )
