@@ -1374,6 +1374,25 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(wordTokens, expectedWordTokens, "Word tokens did not match expected output in Unicode split.")
     }
 
+    func testSplitToWordTokensChinese() async throws {
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        // 今天天气很好，我们来做个测试吧？
+        let tokenIds = [50364, 12074, 6135, 42204, 23801, 171, 120, 234, 15003, 6912, 10907, 7549, 11038, 233, 5233, 243, 6062, 171, 120, 253, 50257]
+        let originalWords = tokenIds.map { tokenizer.convertIdToToken($0) }
+
+        let (words, wordTokens) = tokenizer.splitToWordTokens(tokenIds: tokenIds)
+
+        // NLLanguageRecognizer reports Chinese as "zh-Hans"/"zh-Hant" (BCP-47), which must
+        // normalize to "zh" to hit the no-space-language path, same as Japanese above
+        let expectedWords = ["<|0.00|>", "今天", "天", "气", "很好", "，", "我们", "来", "做", "个", "测", "试", "吧", "？", "<|endoftext|>"]
+        let expectedWordTokens = [[50364], [12074], [6135], [42204], [23801], [171, 120, 234], [15003], [6912], [10907], [7549], [11038, 233], [5233, 243], [6062], [171, 120, 253], [50257]]
+
+        XCTAssertNotEqual(originalWords, words, "Should not directly convert into tokens from ids")
+        XCTAssertEqual(words, expectedWords, "Words did not match expected output in Unicode split.")
+        XCTAssertEqual(wordTokens, expectedWordTokens, "Word tokens did not match expected output in Unicode split.")
+    }
+
     // MARK: - Options Tests
 
     func testSampleLength() async throws {
