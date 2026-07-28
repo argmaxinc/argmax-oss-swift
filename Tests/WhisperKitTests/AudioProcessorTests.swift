@@ -496,7 +496,7 @@ private final class ConcurrencyTrackingWhisperKit: WhisperKit {
     /// loaded audio sample count instead of running Core ML inference.
     override func transcribe(
         audioArray: [Float],
-        audioArrayOffset: Int = 0,
+        audioArrayOffset: Int,
         decodeOptions: DecodingOptions? = nil,
         callback: TranscriptionCallback? = nil,
         segmentCallback: SegmentDiscoveryCallback? = nil

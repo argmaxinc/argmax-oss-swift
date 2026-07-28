@@ -47,6 +47,29 @@ public struct TranscriptionUtilities {
         return Array(remainingWords)
     }
 
+    /// Updates the timings of a transcription segment by adding an exact sample offset.
+    /// Prefer this over the `seekTime:` variant when the sample offset is known, since
+    /// `Float` seconds cannot represent all sample indices in long audio.
+    /// - Parameters:
+    ///   - segment: The transcription segment to update
+    ///   - seekOffsetIndex: The sample offset to add to `seek`; time-based fields are offset by the equivalent seconds
+    /// - Returns: Updated transcription segment with adjusted timings
+    public static func updateSegmentTimings(segment: TranscriptionSegment, seekOffsetIndex: Int) -> TranscriptionSegment {
+        var updatedSegment = segment
+        let seekTime = Float(seekOffsetIndex) / Float(WhisperKit.sampleRate)
+        updatedSegment.seek += seekOffsetIndex
+        updatedSegment.start += seekTime
+        updatedSegment.end += seekTime
+        if var words = updatedSegment.words {
+            for wordIndex in 0..<words.count {
+                words[wordIndex].start += seekTime
+                words[wordIndex].end += seekTime
+            }
+            updatedSegment.words = words
+        }
+        return updatedSegment
+    }
+
     /// Updates the timings of a transcription segment by adding a seek time offset
     /// - Parameters:
     ///   - segment: The transcription segment to update

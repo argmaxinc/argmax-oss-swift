@@ -842,9 +842,8 @@ open class WhisperKit {
                     let batchedSegmentCallback: SegmentDiscoveryCallback? = if let seekOffsets {
                         { [segmentDiscoveryCallback] segments in
                             let windowId = audioIndex + batchIndex * batchSize
-                            let seekTimeOffset = Float(seekOffsets[windowId]) / Float(WhisperKit.sampleRate)
                             let adjustedSegments = segments.map {
-                                TranscriptionUtilities.updateSegmentTimings(segment: $0, seekTime: seekTimeOffset)
+                                TranscriptionUtilities.updateSegmentTimings(segment: $0, seekOffsetIndex: seekOffsets[windowId])
                             }
                             segmentDiscoveryCallback?(adjustedSegments)
                         }
@@ -979,6 +978,29 @@ open class WhisperKit {
     /// Main entry point for transcribing audio
     /// - Parameters:
     ///   - audioArray: Array of 16khz raw float audio samples
+    ///   - decodeOptions: Options for how to transcribe audio. Including a chunking strategy and the number of concurrent workers will paralleize this task.
+    ///   - callback: Optional callback to receive updates during the transcription process.
+    ///   - segmentCallback: Optional callback to receive segment discovery updates during transcription.
+    /// - Returns: An array of sorted `TranscriptionResult`.
+    /// - Throws: An error if the transcription fails.
+    open func transcribe(
+        audioArray: [Float],
+        decodeOptions: DecodingOptions? = nil,
+        callback: TranscriptionCallback? = nil,
+        segmentCallback: SegmentDiscoveryCallback? = nil
+    ) async throws -> [TranscriptionResult] {
+        try await transcribe(
+            audioArray: audioArray,
+            audioArrayOffset: 0,
+            decodeOptions: decodeOptions,
+            callback: callback,
+            segmentCallback: segmentCallback
+        )
+    }
+
+    /// Transcribes an audio array that is a slice of a larger source, aligning discovered segments to the source.
+    /// - Parameters:
+    ///   - audioArray: Array of 16khz raw float audio samples
     ///   - audioArrayOffset: Offset of input Array if it's a subarray of a larger array, used to align segment callback
     ///   - decodeOptions: Options for how to transcribe audio. Including a chunking strategy and the number of concurrent workers will paralleize this task.
     ///   - callback: Optional callback to receive updates during the transcription process.
@@ -987,7 +1009,7 @@ open class WhisperKit {
     /// - Throws: An error if the transcription fails.
     open func transcribe(
         audioArray: [Float],
-        audioArrayOffset: Int = 0,
+        audioArrayOffset: Int,
         decodeOptions: DecodingOptions? = nil,
         callback: TranscriptionCallback? = nil,
         segmentCallback: SegmentDiscoveryCallback? = nil
@@ -1043,10 +1065,9 @@ open class WhisperKit {
                         return nil
                     }
 
-                    let seekTimeOffset = Float(audioArrayOffset) / Float(WhisperKit.sampleRate)
                     return { segments in
                         let adjustedSegments = segments.map {
-                            TranscriptionUtilities.updateSegmentTimings(segment: $0, seekTime: seekTimeOffset)
+                            TranscriptionUtilities.updateSegmentTimings(segment: $0, seekOffsetIndex: audioArrayOffset)
                         }
                         actualCallback(adjustedSegments)
                     }
@@ -1207,21 +1228,14 @@ open class WhisperKit {
 
             // Update timestamps based on chunk's seek offset
             let seekTimeOffset = Float(chunk.audioChunk.seekOffsetIndex) / Float(WhisperKit.sampleRate)
-            let adjustedResults = chunkResults.map { result in
-                let adjustedSegments = result.segments.map { segment in
-                    TranscriptionUtilities.updateSegmentTimings(segment: segment, seekTime: seekTimeOffset)
+            for result in chunkResults {
+                result.segments = result.segments.map { segment in
+                    TranscriptionUtilities.updateSegmentTimings(segment: segment, seekOffsetIndex: chunk.audioChunk.seekOffsetIndex)
                 }
-
-                return TranscriptionResult(
-                    text: result.text,
-                    segments: adjustedSegments,
-                    language: result.language,
-                    timings: result.timings,
-                    seekTime: seekTimeOffset + (result.seekTime ?? 0)
-                )
+                result.seekTime = seekTimeOffset + (result.seekTime ?? 0)
             }
 
-            allResults.append(contentsOf: adjustedResults)
+            allResults.append(contentsOf: chunkResults)
         }
 
         // Sort by absolute seek time for a stable total order, including chunks with no segments.
