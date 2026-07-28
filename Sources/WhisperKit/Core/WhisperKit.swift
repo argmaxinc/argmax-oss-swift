@@ -742,19 +742,20 @@ open class WhisperKit {
             // Use withTaskGroup to manage concurrent transcription tasks
             let partialResult = await withTaskGroup(of: [(index: Int, result: Result<[TranscriptionResult], Swift.Error>)].self) { taskGroup -> [Result<[TranscriptionResult], Swift.Error>] in
                 for (audioIndex, audioArray) in audioArrayBatch.enumerated() {
-                    let batchSize = audioArrayBatch.count
+                    // This element's index in the original input, used to look up
+                    // its entry in the per-element arrays (`decodeOptionsArray`, `seekOffsets`).
+                    let windowId = batchIndex * concurrentWorkerCount + audioIndex
 
                     // Setup callback to keep track of batches and chunks
                     let batchedAudioCallback: TranscriptionCallback = { progress in
                         var batchedProgress = progress
-                        batchedProgress.windowId = audioIndex + batchIndex * batchSize
+                        batchedProgress.windowId = windowId
                         return callback?(batchedProgress)
                     }
 
                     // Setup segment callback to track chunk seek positions for segment discovery
                     let batchedSegmentCallback: SegmentDiscoveryCallback? = if let seekOffsets {
                         { [segmentDiscoveryCallback] segments in
-                            let windowId = audioIndex + batchIndex * batchSize
                             let seekOffset = seekOffsets[windowId]
                             var adjustedSegments = segments
                             for i in 0..<adjustedSegments.count {
@@ -767,7 +768,7 @@ open class WhisperKit {
                     }
 
                     // Setup decoding options for the current audio array
-                    let batchedDecodeOptions = decodeOptionsArray[audioIndex]
+                    let batchedDecodeOptions = decodeOptionsArray[windowId]
 
                     // Add a new task to the task group for each audio array
                     let weakSelf = WeakSendableWrapper(self)
