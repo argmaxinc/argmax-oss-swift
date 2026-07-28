@@ -35,6 +35,9 @@ setup:
 	@echo "Checking for fastlane"
 	@which fastlane > /dev/null || (echo "Installing fastlane..." && brew install fastlane)
 	@echo "fastlane is installed."
+	@echo "Checking for xcbeautify..."
+	@which xcbeautify > /dev/null || (echo "Installing xcbeautify..." && brew install xcbeautify)
+	@echo "xcbeautify is installed."
 	@$(MAKE) generate-xcconfigs
 	@echo "Done 🚀"
 

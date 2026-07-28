@@ -31,6 +31,7 @@ jobs:
             macos-runner: "macos-26"
             xcode-version: "26.4.1"
     uses: ./.github/workflows/unit-tests.yml
+    secrets: inherit
     with:
       macos-runner: ${{ matrix.os }}
       ios-version: ${{ matrix.ios-version }}

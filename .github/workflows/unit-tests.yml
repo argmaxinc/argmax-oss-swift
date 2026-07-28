@@ -21,6 +21,9 @@ on:
       xcode-version:
         required: false
         type: string
+    secrets:
+      HF_TOKEN:
+        required: false
 
 jobs:
   unit-tests:
@@ -91,12 +94,19 @@ jobs:
           xcrun simctl boot "$simulator_name" || true
           sleep 15
           xcrun simctl list devices
-      - name: Build and Test - ${{ matrix.run-config['name'] }}
+      - name: Build - ${{ matrix.run-config['name'] }}
         if: ${{ matrix.run-config['condition'] == true }}
         run: |
           set -o pipefail
-          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcpretty
-          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}'
+          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcbeautify --renderer github-actions
+      - name: Test - ${{ matrix.run-config['name'] }}
+        if: ${{ matrix.run-config['condition'] == true }}
+        env:
+          # xcodebuild strips the TEST_RUNNER_ prefix and forwards HF_TOKEN into the test process
+          TEST_RUNNER_HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -o pipefail
+          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' | xcbeautify --renderer github-actions
       - name: Upload Test Results
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
