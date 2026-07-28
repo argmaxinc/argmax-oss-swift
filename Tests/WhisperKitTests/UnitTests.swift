@@ -1374,6 +1374,48 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(wordTokens, expectedWordTokens, "Word tokens did not match expected output in Unicode split.")
     }
 
+    func testSplitToWordTokensChinese() async throws {
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        // 今天天气很好，我们来做个测试吧？
+        let tokenIds = [50364, 12074, 6135, 42204, 23801, 171, 120, 234, 15003, 6912, 10907, 7549, 11038, 233, 5233, 243, 6062, 171, 120, 253, 50257]
+        let originalWords = tokenIds.map { tokenizer.convertIdToToken($0) }
+
+        let (words, wordTokens) = tokenizer.splitToWordTokens(tokenIds: tokenIds)
+
+        // NLLanguageRecognizer reports Chinese as "zh-Hans"/"zh-Hant" (BCP-47), which must
+        // normalize to "zh" to hit the no-space-language path, same as Japanese above
+        let expectedWords = ["<|0.00|>", "今天", "天", "气", "很好", "，", "我们", "来", "做", "个", "测", "试", "吧", "？", "<|endoftext|>"]
+        let expectedWordTokens = [[50364], [12074], [6135], [42204], [23801], [171, 120, 234], [15003], [6912], [10907], [7549], [11038, 233], [5233, 243], [6062], [171, 120, 253], [50257]]
+
+        XCTAssertNotEqual(originalWords, words, "Should not directly convert into tokens from ids")
+        XCTAssertEqual(words, expectedWords, "Words did not match expected output in Unicode split.")
+        XCTAssertEqual(wordTokens, expectedWordTokens, "Word tokens did not match expected output in Unicode split.")
+    }
+
+    func testSplitToWordTokensChineseTraditional() async throws {
+        let tokenizer = try await ModelUtilities.loadTokenizer(for: .tiny)
+
+        // 今天天氣很好，我們來做個測試吧？
+        let tokenIds = [50364, 12074, 6135, 24090, 23801, 171, 120, 234, 5884, 3763, 10907, 3338, 9592, 105, 22099, 6062, 171, 120, 253, 50257]
+        let originalWords = tokenIds.map { tokenizer.convertIdToToken($0) }
+
+        let (words, wordTokens) = tokenizer.splitToWordTokens(tokenIds: tokenIds)
+
+        // Traditional Chinese (zh-Hant) must also normalize to "zh" to hit the no-space-language path.
+        // First, conservative guard assertions that don't depend on specific CFStringTokenizer output:
+        XCTAssertNotEqual(originalWords, words, "Traditional Chinese must hit the no-space split path, not fall back to 1:1 token mapping")
+        let flattenedTokens = wordTokens.flatMap { $0 }
+        XCTAssertEqual(tokenIds, flattenedTokens, "Split must preserve all input tokens without reordering")
+
+        // Then, exact match against known-good split output (same pattern as Simplified Chinese test):
+        let expectedWords = ["<|0.00|>", "今天", "天", "氣", "很好", "，", "我們", "來", "做", "個", "測", "試", "吧", "？", "<|endoftext|>"]
+        let expectedWordTokens = [[50364], [12074], [6135], [24090], [23801], [171, 120, 234], [5884], [3763], [10907], [3338], [9592, 105], [22099], [6062], [171, 120, 253], [50257]]
+
+        XCTAssertEqual(words, expectedWords, "Words did not match expected output in Unicode split.")
+        XCTAssertEqual(wordTokens, expectedWordTokens, "Word tokens did not match expected output in Unicode split.")
+    }
+
     // MARK: - Options Tests
 
     func testSampleLength() async throws {

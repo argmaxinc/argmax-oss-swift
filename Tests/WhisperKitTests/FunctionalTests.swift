@@ -147,6 +147,44 @@ final class FunctionalTests: XCTestCase {
         )
     }
 
+    /// Per-element decoding options must follow their own element when
+    /// `concurrentWorkerCount` splits the input across batches. Forcing a
+    /// different language per element makes any misassignment observable in
+    /// `result.language`. Worker count 1 catches batch-local indexing;
+    /// worker count 2 catches a stride taken from the shorter last batch.
+    func testPerElementDecodeOptionsFollowTheirElementAcrossBatches() async throws {
+        let audioPaths = try ["jfk", "es_test_clip", "ja_test_clip"].map { name in
+            try XCTUnwrap(
+                Bundle.current(for: self).path(forResource: name, ofType: "wav"),
+                "Audio file not found: " + name
+            )
+        }
+        let audioArrays = try audioPaths
+            .map { try AudioProcessor.loadAudio(fromPath: $0) }
+            .map { AudioProcessor.convertBufferToArray(buffer: $0) }
+        let languages = ["en", "es", "ja"]
+
+        let whisperKit = try await WhisperKit(WhisperKitConfig(modelFolder: tinyModelPath()))
+        for workerCount in [1, 2] {
+            let decodeOptionsArray: [DecodingOptions?] = languages.map {
+                DecodingOptions(language: $0, concurrentWorkerCount: workerCount)
+            }
+            let results = await whisperKit.transcribeWithOptions(
+                audioArrays: audioArrays,
+                decodeOptionsArray: decodeOptionsArray
+            )
+
+            XCTAssertEqual(results.count, languages.count)
+            for (index, expected) in languages.enumerated() {
+                let transcription = try results[index].get()
+                XCTAssertEqual(
+                    transcription.first?.language, expected,
+                    "workerCount \(workerCount): element \(index) was decoded with another element's options"
+                )
+            }
+        }
+    }
+
     func testBatchTranscribeAudioArrays() async throws {
         let audioPaths = try [
             XCTUnwrap(
