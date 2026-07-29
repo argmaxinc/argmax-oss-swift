@@ -660,7 +660,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             timings.decodingSampling += samplingTime
 
             isFirstTokenLogProbTooLow =
-                if isFirstToken, let firstTokenLogProbThreshold = options.firstTokenLogProbThreshold, nextTokenLogProb < firstTokenLogProbThreshold {
+                if isFirstToken, options.promptTokens == nil, let firstTokenLogProbThreshold = options.firstTokenLogProbThreshold, nextTokenLogProb < firstTokenLogProbThreshold {
                     true
                 } else {
                     false
