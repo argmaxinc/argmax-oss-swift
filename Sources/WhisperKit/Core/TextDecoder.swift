@@ -665,8 +665,13 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 } else {
                     false
                 }
+            // A sampled EOT during the forced prompt prefill is a throwaway
+            // prediction (the next token is forced regardless) — completing the
+            // segment on it would end decoding before any content token is
+            // produced, yielding an empty transcription whenever promptTokens
+            // are set. Only honor EOT once prefill has been fully consumed.
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (sampleResult.completed && !isPrefill) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
