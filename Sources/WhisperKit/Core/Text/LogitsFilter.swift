@@ -15,6 +15,12 @@ open class SuppressTokensFilter: LogitsFiltering {
 
     public init(suppressTokens: [Int]) {
         self.suppressTokens = suppressTokens
+        // Out-of-range ids are ignored by `fill`'s bounds check, including the
+        // `-1` sentinel ("suppress the default non-speech tokens"), which is
+        // not supported here.
+        if suppressTokens.contains(where: { $0 < 0 }) {
+            Logging.debug("SuppressTokensFilter: ignoring negative ids in suppressTokens; the -1 sentinel (suppress default non-speech tokens) is not supported")
+        }
         self.suppressTokenIndexes = suppressTokens.map { [0, 0, $0] }
     }
 

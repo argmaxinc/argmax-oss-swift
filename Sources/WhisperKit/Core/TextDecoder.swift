@@ -198,7 +198,12 @@ public extension TextDecoding {
             if let promptTokens = options.promptTokens {
                 let maxPromptLen = (Constants.maxTokenContext / 2) - 1
                 let trimmedPromptTokens = Array(promptTokens.suffix(maxPromptLen)).filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-                prefillTokens = [tokenizer.specialTokens.startOfPreviousToken] + trimmedPromptTokens + prefillTokens
+                // If nothing is left after trimming, skip the prompt entirely.
+                // A bare <|startofprev|> with no content tokens biases the model
+                // toward ending the segment early.
+                if !trimmedPromptTokens.isEmpty {
+                    prefillTokens = [tokenizer.specialTokens.startOfPreviousToken] + trimmedPromptTokens + prefillTokens
+                }
             }
 
             // Add prefix tokens
@@ -565,6 +570,9 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
         let loopCount = min(options.sampleLength, Constants.maxTokenContext - 1)
         Logging.debug("Running main loop for a maximum of \(loopCount) iterations, starting at index \(prefilledIndex)")
+        if initialPromptIndex > loopCount || initialPromptIndex >= Constants.maxTokenContext - 1 {
+            Logging.error("Initial prompt (\(initialPromptIndex) tokens) exceeds the decoding budget (sampleLength: \(options.sampleLength)); this window will decode no new tokens")
+        }
         var hasAlignment = false
         var isFirstTokenLogProbTooLow = false
         let windowUUID = UUID()
@@ -575,7 +583,11 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            // The first prediction that actually matters is the one sampled at the last
+            // prefill step; everything sampled before that is discarded and replaced by
+            // the forced prompt tokens. `prefilledIndex` alone can't identify that step:
+            // it is 0 whenever the KV cache is not prefilled, e.g. when promptTokens are set.
+            let isFirstToken = tokenIndex == max(prefilledIndex, initialPromptIndex - 1)
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -665,8 +677,12 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 } else {
                     false
                 }
+            // Ignore an EOT sampled while the prompt is still being force-fed: that
+            // prediction is discarded anyway, and stopping on it would return an empty
+            // transcription. An EOT sampled at or after the last prefill token is a
+            // real prediction and ends the segment as usual.
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (sampleResult.completed && !isPrefill) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
@@ -868,7 +884,9 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             allFilters.append(
                 SuppressBlankFilter(
                     specialTokens: tokenizer.specialTokens,
-                    sampleBegin: prefilledIndex
+                    // The first sampled token comes after the initial prompt
+                    // `prefilledIndex` is always 0 here and would leave the filter inactive.
+                    sampleBegin: initialPromptIndex
                 )
             )
         }

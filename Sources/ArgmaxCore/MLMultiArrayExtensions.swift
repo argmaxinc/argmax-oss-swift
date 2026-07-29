@@ -102,7 +102,12 @@ public extension MLMultiArray {
     func fill<Value>(indexes: [[Int]], with value: Value) {
         let pointer = UnsafeMutablePointer<Value>(OpaquePointer(dataPointer))
         let strideInts = strides.map { $0.intValue }
+        let shapeInts = shape.map { $0.intValue }
         for index in indexes {
+            // Skip indices outside the array's shape, they would write out of bounds
+            guard zip(index, shapeInts).allSatisfy({ $0 >= 0 && $0 < $1 }) else {
+                continue
+            }
             let linearOffset = linearOffset(for: index, strides: strideInts)
             pointer[linearOffset] = value
         }
