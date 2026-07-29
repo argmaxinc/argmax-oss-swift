@@ -815,9 +815,27 @@ final class UnitTests: XCTestCase {
 
     // MARK: - Prompt prefill decode loop tests
 
-    /// Prepares a scripted decoder and decoding inputs equivalent to a window decoded with `promptTokens` set,
-    /// mirroring the prefill setup in `TranscribeTask` but without requiring a model.
-    private func makePromptDecodingContext(options: DecodingOptions) async throws -> (decoder: ScriptedTextDecoder, inputs: any DecodingInputsType, sampler: GreedyTokenSampler, encoderOutput: MLMultiArray) {
+    /// Prepares a scripted decoder and decoding inputs equivalent to a window decoded with the
+    /// given prompt options, mirroring the prefill setup in `TranscribeTask` but without a model.
+    ///
+    /// Timestamps are always disabled here. `CustomTokenizer` packs its special tokens into a
+    /// tiny range (`timeTokenBegin` is 7), so the content token ids these tests use (100, 200,
+    /// 300, ...) all read as timestamp tokens. A timestamp-enabled test needs a tokenizer whose
+    /// content ids sit below `timeTokenBegin`, otherwise the prefill takes the timestamp-skip
+    /// branch in `decodeText` for every step.
+    private func makePromptDecodingContext(
+        promptTokens: [Int]? = nil,
+        prefixTokens: [Int]? = nil,
+        sampleLength: Int = 20,
+        firstTokenLogProbThreshold: Float? = nil
+    ) async throws -> (decoder: ScriptedTextDecoder, inputs: any DecodingInputsType, sampler: GreedyTokenSampler, encoderOutput: MLMultiArray, options: DecodingOptions) {
+        let options = DecodingOptions(
+            sampleLength: sampleLength,
+            withoutTimestamps: true,
+            promptTokens: promptTokens,
+            prefixTokens: prefixTokens,
+            firstTokenLogProbThreshold: firstTokenLogProbThreshold
+        )
         let decoder = ScriptedTextDecoder()
         decoder.isModelMultilingual = true
         decoder.tokenizer = CustomTokenizer(specialTokenBegin: 1000)
@@ -826,19 +844,13 @@ final class UnitTests: XCTestCase {
         let inputs = try await decoder.prefillDecoderInputs(sotPrompt, withOptions: options)
         let sampler = GreedyTokenSampler(temperature: 0, eotToken: decoder.tokenizer!.specialTokens.endToken, decodingOptions: options)
         let encoderOutput = try MLMultiArray(shape: [1, 2, 1, 4], dataType: .float16, initialValue: FloatType(0))
-        return (decoder, inputs, sampler, encoderOutput)
+        return (decoder, inputs, sampler, encoderOutput, options)
     }
 
     func testDecodeTextWithPromptTokensIgnoresEOTSampledDuringPrefill() async throws {
         // Regression test for #501/#489: an EOT sampled while the prompt prefill is being
         // force-fed is a throwaway prediction and must not complete the segment.
-        let options = DecodingOptions(
-            sampleLength: 20,
-            withoutTimestamps: true,
-            promptTokens: [200, 201],
-            firstTokenLogProbThreshold: nil
-        )
-        let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: [200, 201])
         let specialTokens = decoder.tokenizer!.specialTokens
 
         // initialPrompt = [startOfPrev, 200, 201, SOT, language, task, noTimestamps]
@@ -867,13 +879,7 @@ final class UnitTests: XCTestCase {
     func testDecodeTextWithPrefixTokensIgnoresEOTSampledDuringPrefill() async throws {
         // `prefixTokens` extend the forced prompt the same way `promptTokens` do, and the
         // prefill gates are unconditional. A promptTokens-only guard would miss this path.
-        let options = DecodingOptions(
-            sampleLength: 20,
-            withoutTimestamps: true,
-            prefixTokens: [300, 301],
-            firstTokenLogProbThreshold: nil
-        )
-        let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(prefixTokens: [300, 301])
         let specialTokens = decoder.tokenizer!.specialTokens
 
         // initialPrompt = [SOT, language, task, noTimestamps, 300, 301]
@@ -896,16 +902,60 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(decoder.predictionCount, inputs.initialPrompt.count + 1, "Decode loop should not stop during prefill")
     }
 
+    func testDecodeTextWithPromptTokensSampleLengthBudgetsSampledTokens() async throws {
+        // sampleLength excludes prefill steps
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: [200, 201], sampleLength: 2)
+        let specialTokens = decoder.tokenizer!.specialTokens
+
+        decoder.script = [ScriptedTextDecoder.Prediction(token: 100, confident: true)]
+
+        let result = try await decoder.decodeText(from: encoderOutput, using: inputs, sampler: sampler, options: options)
+
+        XCTAssertEqual(
+            result.tokens,
+            [specialTokens.startOfTranscriptToken, specialTokens.englishToken, specialTokens.transcribeToken, specialTokens.noTimestampsToken, 100, 100, specialTokens.endToken],
+            "The full prefill should be consumed and exactly sampleLength tokens decoded"
+        )
+        XCTAssertEqual(decoder.predictionCount, inputs.initialPrompt.count + 1, "Loop should run the full prefill plus sampleLength sampled tokens")
+    }
+
+    func testPrefillWithMaxPromptAndPrefixLeavesRoomToSample() async throws {
+        // Max prompt + prefix must still leave room to sample
+        let promptTokens = Array(0..<((Constants.maxTokenContext / 2) - 1))
+        let prefixTokens = Array(500..<(500 + Constants.maxTokenContext / 2))
+        let (_, inputs, _, _, _) = try await makePromptDecodingContext(promptTokens: promptTokens, prefixTokens: prefixTokens)
+
+        XCTAssertEqual(inputs.initialPrompt.count, Constants.maxTokenContext - 2, "Combined prefill should be capped below the decoding window")
+
+        let sotSequenceLength = 4 // SOT, language, task, noTimestamps
+        let expectedPrefixCount = Constants.maxTokenContext - 2 - (1 + promptTokens.count + sotSequenceLength)
+        XCTAssertEqual(
+            Array(inputs.initialPrompt.suffix(expectedPrefixCount)),
+            Array(prefixTokens.suffix(expectedPrefixCount)),
+            "The prefix should keep its suffix when trimmed to the remaining budget"
+        )
+    }
+
+    func testDecodeTextWithEmptyInitialPromptThrows() async throws {
+        // The decode loop needs at least one prompt token to start from. An empty initial
+        // prompt is caller error, so it must surface as an error rather than trapping.
+        let (decoder, _, sampler, encoderOutput, options) = try await makePromptDecodingContext()
+        let emptyInputs = try decoder.prepareDecoderInputs(withPrompt: [])
+
+        do {
+            _ = try await decoder.decodeText(from: encoderOutput, using: emptyInputs, sampler: sampler, options: options)
+            XCTFail("Decoding an empty initial prompt should throw")
+        } catch let error as WhisperError {
+            guard case .prepareDecoderInputsFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testDecodeTextWithPromptTokensStopsOnEOTAtFirstDecodedToken() async throws {
         // An EOT sampled at the last prefill step is the first real prediction (e.g. silence)
         // and must still complete the segment immediately, without appending extra tokens.
-        let options = DecodingOptions(
-            sampleLength: 20,
-            withoutTimestamps: true,
-            promptTokens: [200, 201],
-            firstTokenLogProbThreshold: nil
-        )
-        let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: [200, 201])
         let specialTokens = decoder.tokenizer!.specialTokens
 
         decoder.script = [ScriptedTextDecoder.Prediction(token: specialTokens.endToken, confident: true)]
@@ -923,13 +973,7 @@ final class UnitTests: XCTestCase {
     func testDecodeTextWithPromptTokensChecksFirstTokenLogProbAtFirstDecodedToken() async throws {
         // Regression test for #489/#428: low-confidence throwaway predictions during the
         // forced prompt prefill must not trigger the firstTokenLogProbThreshold fallback.
-        let options = DecodingOptions(
-            sampleLength: 20,
-            withoutTimestamps: true,
-            promptTokens: [200, 201],
-            firstTokenLogProbThreshold: -1.5
-        )
-        let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: [200, 201], firstTokenLogProbThreshold: -1.5)
         let specialTokens = decoder.tokenizer!.specialTokens
 
         // Unconfident throwaway predictions while the prompt is being forced,
@@ -956,13 +1000,7 @@ final class UnitTests: XCTestCase {
         // filtered out), must not prepend a bare `<|startofprev|>` and must decode normally.
         let specialOnlyPrompt = [1500] // >= specialTokenBegin (1000), filtered out during prefill
         for promptTokens in [[Int](), specialOnlyPrompt] {
-            let options = DecodingOptions(
-                sampleLength: 20,
-                withoutTimestamps: true,
-                promptTokens: promptTokens,
-                firstTokenLogProbThreshold: nil
-            )
-            let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+            let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: promptTokens)
             let specialTokens = decoder.tokenizer!.specialTokens
 
             XCTAssertEqual(
@@ -991,13 +1029,7 @@ final class UnitTests: XCTestCase {
     func testDecodeTextWithPromptTokensTriggersFirstTokenLogProbFallbackOnFirstDecodedToken() async throws {
         // The firstTokenLogProbThreshold fallback must still fire when the first
         // actually decoded token (after the prompt) is low-confidence.
-        let options = DecodingOptions(
-            sampleLength: 20,
-            withoutTimestamps: true,
-            promptTokens: [200, 201],
-            firstTokenLogProbThreshold: -1.5
-        )
-        let (decoder, inputs, sampler, encoderOutput) = try await makePromptDecodingContext(options: options)
+        let (decoder, inputs, sampler, encoderOutput, options) = try await makePromptDecodingContext(promptTokens: [200, 201], firstTokenLogProbThreshold: -1.5)
 
         decoder.script = [ScriptedTextDecoder.Prediction(token: 100, confident: false)]
 
@@ -1616,21 +1648,21 @@ final class UnitTests: XCTestCase {
 
     func testSampleLength() async throws {
         let desiredDecodingLoops = 5
-        let targetTokenCount = 7 // Account for the first token and the end of transcript token, which dont require decoding loops
 
-        let options = [
-            DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: false, skipSpecialTokens: false),
-            DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: true, skipSpecialTokens: false),
-            DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: false, skipSpecialTokens: true),
-            DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: true, skipSpecialTokens: true),
+        // Expected length = prefill + sampleLength + EOT
+        let optionsAndExpectedCounts = [
+            (DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: false, skipSpecialTokens: false), 1 + desiredDecodingLoops + 1),
+            (DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: true, skipSpecialTokens: false), 4 + desiredDecodingLoops + 1),
+            (DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: false, skipSpecialTokens: true), 1 + desiredDecodingLoops + 1),
+            (DecodingOptions(sampleLength: desiredDecodingLoops, usePrefillPrompt: true, skipSpecialTokens: true), 4 + desiredDecodingLoops + 1),
         ]
 
-        for option in options {
+        for (option, expectedTokenCount) in optionsAndExpectedCounts {
             let result = try await XCTUnwrapAsync(
                 await transcribe(with: .tiny, options: option),
                 "Failed to transcribe"
             )
-            XCTAssertEqual(result.segments.first?.tokens.count, targetTokenCount)
+            XCTAssertEqual(result.segments.first?.tokens.count, expectedTokenCount)
         }
     }
 
@@ -3395,7 +3427,6 @@ final class UnitTests: XCTestCase {
 
         let allFilters = decoder.createLogitsFilters(
             options: options,
-            prefilledIndex: 0,
             initialPromptIndex: 1,
             tokenizer: tokenizer
         )
@@ -3417,7 +3448,6 @@ final class UnitTests: XCTestCase {
 
         let allFilters = decoder.createLogitsFilters(
             options: options,
-            prefilledIndex: 0,
             initialPromptIndex: 1,
             tokenizer: tokenizer
         )
@@ -3439,7 +3469,6 @@ final class UnitTests: XCTestCase {
 
         let allFilters = decoder.createLogitsFilters(
             options: options,
-            prefilledIndex: 0,
             initialPromptIndex: 1,
             tokenizer: tokenizer
         )
@@ -3464,7 +3493,6 @@ final class UnitTests: XCTestCase {
 
         let allFilters = decoder.createLogitsFilters(
             options: options,
-            prefilledIndex: 0,
             initialPromptIndex: 1,
             tokenizer: tokenizer
         )
@@ -3488,7 +3516,6 @@ final class UnitTests: XCTestCase {
 
         let allFilters = decoder.createLogitsFilters(
             options: options,
-            prefilledIndex: 0,
             initialPromptIndex: 1,
             tokenizer: tokenizer
         )
