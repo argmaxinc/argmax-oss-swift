@@ -82,20 +82,34 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
         // frame in-graph, `stepped` decodes one position per prediction.
         self.isFused = mode == .fused
 
-        // Detect dimensions from model description
-        if let dim = ModelUtilities.getModelOutputDimension(model, named: "key_cache_updates", position: 1) {
-            self.kvCacheEmbedDim = dim
-        }
-        if let seq = ModelUtilities.getModelInputDimension(model, named: "key_padding_mask", position: 1) {
-            self.kvCacheMaxSequenceLength = seq
-        }
-        // all_logits output shape: [1, 15, codecVocabSize]
-        if let vocab = ModelUtilities.getModelOutputDimension(model, named: "all_logits", position: 2) {
-            self.codecVocabSize = vocab
-        }
-        // input_embeds shape: [1, embedDim, 1, 1]
-        if let embedDim = ModelUtilities.getModelInputDimension(model, named: "input_embeds", position: 1) {
-            self.inputEmbedDim = embedDim
+        // Detect dimensions from model description. The two functions expose different
+        // schemas, so only read the names the selected one actually has.
+        if isFused {
+            // gumbel shape: [15, codecVocabSize]
+            if let vocab = ModelUtilities.getModelInputDimension(model, named: "gumbel", position: 1) {
+                self.codecVocabSize = vocab
+            }
+            // code0_hidden_states shape: [1, embedDim, 1, 1]
+            if let embedDim = ModelUtilities.getModelInputDimension(model, named: "code0_hidden_states", position: 1) {
+                self.inputEmbedDim = embedDim
+            }
+            // The KV cache lives inside the fused graph, so the cache geometry
+            // properties stay at their defaults and go unused on this path.
+        } else {
+            if let dim = ModelUtilities.getModelOutputDimension(model, named: "key_cache_updates", position: 1) {
+                self.kvCacheEmbedDim = dim
+            }
+            if let seq = ModelUtilities.getModelInputDimension(model, named: "key_padding_mask", position: 1) {
+                self.kvCacheMaxSequenceLength = seq
+            }
+            // all_logits output shape: [1, 15, codecVocabSize]
+            if let vocab = ModelUtilities.getModelOutputDimension(model, named: "all_logits", position: 2) {
+                self.codecVocabSize = vocab
+            }
+            // input_embeds shape: [1, embedDim, 1, 1]
+            if let embedDim = ModelUtilities.getModelInputDimension(model, named: "input_embeds", position: 1) {
+                self.inputEmbedDim = embedDim
+            }
         }
     }
 
