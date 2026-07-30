@@ -125,7 +125,9 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
             temperature = 1
             noise = [FloatType](repeating: 0, count: noiseCount)
         } else {
-            // The graph divides logits by temperature; keep it strictly positive.
+            // The graph divides fp16 logits by an fp16 temperature, so the floor is an fp16
+            // range guard: small values overflow and anything under
+            // 0.05 is a safe value that is practically greedy.
             temperature = max(options.temperature, 0.05)
             // Bare `FloatType.init` is ambiguous on x86_64 where `FloatType == Float`.
             noise = sampler.gumbelNoise(count: noiseCount).map { FloatType($0) }
