@@ -86,7 +86,7 @@ final class TTSKitUnitTests: XCTestCase {
         TextChunker(
             targetChunkSize: targetChunkSize,
             minChunkSize: minChunkSize,
-            encode: { $0.unicodeScalars.map { Int($0.value) } },
+            encode: scalarEncode,
             decode: { String($0.compactMap { Unicode.Scalar($0) }.map { Character($0) }) }
         )
     }
@@ -102,7 +102,37 @@ final class TTSKitUnitTests: XCTestCase {
             .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let original = text
             .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        XCTAssertEqual(joined, original, "Chunks must reconstruct the input", file: file, line: line)
+        XCTAssertEqual(joined, original, "Chunks must reconstruct the input (whitespace-normalized)", file: file, line: line)
+    }
+
+    /// Encodes 1 unicode scalar per token, matching `makeChunker`.
+    private let scalarEncode: (String) -> [Int] = { $0.unicodeScalars.map { Int($0.value) } }
+
+    func testBoundaryAcceptsCJKTerminatorAtWindowEdge() {
+        // The window edge coincides with the ideographic full stop, so the final
+        // segment is a complete sentence and the boundary is the window end.
+        let window = "第一句话。第二句话。"
+        XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), window)
+    }
+
+    func testBoundaryAcceptsParagraphBreakAtWindowEdge() {
+        // A paragraph break at the window edge is a valid boundary even though
+        // the line has no terminator character.
+        let window = "A heading with no period\n"
+        XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), window)
+    }
+
+    func testBoundaryAcceptsBracketClosersAfterTerminator() {
+        // Closing brackets and guillemets after the terminator do not disqualify
+        // the final segment.
+        let window = "He said «All done.»"
+        XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), window)
+    }
+
+    func testBoundaryStillRejectsMidSentenceWindowEdge() {
+        // A window truncated mid-sentence must fall back to an earlier boundary.
+        let window = "First sentence. Second incomplete and more"
+        XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), "First sentence. ")
     }
 
     func testChunkerShortText() {

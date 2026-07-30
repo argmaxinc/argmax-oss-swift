@@ -73,10 +73,11 @@ extension String {
     /// reaches `minTokenCount`.
     ///
     /// Sentence segmentation keeps decimals, emails, and ellipses intact. The final
-    /// segment is only accepted when it ends in a terminator (. ! ?) after trailing
-    /// whitespace and closing quotes/brackets are stripped, so a window truncated
-    /// mid-sentence is not treated as a boundary. Clause enders only count when they
-    /// terminate a word, which avoids splitting mid-word hyphens.
+    /// segment is only accepted when it ends at a paragraph break or in a terminator
+    /// (. ! ? and non-ASCII equivalents) after trailing whitespace and closing
+    /// quotes/brackets are stripped, so a window truncated mid-sentence is not treated
+    /// as a boundary. Clause enders only count when they terminate a word, which
+    /// avoids splitting mid-word hyphens.
     ///
     /// - Parameters:
     ///   - minTokenCount: Minimum number of tokens the candidate must contain.
@@ -85,7 +86,13 @@ extension String {
     ///   boundary, or `nil`. The prefix is returned untrimmed because `TextChunker`
     ///   advances its token stream by the prefix's encoded length; trim only for display.
     public func lastNaturalBoundary(minTokenCount: Int, encode: (String) -> [Int]) -> String? {
-        let sentenceTerminators: Set<Character> = [".", "!", "?"]
+        let sentenceTerminators: Set<Character> = [
+            ".", "!", "?",
+            "\u{2026}", // … Horizontal ellipsis
+            "\u{3002}", // 。 Ideographic full stop
+            "\u{FF01}", // ！ Fullwidth exclamation mark
+            "\u{FF1F}", // ？ Fullwidth question mark
+        ]
         let clauseEnders: Set<Character> = [
             ",", ";", ":", "-",
             "\u{2013}", // – En dash
@@ -94,7 +101,9 @@ extension String {
             "\"", "'",
             "\u{201D}", // ” Right double quotation mark
             "\u{2019}", // ’ Right single quotation mark
-            ")", "]",
+            ")", "]", "}",
+            "\u{00BB}", // » Right-pointing double angle quotation mark
+            "\u{300D}", // 」 Right corner bracket
         ]
 
         var sentenceRanges: [Range<String.Index>] = []
@@ -106,11 +115,16 @@ extension String {
             let range = sentenceRanges[index]
 
             // Skip a truncated final fragment left by the caller's token window: the
-            // last meaningful character (ignoring trailing whitespace and closing
-            // quotes/brackets) must be a terminator. A bare trailing space is not enough.
+            // segment must end at a paragraph break, or its last meaningful character
+            // (ignoring trailing whitespace and closing quotes/brackets) must be a
+            // terminator. A bare trailing space is not enough.
             if index == sentenceRanges.count - 1 {
-                guard let lastMeaningful = self[range].last(where: { !$0.isWhitespace && !closers.contains($0) }),
-                      sentenceTerminators.contains(lastMeaningful)
+                let segment = self[range]
+                let endsAtParagraphBreak = segment.reversed()
+                    .prefix(while: { $0.isWhitespace || closers.contains($0) })
+                    .contains(where: \.isNewline)
+                let lastMeaningful = segment.last(where: { !$0.isWhitespace && !closers.contains($0) })
+                guard endsAtParagraphBreak || lastMeaningful.map(sentenceTerminators.contains) == true
                 else { continue }
             }
 
