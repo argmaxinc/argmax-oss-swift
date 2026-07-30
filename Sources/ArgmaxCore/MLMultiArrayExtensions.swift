@@ -104,8 +104,8 @@ public extension MLMultiArray {
         let strideInts = strides.map { $0.intValue }
         let shapeInts = shape.map { $0.intValue }
         for index in indexes {
-            // Skip indices outside the array's shape, they would write out of bounds
-            guard zip(index, shapeInts).allSatisfy({ $0 >= 0 && $0 < $1 }) else {
+            guard index.count == shapeInts.count,
+                  zip(index, shapeInts).allSatisfy({ $0 >= 0 && $0 < $1 }) else {
                 continue
             }
             let linearOffset = linearOffset(for: index, strides: strideInts)
