@@ -43,7 +43,8 @@ public extension TokenSampling {
     }
 
     static func gumbelNoise(count: Int, using rng: inout any RandomNumberGenerator) -> [Float] {
-        (0..<count).map { _ in
+        guard count > 0 else { return [] }
+        return (0..<count).map { _ in
             // The uniform draw excludes 0 and 1 so both logs stay finite.
             -log(-log(Float.random(in: Float.leastNormalMagnitude..<1, using: &rng)))
         }
