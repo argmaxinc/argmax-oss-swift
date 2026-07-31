@@ -129,6 +129,14 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), window)
     }
 
+    func testBoundaryDoesNotSplitAfterAbbreviation() {
+        // Locale-aware segmentation (.localized) knows "Mr." does not end a
+        // sentence, so the sentence tier offers no boundary here and the
+        // word-space fallback splits before the last word instead.
+        let window = "He met Mr. Smith yesterday and then"
+        XCTAssertEqual(window.lastNaturalBoundary(minTokenCount: 1, encode: scalarEncode), "He met Mr. Smith yesterday and")
+    }
+
     func testBoundaryStillRejectsMidSentenceWindowEdge() {
         // A window truncated mid-sentence must fall back to an earlier boundary.
         let window = "First sentence. Second incomplete and more"

@@ -72,7 +72,9 @@ extension String {
     /// boundaries (space). A candidate is only accepted when its encoded token count
     /// reaches `minTokenCount`.
     ///
-    /// Sentence segmentation keeps decimals, emails, and ellipses intact. The final
+    /// Sentence segmentation is locale-aware (`.localized`), so common abbreviations
+    /// like "Mr." or "U.S." do not end a sentence. It keeps decimals, emails, and
+    /// ellipses intact. The final
     /// segment is only accepted when it ends at a paragraph break or in a terminator
     /// (. ! ? and non-ASCII equivalents) after trailing whitespace and closing
     /// quotes/brackets are stripped, so a window truncated mid-sentence is not treated
@@ -107,7 +109,7 @@ extension String {
         ]
 
         var sentenceRanges: [Range<String.Index>] = []
-        enumerateSubstrings(in: startIndex..<endIndex, options: [.bySentences]) { _, range, _, _ in
+        enumerateSubstrings(in: startIndex..<endIndex, options: [.bySentences, .localized]) { _, range, _, _ in
             sentenceRanges.append(range)
         }
 
