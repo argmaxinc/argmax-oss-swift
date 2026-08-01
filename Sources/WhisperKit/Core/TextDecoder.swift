@@ -575,7 +575,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            let isFirstToken = tokenIndex == max(prefilledIndex, initialPromptIndex - 1)
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -666,7 +666,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                     false
                 }
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (sampleResult.completed && !isPrefill) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
