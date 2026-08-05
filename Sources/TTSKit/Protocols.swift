@@ -130,6 +130,11 @@ public protocol SpeechDecoding: MLModelLoading {
     /// SpeechDecoder, 4 for throughput-optimized). Read from the loaded model's
     /// `audio_codes` input shape. Implies `qk_mask` is consumed iff this is > 1.
     var codesPerStep: Int { get }
+    /// `true` when the model's `kv_cache_update_mask` input is rank 3
+    /// (`[1, codesPerStep, maxSeq]`), `false` for the rank-2 `[1, maxSeq]` mask used
+    /// by legacy single-function assets. Determines the mask the host allocates.
+    /// Not derivable from `codesPerStep`: both mask ranks exist at `codesPerStep == 1`.
+    var usesRank3UpdateMask: Bool { get }
 
     // MARK: - Decoding
 
@@ -147,4 +152,10 @@ public protocol SpeechDecoding: MLModelLoading {
         codes: [[Int32]],
         cache: SpeechDecoderCache
     ) async throws -> SpeechDecoderTimedResult
+}
+
+public extension SpeechDecoding {
+    /// Default matching the multifunction asset, so existing conformers that predate
+    /// single-function support keep their behavior without implementing this.
+    var usesRank3UpdateMask: Bool { true }
 }
