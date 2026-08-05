@@ -388,12 +388,22 @@ open class TTSKit: @unchecked Sendable {
             let resolvedRepo = modelRepo ?? config.modelRepo
             let resolvedToken = modelToken ?? config.modelToken
 
+            // Carry the component variants and version directory over: `downloadPatterns`
+            // is derived from them, so dropping them here would fetch the preset defaults
+            // and then fail to load the variants actually configured.
             let downloadConfig = TTSKitConfig(
                 model: resolvedModel,
                 downloadBase: downloadBase ?? config.downloadBase,
                 modelRepo: resolvedRepo,
                 modelToken: resolvedToken,
                 modelEndpoint: endpoint,
+                versionDir: config.versionDir,
+                codeDecoderVariant: config.codeDecoderVariant,
+                multiCodeDecoderVariant: config.multiCodeDecoderVariant,
+                codeEmbedderVariant: config.codeEmbedderVariant,
+                multiCodeEmbedderVariant: config.multiCodeEmbedderVariant,
+                textProjectorVariant: config.textProjectorVariant,
+                speechDecoderVariant: config.speechDecoderVariant,
                 downloadRevision: config.downloadRevision,
                 downloadAdditionalPatterns: config.downloadAdditionalPatterns,
                 useBackgroundDownloadSession: config.useBackgroundDownloadSession
