@@ -1211,6 +1211,7 @@ extension TTSModelVariant {
         switch self {
             case .qwen3TTS_0_6b: return "~1 GB"
             case .qwen3TTS_1_7b: return "~2.2 GB"
+            case .qwen3TTS_0_6b_base: return "~1 GB"
         }
     }
 }
