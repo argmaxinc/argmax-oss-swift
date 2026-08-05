@@ -29,6 +29,16 @@ struct MLTensorStepResult {
 
 /// Multi-code RVQ decoder backed by a CoreML model.
 ///
+/// Two asset layouts are supported, distinguished at load time by inspecting the
+/// asset rather than by any variant string:
+///
+/// - **Multifunction** (`W8A16-multifunction`): carries a `stepped` graph (one code
+///   position per prediction) and a `fused` graph (whole 15-code frame in one
+///   prediction with in-graph sampling), selected via
+///   `MLModelConfiguration.functionName`.
+/// - **Single-function** (legacy `W8A16`): one graph, schema-identical to the
+///   multifunction `stepped` function, so it drives the same decode path.
+///
 /// Thread safety: mutable state (`model`, dimension properties) is set once during
 /// `loadModel()` and read-only thereafter. `MLModel.prediction()` is thread-safe.
 /// Per-call state is created locally within `generateMultiCodes()` and never stored
@@ -44,33 +54,62 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
     public private(set) var codecVocabSize: Int = Qwen3TTSConstants.codecVocabSize
 
     /// Which function of the multifunction asset to load. Set before `loadModel`;
-    /// legacy single-function assets cannot be loaded (function selection fails).
+    /// ignored — beyond a compatibility check — when the asset is single-function.
     public var mode: Qwen3MultiCodeDecoderMode = .stepped
+
+    /// `true` when the loaded asset exposed CoreML functions and one was selected.
+    public private(set) var isMultifunction: Bool = false
 
     public init() {}
 
     public func loadModel(at url: URL, computeUnits: MLComputeUnits, prewarmMode: Bool = false) async throws {
         let modelConfig = MLModelConfiguration()
         modelConfig.computeUnits = computeUnits
-        // The MultiCodeDecoder ships as a multifunction asset carrying both the
-        // `stepped` and `fused` graphs; `mode.functionName` selects one. Function
-        // selection is iOS 18+ / macOS 15+, and the asset requires the same minimum,
-        // so callers on older OS cannot load it.
+        // The tensor decode path is iOS 18+ / macOS 15+, as is CoreML function
+        // selection, so both asset layouts share that floor.
         guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
             throw TTSError.modelLoadingFailed(
-                "MultiCodeDecoder requires macOS 15 / iOS 18 (multifunction CoreML model)"
+                "MultiCodeDecoder requires macOS 15 / iOS 18"
             )
         }
-        modelConfig.functionName = mode.functionName
+
+        // Probe the asset for CoreML functions instead of assuming a layout: a
+        // multifunction asset names its graphs, a legacy single-function asset
+        // reports none and must be loaded without a `functionName`.
+        let functionNames = await Self.functionNames(at: url)
+        let selectedFunction: String?
+        if functionNames.isEmpty {
+            // Single-function asset: schema-identical to the multifunction `stepped`
+            // graph, so it can serve `.stepped` but has no in-graph sampling to offer
+            // `.fused`. Say so rather than silently running the stepped path.
+            guard mode == .stepped else {
+                throw TTSError.invalidConfiguration(
+                    "MultiCodeDecoder: \(url.lastPathComponent) is a single-function asset and " +
+                    "only supports \(Qwen3MultiCodeDecoderMode.stepped.rawValue). Use the " +
+                    "multifunction variant ('\(Qwen3VariantDefaults.multiCodeDecoder)') for " +
+                    "\(mode.rawValue)."
+                )
+            }
+            selectedFunction = nil
+        } else {
+            guard functionNames.contains(mode.functionName) else {
+                throw TTSError.modelLoadingFailed(
+                    "MultiCodeDecoder: \(url.lastPathComponent) has no function " +
+                    "'\(mode.functionName)' (available: \(functionNames.joined(separator: ", ")))."
+                )
+            }
+            selectedFunction = mode.functionName
+            modelConfig.functionName = mode.functionName
+        }
+
         let loaded: MLModel
         do {
             loaded = try await MLModel.load(contentsOf: url, configuration: modelConfig)
         } catch {
+            let functionSuffix = selectedFunction.map { " (function '\($0)')" } ?? ""
             throw TTSError.modelLoadingFailed(
-                "MultiCodeDecoder: failed to load function '\(mode.functionName)' from " +
-                "\(url.lastPathComponent). This must be a multifunction CoreML asset " +
-                "with 'stepped' and 'fused' functions, running on macOS 15 / iOS 18 " +
-                "or newer. (\(error.localizedDescription))"
+                "MultiCodeDecoder: failed to load \(url.lastPathComponent)\(functionSuffix) on " +
+                "macOS 15 / iOS 18 or newer. (\(error.localizedDescription))"
             )
         }
 
@@ -78,8 +117,10 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
         guard !prewarmMode else { return }
 
         self.model = loaded
-        // The selected function determines the graph: `fused` samples the whole
-        // frame in-graph, `stepped` decodes one position per prediction.
+        self.isMultifunction = selectedFunction != nil
+        // The selected graph determines the decode path: `fused` samples the whole
+        // frame in-graph, `stepped` (and the legacy asset) decode one position per
+        // prediction.
         self.isFused = mode == .fused
 
         // Detect dimensions from model description
@@ -96,6 +137,19 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
         // input_embeds shape: [1, embedDim, 1, 1]
         if let embedDim = ModelUtilities.getModelInputDimension(model, named: "input_embeds", position: 1) {
             self.inputEmbedDim = embedDim
+        }
+    }
+
+    /// CoreML function names exposed by the asset at `url`, or `[]` when it is a
+    /// single-function asset (or cannot be inspected — the subsequent `MLModel.load`
+    /// reports the real failure with better context).
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    private static func functionNames(at url: URL) async -> [String] {
+        do {
+            return try await MLModelAsset(url: url).functionNames
+        } catch {
+            Logging.debug("MultiCodeDecoder: could not read function names from \(url.lastPathComponent): \(error)")
+            return []
         }
     }
 

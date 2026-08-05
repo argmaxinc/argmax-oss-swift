@@ -199,8 +199,8 @@ public enum Qwen3SpeechDecoderMode: String, Sendable, CaseIterable {
 /// Selects which MultiCodeDecoder graph expands a talker frame into its 15
 /// residual codes. `.stepped` decodes one position per prediction; `.fused`
 /// decodes the whole frame in one prediction with in-graph sampling.
-/// Loading requires a multifunction asset exposing both functions; legacy
-/// single-function assets fail to load with a function-selection error.
+/// `.fused` requires a multifunction asset; legacy single-function assets are
+/// schema-identical to `stepped` and load fine in that mode.
 @frozen
 public enum Qwen3MultiCodeDecoderMode: String, Sendable, CaseIterable {
     case stepped
