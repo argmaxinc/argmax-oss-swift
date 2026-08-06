@@ -264,6 +264,28 @@ final class TTSKitIntegrationTests: XCTestCase {
         XCTAssertEqual(result.sampleRate, 24000)
     }
 
+    /// Playback callback should fire with non-empty samples during real-time playback.
+    func testPlaybackCallbackReceivesSamples() async throws {
+        let tts = try await makeCachedTTS(seed: 42)
+        tts.audioOutput.setOutputSuppressed(true)
+        let callbackExpectation = expectation(description: "Playback callback fired")
+        callbackExpectation.assertForOverFulfill = false
+
+        _ = try await tts.play(
+            text: "Playback callback smoke test.",
+            speaker: .ryan,
+            language: .english,
+            options: GenerationOptions(temperature: 0.0, topK: 0, maxNewTokens: 80),
+            playbackStrategy: .generateFirst,
+            playbackCallback: { samples in
+                guard samples.isEmpty == false else { return }
+                callbackExpectation.fulfill()
+            }
+        )
+
+        await fulfillment(of: [callbackExpectation], timeout: 5.0)
+    }
+
     // MARK: - Performance
 
     /// Verify timings are populated and the generation loop completed within a reasonable ceiling.
