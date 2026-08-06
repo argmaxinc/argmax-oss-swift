@@ -39,6 +39,10 @@ public actor AudioStreamTranscriber {
     private let transcribeTask: TranscribeTask
     private let audioProcessor: any AudioProcessing
     private let decodingOptions: DecodingOptions
+    /// Optional input device to capture from. nil = system default input.
+    /// Lets callers stream from a specific device (e.g. a virtual device) instead
+    /// of always using the system default. Passed through to startRecordingLive.
+    private let inputDeviceID: DeviceID?
 
     public init(
         audioEncoder: any AudioEncoding,
@@ -52,6 +56,7 @@ public actor AudioStreamTranscriber {
         silenceThreshold: Float = 0.3,
         compressionCheckWindow: Int = 60,
         useVAD: Bool = true,
+        inputDeviceID: DeviceID? = nil,
         stateChangeCallback: AudioStreamTranscriberCallback?
     ) {
         self.transcribeTask = TranscribeTask(
@@ -70,6 +75,7 @@ public actor AudioStreamTranscriber {
         self.silenceThreshold = silenceThreshold
         self.compressionCheckWindow = compressionCheckWindow
         self.useVAD = useVAD
+        self.inputDeviceID = inputDeviceID
         self.stateChangeCallback = stateChangeCallback
     }
 
@@ -80,7 +86,7 @@ public actor AudioStreamTranscriber {
             return
         }
         state.isRecording = true
-        try audioProcessor.startRecordingLive { [weak self] _ in
+        try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] _ in
             Task { [weak self] in
                 await self?.onAudioBufferCallback()
             }
