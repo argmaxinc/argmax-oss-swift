@@ -3,7 +3,7 @@
 
 import Accelerate
 import ArgmaxCore
-import CoreML
+@preconcurrency import CoreML
 import Foundation
 
 // MARK: - Implementation
