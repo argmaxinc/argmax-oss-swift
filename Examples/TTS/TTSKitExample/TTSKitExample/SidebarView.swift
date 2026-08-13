@@ -16,8 +16,9 @@ struct SidebarView: View {
 
             Divider()
 
-            // SpeechDecoder mode — a model-loading choice
+            // Decoder modes — model-loading choices
             SpeechDecoderModeView()
+            MultiCodeDecoderModeView()
 
             Divider()
 

@@ -29,6 +29,16 @@ struct MLTensorStepResult {
 
 /// Multi-code RVQ decoder backed by a CoreML model.
 ///
+/// Two asset layouts are supported, distinguished at load time by inspecting the
+/// asset rather than by any variant string:
+///
+/// - **Multifunction** (`W8A16-multifunction`): carries a `stepped` graph (one code
+///   position per prediction) and a `fused` graph (whole 15-code frame in one
+///   prediction with in-graph sampling), selected via
+///   `MLModelConfiguration.functionName`.
+/// - **Single-function** (legacy `W8A16`): one graph, schema-identical to the
+///   multifunction `stepped` function, so it drives the same decode path.
+///
 /// Thread safety: mutable state (`model`, dimension properties) is set once during
 /// `loadModel()` and read-only thereafter. `MLModel.prediction()` is thread-safe.
 /// Per-call state is created locally within `generateMultiCodes()` and never stored
@@ -43,37 +53,175 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
     /// Codec vocabulary size per head (codes 1-15), detected from model output
     public private(set) var codecVocabSize: Int = Qwen3TTSConstants.codecVocabSize
 
+    /// Which function of the multifunction asset to load. Set before `loadModel`;
+    /// ignored — beyond a compatibility check — when the asset is single-function.
+    public var mode: Qwen3MultiCodeDecoderMode = .stepped
+
+    /// `true` when the loaded asset exposed CoreML functions and one was selected.
+    public private(set) var isMultifunction: Bool = false
+
     public init() {}
 
     public func loadModel(at url: URL, computeUnits: MLComputeUnits, prewarmMode: Bool = false) async throws {
         let modelConfig = MLModelConfiguration()
         modelConfig.computeUnits = computeUnits
-        let loaded = try await MLModel.load(contentsOf: url, configuration: modelConfig)
+        // The tensor decode path is iOS 18+ / macOS 15+, as is CoreML function
+        // selection, so both asset layouts share that floor.
+        guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+            throw TTSError.modelLoadingFailed(
+                "MultiCodeDecoder requires macOS 15 / iOS 18"
+            )
+        }
+
+        // Probe the asset for CoreML functions instead of assuming a layout: a
+        // multifunction asset names its graphs, a legacy single-function asset
+        // reports none and must be loaded without a `functionName`.
+        let functionNames = await Self.functionNames(at: url)
+        let selectedFunction: String?
+        if functionNames.isEmpty {
+            // Single-function asset: schema-identical to the multifunction `stepped`
+            // graph, so it can serve `.stepped` but has no in-graph sampling to offer
+            // `.fused`. Say so rather than silently running the stepped path.
+            guard mode == .stepped else {
+                throw TTSError.invalidConfiguration(
+                    "MultiCodeDecoder: \(url.lastPathComponent) is a single-function asset and " +
+                    "only supports \(Qwen3MultiCodeDecoderMode.stepped.rawValue). Use the " +
+                    "multifunction variant ('\(Qwen3VariantDefaults.multiCodeDecoder)') for " +
+                    "\(mode.rawValue)."
+                )
+            }
+            selectedFunction = nil
+        } else {
+            guard functionNames.contains(mode.functionName) else {
+                throw TTSError.modelLoadingFailed(
+                    "MultiCodeDecoder: \(url.lastPathComponent) has no function " +
+                    "'\(mode.functionName)' (available: \(functionNames.joined(separator: ", ")))."
+                )
+            }
+            selectedFunction = mode.functionName
+            modelConfig.functionName = mode.functionName
+        }
+
+        let loaded: MLModel
+        do {
+            loaded = try await MLModel.load(contentsOf: url, configuration: modelConfig)
+        } catch {
+            let functionSuffix = selectedFunction.map { " (function '\($0)')" } ?? ""
+            throw TTSError.modelLoadingFailed(
+                "MultiCodeDecoder: failed to load \(url.lastPathComponent)\(functionSuffix) on " +
+                "macOS 15 / iOS 18 or newer. (\(error.localizedDescription))"
+            )
+        }
 
         // In prewarm mode, compilation is complete - discard to free memory before next model compiles
         guard !prewarmMode else { return }
 
         self.model = loaded
+        self.isMultifunction = selectedFunction != nil
+        // The selected graph determines the decode path: `fused` samples the whole
+        // frame in-graph, `stepped` (and the legacy asset) decode one position per
+        // prediction.
+        self.isFused = mode == .fused
 
-        // Detect dimensions from model description
-        if let dim = ModelUtilities.getModelOutputDimension(model, named: "key_cache_updates", position: 1) {
-            self.kvCacheEmbedDim = dim
+        // Detect dimensions from model description. The two functions expose different
+        // schemas, so only read the names the selected one actually has.
+        if isFused {
+            // gumbel shape: [15, codecVocabSize]
+            if let vocab = ModelUtilities.getModelInputDimension(model, named: "gumbel", position: 1) {
+                self.codecVocabSize = vocab
+            }
+            // code0_hidden_states shape: [1, embedDim, 1, 1]
+            if let embedDim = ModelUtilities.getModelInputDimension(model, named: "code0_hidden_states", position: 1) {
+                self.inputEmbedDim = embedDim
+            }
+            // The KV cache lives inside the fused graph, so the cache geometry
+            // properties stay at their defaults and go unused on this path.
+        } else {
+            if let dim = ModelUtilities.getModelOutputDimension(model, named: "key_cache_updates", position: 1) {
+                self.kvCacheEmbedDim = dim
+            }
+            if let seq = ModelUtilities.getModelInputDimension(model, named: "key_padding_mask", position: 1) {
+                self.kvCacheMaxSequenceLength = seq
+            }
+            // all_logits output shape: [1, 15, codecVocabSize]
+            if let vocab = ModelUtilities.getModelOutputDimension(model, named: "all_logits", position: 2) {
+                self.codecVocabSize = vocab
+            }
+            // input_embeds shape: [1, embedDim, 1, 1]
+            if let embedDim = ModelUtilities.getModelInputDimension(model, named: "input_embeds", position: 1) {
+                self.inputEmbedDim = embedDim
+            }
         }
-        if let seq = ModelUtilities.getModelInputDimension(model, named: "key_padding_mask", position: 1) {
-            self.kvCacheMaxSequenceLength = seq
-        }
-        // all_logits output shape: [1, 15, codecVocabSize]
-        if let vocab = ModelUtilities.getModelOutputDimension(model, named: "all_logits", position: 2) {
-            self.codecVocabSize = vocab
-        }
-        // input_embeds shape: [1, embedDim, 1, 1]
-        if let embedDim = ModelUtilities.getModelInputDimension(model, named: "input_embeds", position: 1) {
-            self.inputEmbedDim = embedDim
+    }
+
+    /// CoreML function names exposed by the asset at `url`, or `[]` when it is a
+    /// single-function asset (or cannot be inspected — the subsequent `MLModel.load`
+    /// reports the real failure with better context).
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    private static func functionNames(at url: URL) async -> [String] {
+        do {
+            return try await MLModelAsset(url: url).functionNames
+        } catch {
+            Logging.debug("MultiCodeDecoder: could not read function names from \(url.lastPathComponent): \(error)")
+            return []
         }
     }
 
     /// Embedding dimension for `input_embeds`, detected from the model at load time.
     public private(set) var inputEmbedDim: Int = Qwen3TTSConstants.embedDim
+
+    /// True when the loaded model is the fused one-call-per-frame variant.
+    public private(set) var isFused = false
+
+    /// One CoreML call for the whole 15-code frame. Sampling runs in-graph via
+    /// the Gumbel-max trick (`argmax(logits/T + G)` draws from `softmax(logits/T)`)
+    /// with noise from `sampler`'s RNG, so seeded generation reproduces.
+    /// `embed_sum` is the sum of the sampled codes' MultiCodeEmbedder rows.
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+    public func generateMultiCodesFused(
+        hiddenStatesTensor: MLTensor,
+        code0EmbedTensor: MLTensor,
+        sampler: any TokenSampling,
+        options: GenerationOptions
+    ) async throws -> (codes: [Int32], embedSum: MLTensor, predictionTime: TimeInterval) {
+        guard let model else { throw TTSError.generationFailed("MultiCodeDecoder model not loaded") }
+        let noiseCount = Qwen3TTSConstants.mcdHeads * codecVocabSize
+        let temperature: Float
+        let noise: [FloatType]
+        if options.temperature <= 0 {
+            // Exact greedy: argmax(logits / 1 + 0) == argmax(logits)
+            temperature = 1
+            noise = [FloatType](repeating: 0, count: noiseCount)
+        } else {
+            // The graph divides fp16 logits by an fp16 temperature, so the floor is an fp16
+            // range guard: small values overflow and anything under
+            // 0.05 is a safe value that is practically greedy.
+            temperature = max(options.temperature, 0.05)
+            // Bare `FloatType.init` is ambiguous on x86_64 where `FloatType == Float`.
+            noise = sampler.gumbelNoise(count: noiseCount).map { FloatType($0) }
+        }
+        var inputs: [String: MLTensor] = [
+            "code0_hidden_states": hiddenStatesTensor,
+            "code0_embed": code0EmbedTensor,
+            "gumbel": MLTensor(shape: [Qwen3TTSConstants.mcdHeads, codecVocabSize], scalars: noise),
+            "temperature": MLTensor(shape: [1], scalars: [FloatType(temperature)]),
+        ]
+        if model.modelDescription.inputDescriptionsByName["top_k"] != nil {
+            // topK <= 0 means "no top-k"; the graph saturates at its compiled candidate count.
+            let topK = options.topK > 0 ? options.topK : codecVocabSize
+            inputs["top_k"] = MLTensor(shape: [1], scalars: [Int32(topK)])
+        }
+        let predictionStart = CFAbsoluteTimeGetCurrent()
+        let outputs = try await model.prediction(from: inputs)
+        guard let codesTensor = outputs["codes"], let embedSum = outputs["embed_sum"] else {
+            throw TTSError.generationFailed("Fused MultiCodeDecoder: missing codes/embed_sum outputs")
+        }
+        let codes = await codesTensor.toIntArray().map(Int32.init)
+        guard codes.count == Qwen3TTSConstants.mcdHeads else {
+            throw TTSError.generationFailed("Fused MultiCodeDecoder: expected 15 codes, got \(codes.count)")
+        }
+        return (codes, embedSum, CFAbsoluteTimeGetCurrent() - predictionStart)
+    }
 
     public var isStateful: Bool {
         guard let model else { return false }
@@ -103,6 +251,23 @@ public class Qwen3MultiCodeDecoder: MultiCodeDecoding, @unchecked Sendable {
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
     public func prewarmInference() async throws {
         guard let model else { return }
+        if isFused {
+            // Full-frame dummy calls pipeline the ANE the same way as the stepped loop.
+            let dummyHidden = MLTensor(zeros: [1, inputEmbedDim, 1, 1], scalarType: FloatType.self)
+            let dummyGumbel = MLTensor(zeros: [Qwen3TTSConstants.mcdHeads, codecVocabSize], scalarType: FloatType.self)
+            let dummyTemp = MLTensor(shape: [1], scalars: [FloatType(1)])
+            var dummyInputs: [String: MLTensor] = [
+                "code0_hidden_states": dummyHidden, "code0_embed": dummyHidden,
+                "gumbel": dummyGumbel, "temperature": dummyTemp,
+            ]
+            if model.modelDescription.inputDescriptionsByName["top_k"] != nil {
+                dummyInputs["top_k"] = MLTensor(shape: [1], scalars: [Int32(1)])
+            }
+            for _ in 0..<4 {
+                _ = try await model.prediction(from: dummyInputs)
+            }
+            return
+        }
         let sequenceLength = kvCacheMaxSequenceLength
         let dummyInput = MLTensor(zeros: [1, inputEmbedDim, 1, 1], scalarType: FloatType.self)
         for _ in 0..<4 {

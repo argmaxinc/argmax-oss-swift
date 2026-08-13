@@ -198,12 +198,19 @@ public extension TextDecoding {
             if let promptTokens = options.promptTokens {
                 let maxPromptLen = (Constants.maxTokenContext / 2) - 1
                 let trimmedPromptTokens = Array(promptTokens.suffix(maxPromptLen)).filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-                prefillTokens = [tokenizer.specialTokens.startOfPreviousToken] + trimmedPromptTokens + prefillTokens
+                // If nothing is left after trimming, skip the prompt entirely.
+                // A bare <|startofprev|> with no content tokens biases the model
+                // toward ending the segment early.
+                if !trimmedPromptTokens.isEmpty {
+                    prefillTokens = [tokenizer.specialTokens.startOfPreviousToken] + trimmedPromptTokens + prefillTokens
+                }
             }
 
             // Add prefix tokens
             if let prefixTokens = options.prefixTokens {
-                let trimmedPrefixTokens = Array(prefixTokens.suffix(Constants.maxTokenContext / 2)).filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+                // Cap prefix so combined prefill leaves room for at least one sampled token.
+                let maxPrefixLen = min(Constants.maxTokenContext / 2, Constants.maxTokenContext - 2 - prefillTokens.count)
+                let trimmedPrefixTokens = Array(prefixTokens.suffix(max(0, maxPrefixLen))).filter { $0 < tokenizer.specialTokens.specialTokenBegin }
                 prefillTokens.append(contentsOf: trimmedPrefixTokens)
             }
         }
@@ -335,7 +342,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         languageLogitsFilter = nil
     }
 
-    func debugCaches(decoderInputs: DecodingInputs, tokenIndex: Int, prefillSize: Int) {
+    func debugCaches(decoderInputs: DecodingInputs, tokenIndex: Int) {
         Logging.debug("--------------- DECODER INPUTS DEBUG ---------------")
         Logging.debug(
             String(
@@ -346,7 +353,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         )
         Logging.debug("Key Cache | Val Cache | Align Cache | Update Mask | Decoder Mask | Position")
 
-        for i in 0..<min(prefillSize + 4, Constants.maxTokenContext) {
+        // First 4 positions only; alignment stride is hardcoded to 1500 frames.
+        for i in 0..<4 {
             let formattedString = String(format: "%9.6f | %9.6f | %9.6f | %11.0f | %12.0f | %d",
                                          decoderInputs.keyCache[i].floatValue,
                                          decoderInputs.valueCache[i].floatValue,
@@ -436,15 +444,14 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         }
 
         var timings = TranscriptionTimings()
-        let prefilledIndex = 0
         let currentTokens: [Int] = [tokenizer.specialTokens.startOfTranscriptToken]
-        var logProbs: [Float] = Array(repeating: 0, count: prefilledIndex + 1)
+        var logProbs: [Float] = [0.0]
 
         // Logits filters
         let languageLogitsFilter = self.languageLogitsFilter ?? LanguageLogitsFilter(
             allLanguageTokens: tokenizer.allLanguageTokens,
             logitsDim: logitsSize,
-            sampleBegin: prefilledIndex
+            sampleBegin: 0
         )
         self.languageLogitsFilter = languageLogitsFilter
 
@@ -550,32 +557,36 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             throw WhisperError.tokenizerUnavailable()
         }
 
+        guard let lastPromptToken = decoderInputs.initialPrompt.last else {
+            throw WhisperError.prepareDecoderInputsFailed("Initial prompt must not be empty")
+        }
+
         // Single loop variables
         var timings = TranscriptionTimings()
-        let prefilledIndex = decoderInputs.cacheLength[0].intValue
         let initialPromptIndex = decoderInputs.initialPrompt.count
         var currentTokens: [Int] = decoderInputs.initialPrompt
-        var nextToken: Int = decoderInputs.initialPrompt.last!
+        var nextToken: Int = lastPromptToken
         var logProbs: [Float] = Array(repeating: 0, count: currentTokens.count)
 
         // Logits filters
-        let logitsFilters = createLogitsFilters(options: options, prefilledIndex: prefilledIndex, initialPromptIndex: initialPromptIndex, tokenizer: tokenizer)
+        let logitsFilters = createLogitsFilters(options: options, initialPromptIndex: initialPromptIndex, tokenizer: tokenizer)
 
         // MARK: Main loop
 
-        let loopCount = min(options.sampleLength, Constants.maxTokenContext - 1)
-        Logging.debug("Running main loop for a maximum of \(loopCount) iterations, starting at index \(prefilledIndex)")
+        // sampleLength counts sampled tokens only, not prefill steps.
+        let loopCount = min(initialPromptIndex - 1 + options.sampleLength, Constants.maxTokenContext - 1)
+        Logging.debug("Running main loop for a maximum of \(loopCount) iterations")
         var hasAlignment = false
         var isFirstTokenLogProbTooLow = false
         let windowUUID = UUID()
         await earlyStopActor.set(false, for: windowUUID)
 
-        for tokenIndex in prefilledIndex..<loopCount {
+        for tokenIndex in 0..<loopCount {
             let loopStart = Date()
 
             let isPrefill = tokenIndex < initialPromptIndex - 1 // Prefill stops at the last token of the initial prompt
             let isLastPrefillToken = tokenIndex == initialPromptIndex - 1
-            let isFirstToken = tokenIndex == prefilledIndex
+            let isFirstToken = tokenIndex == max(0, initialPromptIndex - 1)
 
             // Check if current index is part of the initial prompt
             if tokenIndex < initialPromptIndex {
@@ -601,8 +612,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             decoderInputs.inputIds[0] = NSNumber(value: nextToken)
             decoderInputs.cacheLength[0] = NSNumber(value: tokenIndex)
 
-            if tokenIndex <= prefilledIndex + 3 {
-                debugCaches(decoderInputs: decoderInputs, tokenIndex: tokenIndex, prefillSize: prefilledIndex)
+            if tokenIndex <= 3 {
+                debugCaches(decoderInputs: decoderInputs, tokenIndex: tokenIndex)
             }
 
             // MARK: Decoding Inference
@@ -665,8 +676,12 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 } else {
                     false
                 }
+            // Ignore an EOT sampled while the prompt is still being force-fed: that
+            // prediction is discarded anyway, and stopping on it would return an empty
+            // transcription. An EOT sampled at or after the last prefill token is a
+            // real prediction and ends the segment as usual.
             let isSegmentCompleted =
-                sampleResult.completed ||
+                (sampleResult.completed && !isPrefill) ||
                 currentTokens.count >= Constants.maxTokenContext - 1 ||
                 isFirstTokenLogProbTooLow
 
@@ -745,7 +760,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             timings.decodingLoop += Date().timeIntervalSince(loopStart)
             timings.totalDecodingLoops += 1
 
-            if tokenIndex == prefilledIndex {
+            if tokenIndex == 0 {
                 Logging.debug("Found first token at: \(Date())")
                 timings.firstTokenTime = CFAbsoluteTimeGetCurrent()
             }
@@ -856,7 +871,6 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
     
     internal func createLogitsFilters(
         options: DecodingOptions,
-        prefilledIndex: Int,
         initialPromptIndex: Int,
         tokenizer: WhisperTokenizer
     ) -> [any LogitsFiltering] {
@@ -868,7 +882,8 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             allFilters.append(
                 SuppressBlankFilter(
                     specialTokens: tokenizer.specialTokens,
-                    sampleBegin: prefilledIndex
+                    // The first sampled token comes after the initial prompt
+                    sampleBegin: initialPromptIndex
                 )
             )
         }

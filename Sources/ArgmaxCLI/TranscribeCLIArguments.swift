@@ -103,6 +103,15 @@ struct TranscribeCLIArguments: ParsableArguments {
     @Flag(help: "Simulate streaming transcription using the input audio file")
     var streamSimulated: Bool = false
 
+    @Flag(help: "Load file audio incrementally in chunks instead of loading each full file into memory")
+    var incrementalLoading: Bool = false
+
+    @Option(help: "Duration, in seconds, for each incrementally loaded audio chunk. Defaults to the library default (AudioLoadingMode.defaultChunkDurationSeconds).")
+    var incrementalChunkDuration: Double? = nil
+
+    @Option(help: "Maximum number of incrementally loaded chunks buffered before back-pressure. Defaults to the library default (AudioLoadingMode.defaultMaxBufferedChunks).")
+    var incrementalChunkBufferSize: Int? = nil
+
     @Option(help: "Maximum concurrent inference, might be helpful when processing more than 1 audio file at the same time. 0 means unlimited. Default: 4")
     var concurrentWorkerCount: Int = 4
 

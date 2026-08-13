@@ -13,6 +13,7 @@ extension Qwen3Speaker: ExpressibleByArgument {}
 extension Qwen3Language: ExpressibleByArgument {}
 extension TTSModelVariant: ExpressibleByArgument {}
 extension Qwen3SpeechDecoderMode: ExpressibleByArgument {}
+extension Qwen3MultiCodeDecoderMode: ExpressibleByArgument {}
 
 // MARK: - CLI Command
 
@@ -113,6 +114,9 @@ struct TTSCLI: AsyncParsableCommand {
     @Option(name: .long, help: "SpeechDecoder mode: latencyOptimized (default, lowest time-to-first-audio, 1 frame/call) or throughputOptimized (higher throughput, ~4x larger pre-buffer, 4 frames/call)")
     var speechDecoderMode: Qwen3SpeechDecoderMode = .latencyOptimized
 
+    @Option(name: .long, help: "MultiCodeDecoder mode for multifunction assets: stepped (default, one position/call) or fused (whole 15-code frame in one call with in-graph sampling)")
+    var multiCodeDecoderMode: Qwen3MultiCodeDecoderMode = .stepped
+
     // MARK: - Compute unit options
 
     @Option(name: .long, help: "Compute units for embedders (TextProjector, CodeEmbedder, MultiCodeEmbedder) {all,cpuOnly,cpuAndGPU,cpuAndNeuralEngine}")
@@ -171,6 +175,7 @@ struct TTSCLI: AsyncParsableCommand {
             multiCodeDecoderVariant: multiCodeDecoderVariant,
             speechDecoderVariant: speechDecoderVariant,
             speechDecoderMode: speechDecoderMode,
+            multiCodeDecoderMode: multiCodeDecoderMode,
             computeOptions: ComputeOptions(
                 embedderComputeUnits: embedderComputeUnits.asMLComputeUnits,
                 codeDecoderComputeUnits: codeDecoderComputeUnits.asMLComputeUnits,
@@ -212,7 +217,7 @@ struct TTSCLI: AsyncParsableCommand {
             }
             print("  Version: \(config.versionDir)")
             print("  CodeDecoder: \(config.codeDecoderVariant)")
-            print("  MultiCodeDecoder: \(config.multiCodeDecoderVariant)")
+            print("  MultiCodeDecoder: \(config.multiCodeDecoderVariant) (\(config.multiCodeDecoderMode.rawValue))")
             print("  SpeechDecoder: \(config.speechDecoderVariant) (\(config.speechDecoderMode.rawValue))")
             print("  Embedder compute: \(embedderComputeUnits.rawValue)")
             print("  CodeDecoder compute: \(codeDecoderComputeUnits.rawValue)")

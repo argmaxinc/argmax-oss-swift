@@ -267,9 +267,9 @@ open class TranscribeTask {
                 timings.decodingWindowing += Date().timeIntervalSince(windowingStart)
                 timings.totalDecodingWindows += 1
 
-                // Reset cache and move on to the next window
+                // Reset cache for next window (full context, not sampleLength)
                 decoderInputs.reset(
-                    maxTokenContext: decodeOptions?.sampleLength ?? Constants.maxTokenContext
+                    maxTokenContext: Constants.maxTokenContext
                 )
 
                 // Update the progress
@@ -395,8 +395,9 @@ open class TranscribeTask {
                 // Reset decoder inputs for fallback
                 timings.decodingFallback += Date().timeIntervalSince(decodeWithFallbackStart)
                 timings.totalDecodingFallbacks = Double(i)
+                // Same full-window reset as above
                 decoderInputs.reset(
-                    maxTokenContext: options.sampleLength
+                    maxTokenContext: Constants.maxTokenContext
                 )
                 Logging.info("Fallback #\(i + 1) (\(fallback.fallbackReason))")
             } else {

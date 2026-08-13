@@ -9,21 +9,40 @@ public struct ModelUtilities {
 
     // MARK: - Model Dimension Introspection
 
-    /// Read a dimension from a model input's multiarray constraint shape.
-    public static func getModelInputDimension(_ model: MLModel?, named: String, position: Int) -> Int? {
+    /// Read the full multiarray constraint shape of a model input.
+    ///
+    /// Returns `nil` when the input is absent or is not a multiarray, which lets
+    /// callers use presence of the shape as a schema probe (e.g. "does this asset
+    /// declare a `qk_mask` input?").
+    public static func getModelInputShape(_ model: MLModel?, named: String) -> [Int]? {
         guard let inputDescription = model?.modelDescription.inputDescriptionsByName[named] else { return nil }
         guard inputDescription.type == .multiArray else { return nil }
         guard let shapeConstraint = inputDescription.multiArrayConstraint else { return nil }
-        let shape = shapeConstraint.shape.map { $0.intValue }
+        return shapeConstraint.shape.map { $0.intValue }
+    }
+
+    /// Read the full multiarray constraint shape of a model output.
+    public static func getModelOutputShape(_ model: MLModel?, named: String) -> [Int]? {
+        guard let outputDescription = model?.modelDescription.outputDescriptionsByName[named] else { return nil }
+        guard outputDescription.type == .multiArray else { return nil }
+        guard let shapeConstraint = outputDescription.multiArrayConstraint else { return nil }
+        return shapeConstraint.shape.map { $0.intValue }
+    }
+
+    /// Read a dimension from a model input's multiarray constraint shape.
+    /// Returns `nil` if the input is absent or `position` is out of range, so that
+    /// probing an unexpected-rank input reports "unknown" instead of trapping.
+    public static func getModelInputDimension(_ model: MLModel?, named: String, position: Int) -> Int? {
+        guard let shape = getModelInputShape(model, named: named) else { return nil }
+        guard position >= 0, position < shape.count else { return nil }
         return shape[position]
     }
 
     /// Read a dimension from a model output's multiarray constraint shape.
+    /// Returns `nil` if the output is absent or `position` is out of range.
     public static func getModelOutputDimension(_ model: MLModel?, named: String, position: Int) -> Int? {
-        guard let inputDescription = model?.modelDescription.outputDescriptionsByName[named] else { return nil }
-        guard inputDescription.type == .multiArray else { return nil }
-        guard let shapeConstraint = inputDescription.multiArrayConstraint else { return nil }
-        let shape = shapeConstraint.shape.map { $0.intValue }
+        guard let shape = getModelOutputShape(model, named: named) else { return nil }
+        guard position >= 0, position < shape.count else { return nil }
         return shape[position]
     }
 

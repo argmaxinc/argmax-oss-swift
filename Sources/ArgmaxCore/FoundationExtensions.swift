@@ -67,31 +67,94 @@ extension Array where Element: Hashable {
 extension String {
     /// Returns the text up to and including the last natural boundary in the string.
     ///
-    /// Boundaries are tested in priority order: sentence enders (. ! ? \n), clause
-    /// enders (, ; : - –), then word boundaries (space). A candidate is only accepted
-    /// when its encoded token count reaches `minTokenCount`.
+    /// Boundaries are tested in priority order: sentence boundaries (from Unicode
+    /// sentence segmentation), then clause enders (, ; : - and en dash), then word
+    /// boundaries (space). A candidate is only accepted when its encoded token count
+    /// reaches `minTokenCount`.
+    ///
+    /// Sentence segmentation is locale-aware (`.localized`), so common abbreviations
+    /// like "Mr." or "U.S." do not end a sentence. It keeps decimals, emails, and
+    /// ellipses intact. The final
+    /// segment is only accepted when it ends at a paragraph break or in a terminator
+    /// (. ! ? and non-ASCII equivalents) after trailing whitespace and closing
+    /// quotes/brackets are stripped, so a window truncated mid-sentence is not treated
+    /// as a boundary. Clause enders only count when they terminate a word, which
+    /// avoids splitting mid-word hyphens.
     ///
     /// - Parameters:
     ///   - minTokenCount: Minimum number of tokens the candidate must contain.
     ///   - encode: Closure that tokenizes a string and returns its token IDs.
-    /// - Returns: The trimmed substring up to the last qualifying boundary, or `nil`.
+    /// - Returns: The untrimmed prefix up to (and including) the last qualifying
+    ///   boundary, or `nil`. The prefix is returned untrimmed because `TextChunker`
+    ///   advances its token stream by the prefix's encoded length; trim only for display.
     public func lastNaturalBoundary(minTokenCount: Int, encode: (String) -> [Int]) -> String? {
-        let sentenceEnders: [Character] = [".", "!", "?", "\n"]
-        let clauseEnders: [Character] = [",", ";", ":", "-", "–"]
+        let sentenceTerminators: Set<Character> = [
+            ".", "!", "?",
+            "\u{2026}", // … Horizontal ellipsis
+            "\u{3002}", // 。 Ideographic full stop
+            "\u{FF01}", // ！ Fullwidth exclamation mark
+            "\u{FF1F}", // ？ Fullwidth question mark
+        ]
+        let clauseEnders: Set<Character> = [
+            ",", ";", ":", "-",
+            "\u{2013}", // – En dash
+        ]
+        let closers: Set<Character> = [
+            "\"", "'",
+            "\u{201D}", // ” Right double quotation mark
+            "\u{2019}", // ’ Right single quotation mark
+            ")", "]", "}",
+            "\u{00BB}", // » Right-pointing double angle quotation mark
+            "\u{300D}", // 」 Right corner bracket
+        ]
 
-        for enders in [sentenceEnders, clauseEnders] {
-            if let idx = lastIndex(where: { enders.contains($0) }) {
-                let candidate = String(self[...idx]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if encode(candidate).count >= minTokenCount {
-                    return candidate
-                }
+        var sentenceRanges: [Range<String.Index>] = []
+        enumerateSubstrings(in: startIndex..<endIndex, options: [.bySentences, .localized]) { _, range, _, _ in
+            sentenceRanges.append(range)
+        }
+
+        for index in stride(from: sentenceRanges.count - 1, through: 0, by: -1) {
+            let range = sentenceRanges[index]
+
+            // Skip a truncated final fragment left by the caller's token window: the
+            // segment must end at a paragraph break, or its last meaningful character
+            // (ignoring trailing whitespace and closing quotes/brackets) must be a
+            // terminator. A bare trailing space is not enough.
+            if index == sentenceRanges.count - 1 {
+                let segment = self[range]
+                let endsAtParagraphBreak = segment.reversed()
+                    .prefix(while: { $0.isWhitespace || closers.contains($0) })
+                    .contains(where: \.isNewline)
+                let lastMeaningful = segment.last(where: { !$0.isWhitespace && !closers.contains($0) })
+                guard endsAtParagraphBreak || lastMeaningful.map(sentenceTerminators.contains) == true
+                else { continue }
+            }
+
+            let prefix = String(self[..<range.upperBound])
+            if encode(prefix.trimmingCharacters(in: .whitespacesAndNewlines)).count >= minTokenCount {
+                return prefix
             }
         }
 
-        if let idx = lastIndex(of: " ") {
-            let candidate = String(self[..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if encode(candidate).count >= minTokenCount {
-                return candidate
+        // Clause enders are not sentence boundaries; only accept word-terminating ones.
+        let characters = Array(self)
+        var characterIndex = characters.count - 1
+        while characterIndex >= 0 {
+            let isAtEnd = characterIndex + 1 == characters.count
+            let isFollowedByWhitespace = !isAtEnd && characters[characterIndex + 1].isWhitespace
+            if clauseEnders.contains(characters[characterIndex]), isAtEnd || isFollowedByWhitespace {
+                let prefix = String(characters[0...characterIndex])
+                if encode(prefix.trimmingCharacters(in: .whitespacesAndNewlines)).count >= minTokenCount {
+                    return prefix
+                }
+            }
+            characterIndex -= 1
+        }
+
+        if let spaceIndex = lastIndex(of: " ") {
+            let prefix = String(self[..<spaceIndex])
+            if encode(prefix.trimmingCharacters(in: .whitespacesAndNewlines)).count >= minTokenCount {
+                return prefix
             }
         }
 

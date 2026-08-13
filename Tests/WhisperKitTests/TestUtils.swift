@@ -305,7 +305,7 @@ extension XCTestCase {
     }
 
     /// Helper to measure channel processing operations
-    func measureChannelProcessing(buffer: AVAudioPCMBuffer, mode: AudioInputConfig.ChannelMode, iterations: Int = 5) -> Double {
+    func measureChannelProcessing(buffer: AVAudioPCMBuffer, mode: AudioInputOptions.ChannelMode, iterations: Int = 5) -> Double {
         // Add warm-up iterations
         for _ in 0..<3 {
             _ = AudioProcessor.convertToMono(buffer, mode: mode)
@@ -321,6 +321,33 @@ extension XCTestCase {
         }
 
         return totalTime / Double(iterations)
+    }
+
+    /// Helper function to run an operation with a timeout
+    /// - Parameters:
+    ///   - seconds: Timeout duration in seconds
+    ///   - operation: The async operation to run
+    /// - Returns: true if the operation timed out, false if it completed
+    func withTimeout<T>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async -> Bool {
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                do {
+                    _ = try await operation()
+                    return false // Operation completed
+                } catch {
+                    return false // Operation failed but didn't timeout
+                }
+            }
+
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return true // Timeout occurred
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 }
 
@@ -397,5 +424,79 @@ public extension Publisher {
         scan((Output?, Output)?.none) { ($0?.1, $1) }
             .compactMap { $0 }
             .eraseToAnyPublisher()
+    }
+}
+
+// MARK: - MockTextDecoder
+
+/// Deterministic `TextDecoder` stub: replays scripted logits through the real `decodeText`
+/// loop, so decode-loop behavior can be tested without a model. Only the Core ML boundary
+/// is stubbed (`predictLogits` and the model-dimension accessors).
+final class MockTextDecoder: TextDecoder {
+    struct Prediction {
+        let token: Int
+        /// Confident predictions have a log probability near 0,
+        /// unconfident ones near -log(vocabSize) ≈ -6.9.
+        let confident: Bool
+    }
+
+    /// Token to predict at each successive `predictLogits` call.
+    /// The last entry repeats if the decode loop runs longer than the script.
+    var script: [Prediction] = []
+    private(set) var predictionCount = 0
+
+    private let vocabSize = 1024
+
+    override var logitsSize: Int? { vocabSize }
+    override var kvCacheEmbedDim: Int? { 2 }
+    override var kvCacheMaxSequenceLength: Int? { 64 }
+    // `debugCaches` indexes alignmentWeights with a hardcoded stride of 1500,
+    // so the window size must match the real encoder output length
+    override var windowSize: Int? { 1500 }
+    override var embedSize: Int? { 2 }
+
+    override func predictLogits(_ inputs: TextDecoderInputType) async throws -> TextDecoderOutputType? {
+        guard !script.isEmpty else {
+            throw WhisperError.decodingLogitsFailed("MockTextDecoder.script is empty; set a script before decoding")
+        }
+        let prediction = script[min(predictionCount, script.count - 1)]
+        predictionCount += 1
+
+        let logits = try MLMultiArray(shape: [1, 1, NSNumber(value: vocabSize)], dataType: .float16, initialValue: FloatType(0))
+        // Keep the spike below ~11 so exp() stays within Float16 range on the BNNS sampling path
+        logits[prediction.token] = NSNumber(value: prediction.confident ? 10.0 : 0.1)
+
+        let cache = DecodingCache(
+            keyCache: try MLMultiArray(shape: [1, 2, 1, 1], dataType: .float16, initialValue: FloatType(0)),
+            valueCache: try MLMultiArray(shape: [1, 2, 1, 1], dataType: .float16, initialValue: FloatType(0)),
+            alignmentWeights: nil
+        )
+        return TextDecoderMLMultiArrayOutputType(logits: logits, cache: cache)
+    }
+
+    /// Timestamps stay disabled: `CustomTokenizer` puts `timeTokenBegin` at 7, below the
+    /// content ids these tests use, so a timestamp-enabled run would misread them.
+    static func makePromptDecodingContext(
+        promptTokens: [Int]? = nil,
+        prefixTokens: [Int]? = nil,
+        sampleLength: Int = 20,
+        firstTokenLogProbThreshold: Float? = nil
+    ) async throws -> (decoder: MockTextDecoder, inputs: any DecodingInputsType, sampler: GreedyTokenSampler, encoderOutput: MLMultiArray, options: DecodingOptions) {
+        let options = DecodingOptions(
+            sampleLength: sampleLength,
+            withoutTimestamps: true,
+            promptTokens: promptTokens,
+            prefixTokens: prefixTokens,
+            firstTokenLogProbThreshold: firstTokenLogProbThreshold
+        )
+        let decoder = MockTextDecoder()
+        decoder.isModelMultilingual = true
+        decoder.tokenizer = CustomTokenizer(specialTokenBegin: 1000)
+
+        let sotPrompt = try decoder.prepareDecoderInputs(withPrompt: [decoder.tokenizer!.specialTokens.startOfTranscriptToken])
+        let inputs = try await decoder.prefillDecoderInputs(sotPrompt, withOptions: options)
+        let sampler = GreedyTokenSampler(temperature: 0, eotToken: decoder.tokenizer!.specialTokens.endToken, decodingOptions: options)
+        let encoderOutput = try MLMultiArray(shape: [1, 2, 1, 4], dataType: .float16, initialValue: FloatType(0))
+        return (decoder, inputs, sampler, encoderOutput, options)
     }
 }

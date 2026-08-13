@@ -1296,7 +1296,13 @@ open class WhisperTokenizerWrapper: WhisperTokenizer {
         // Detect language of input text
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(decodedWords)
-        let languageCode = recognizer.dominantLanguage?.rawValue
+        // NLLanguage raw values are BCP-47 tags ("zh-Hans", "zh-Hant"), while the
+        // no-space-language list below uses Whisper's ISO 639-1 style codes ("zh").
+        // Normalize via Locale so both Chinese variants match (matches openai/whisper,
+        // which checks its decoding language code directly).
+        let languageCode = recognizer.dominantLanguage.flatMap {
+            Locale(identifier: $0.rawValue).language.languageCode?.identifier
+        }
 
         if ["zh", "ja", "th", "lo", "my", "yue"].contains(languageCode) {
             return splitTokensOnUnicode(tokens: tokenIds)

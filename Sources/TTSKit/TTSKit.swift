@@ -388,12 +388,22 @@ open class TTSKit: @unchecked Sendable {
             let resolvedRepo = modelRepo ?? config.modelRepo
             let resolvedToken = modelToken ?? config.modelToken
 
+            // Carry the component variants and version directory over: `downloadPatterns`
+            // is derived from them, so dropping them here would fetch the preset defaults
+            // and then fail to load the variants actually configured.
             let downloadConfig = TTSKitConfig(
                 model: resolvedModel,
                 downloadBase: downloadBase ?? config.downloadBase,
                 modelRepo: resolvedRepo,
                 modelToken: resolvedToken,
                 modelEndpoint: endpoint,
+                versionDir: config.versionDir,
+                codeDecoderVariant: config.codeDecoderVariant,
+                multiCodeDecoderVariant: config.multiCodeDecoderVariant,
+                codeEmbedderVariant: config.codeEmbedderVariant,
+                multiCodeEmbedderVariant: config.multiCodeEmbedderVariant,
+                textProjectorVariant: config.textProjectorVariant,
+                speechDecoderVariant: config.speechDecoderVariant,
                 downloadRevision: config.downloadRevision,
                 downloadAdditionalPatterns: config.downloadAdditionalPatterns,
                 useBackgroundDownloadSession: config.useBackgroundDownloadSession
@@ -475,6 +485,9 @@ open class TTSKit: @unchecked Sendable {
         // selects which function of the multifunction asset to compile.
         if let qwen3SD = speechDecoder as? Qwen3SpeechDecoder {
             qwen3SD.mode = config.speechDecoderMode
+        }
+        if let qwen3MCD = multiCodeDecoder as? Qwen3MultiCodeDecoder {
+            qwen3MCD.mode = config.multiCodeDecoderMode
         }
 
         // Load the six CoreML models.
