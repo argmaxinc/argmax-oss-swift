@@ -86,10 +86,17 @@ public actor AudioStreamTranscriber {
             return
         }
         state.isRecording = true
-        try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] _ in
-            Task { [weak self] in
-                await self?.onAudioBufferCallback()
+        do {
+            try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] _ in
+                Task { [weak self] in
+                    await self?.onAudioBufferCallback()
+                }
             }
+        } catch {
+            // Reset the flag so a failed start (e.g. an unavailable inputDeviceID)
+            // does not leave the actor stuck in a recording state that blocks retries.
+            state.isRecording = false
+            throw error
         }
         await realtimeLoop()
         Logging.info("Realtime transcription has started")
