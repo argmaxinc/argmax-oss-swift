@@ -352,7 +352,8 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
             maxSeqLength: speechDecoder.kvCacheMaxSequenceLength,
             hiddenDim: speechDecoder.hiddenDim,
             hiddenContextLen: speechDecoder.hiddenContextLen,
-            codesPerStep: codesPerStep
+            codesPerStep: codesPerStep,
+            useRank3UpdateMask: speechDecoder.usesRank3UpdateMask
         )
 
         var generatedTokens: [Int32] = []

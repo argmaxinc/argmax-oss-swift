@@ -370,6 +370,53 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(cache.qkMask?.shape, [1, 4, 16] as [NSNumber])
     }
 
+    /// Legacy single-function asset: rank-2 `[1, maxSeqLength]` update mask, no qkMask.
+    func testSpeechDecoderCacheLegacyRank2MaskShapes() throws {
+        let cache = try SpeechDecoderCache(
+            cacheDim: 64, maxSeqLength: 16, hiddenDim: 32, hiddenContextLen: 4,
+            codesPerStep: 1, useRank3UpdateMask: false
+        )
+        XCTAssertEqual(cache.codesPerStep, 1)
+        XCTAssertFalse(cache.useRank3UpdateMask)
+        XCTAssertEqual(cache.kvCacheUpdateMask.shape, [1, 16] as [NSNumber])
+        XCTAssertNil(cache.qkMask)
+    }
+
+    /// Legacy mask semantics: single active column that advances one position per update.
+    func testSpeechDecoderCacheLegacyRank2MaskAdvances() throws {
+        let seq = 8
+        let cache = try SpeechDecoderCache(
+            cacheDim: 4, maxSeqLength: seq, hiddenDim: 4, hiddenContextLen: 4,
+            codesPerStep: 1, useRank3UpdateMask: false
+        )
+        let update = cache.kvCacheUpdateMask
+        let updatePtr = update.dataPointer.bindMemory(to: FloatType.self, capacity: update.count)
+        XCTAssertEqual(update.count, seq)
+        for j in 0..<seq {
+            XCTAssertEqual(Float(updatePtr[j]), j == 0 ? 1.0 : 0.0, accuracy: 0.001, "initial mask[\(j)]")
+        }
+
+        cache.update()
+        XCTAssertEqual(cache.cacheLength, 1)
+        for j in 0..<seq {
+            XCTAssertEqual(Float(updatePtr[j]), j == 1 ? 1.0 : 0.0, accuracy: 0.001, "post-update mask[\(j)]")
+        }
+        let pad = cache.keyPaddingMask
+        let padPtr = pad.dataPointer.bindMemory(to: FloatType.self, capacity: pad.count)
+        XCTAssertEqual(Float(padPtr[1]), 0.0, accuracy: 0.001)
+        XCTAssertEqual(Float(padPtr[2]), -10000.0, accuracy: 0.001)
+    }
+
+    /// A rank-2 update mask cannot encode a multi-frame step, so the cache rejects it.
+    func testSpeechDecoderCacheRejectsRank2WithMultipleFrames() throws {
+        XCTAssertThrowsError(
+            try SpeechDecoderCache(
+                cacheDim: 4, maxSeqLength: 16, hiddenDim: 4, hiddenContextLen: 1,
+                codesPerStep: 4, useRank3UpdateMask: false
+            )
+        )
+    }
+
     func testSpeechDecoderCacheInitialMasksLatency() throws {
         let cache = try SpeechDecoderCache(
             cacheDim: 4, maxSeqLength: 8, hiddenDim: 4, hiddenContextLen: 4, codesPerStep: 1

@@ -255,25 +255,36 @@ public extension KVCache {
 ///   throughput).
 /// - An optional `qkMask` of shape `[1, codesPerStep, maxSeqLength]` that encodes
 ///   the intra-step causal triangle; only allocated when `codesPerStep > 1` (the
-///   throughput function). The latency function does not consume `qk_mask`.
+///   throughput function). Single-frame graphs do not consume `qk_mask`.
 ///
-/// Always uses the rank-3 `kvCacheUpdateMask` shape since the new multifunction
-/// SpeechDecoder asset requires it for both functions (`[1, 1, maxSeqLength]` for
-/// the latency function, `[1, 4, maxSeqLength]` for throughput).
+/// The `kvCacheUpdateMask` rank comes from the loaded asset: rank 3 for the
+/// multifunction asset (both functions), rank 2 for the legacy single-function one.
 public class SpeechDecoderCache: KVCache, @unchecked Sendable {
     public let hiddenContext: MLMultiArray // [1, hiddenDim, 1, contextLen]
     public let hiddenDim: Int
     public let hiddenContextLen: Int
     /// Intra-step causal mask `[1, codesPerStep, maxSeqLength]`. `nil` when
-    /// `codesPerStep == 1` (latency function does not consume a `qk_mask` input).
+    /// `codesPerStep == 1` (single-frame graphs do not consume a `qk_mask` input).
     public let qkMask: MLMultiArray?
 
+    /// - Parameters:
+    ///   - cacheDim: K/V cache embedding dimension (`key_cache` axis 1).
+    ///   - maxSeqLength: Cache capacity in positions (`key_cache` axis 3).
+    ///   - hiddenDim: Hidden-context width (`hidden_context` axis 1).
+    ///   - hiddenContextLen: Past hidden states the graph attends to (`hidden_context`
+    ///     axis 3): 4 for latency, 1 for throughput.
+    ///   - codesPerStep: RVQ frames per decode call (`audio_codes` axis 2). Also the
+    ///     positions written per `update()`, and gates `qkMask`.
+    ///   - useRank3UpdateMask: `kv_cache_update_mask` rank. Not implied by
+    ///     `codesPerStep` — at `codesPerStep == 1` the legacy asset wants rank 2 and
+    ///     the multifunction latency function wants rank 3.
     public init(
         cacheDim: Int = Qwen3TTSConstants.sdCacheDim,
         maxSeqLength: Int = Qwen3TTSConstants.sdMaxSeq,
         hiddenDim: Int = Qwen3TTSConstants.sdHiddenDim,
         hiddenContextLen: Int = Qwen3TTSConstants.sdHiddenContextLen,
-        codesPerStep: Int = 1
+        codesPerStep: Int = 1,
+        useRank3UpdateMask: Bool = true
     ) throws {
         self.hiddenDim = hiddenDim
         self.hiddenContextLen = hiddenContextLen
@@ -292,16 +303,13 @@ public class SpeechDecoderCache: KVCache, @unchecked Sendable {
             qkMask = nil
         }
 
-        // Speech decoder is non-stateful; always uses the rank-3 update mask
-        // (latency = [1, 1, maxSeqLength], throughput = [1, codesPerStep, maxSeqLength]).
         try super.init(
             cacheDim: cacheDim,
             maxSeqLength: maxSeqLength,
             codesPerStep: codesPerStep,
-            useRank3UpdateMask: true,
+            useRank3UpdateMask: useRank3UpdateMask,
             isStateful: false
         )
-
     }
 
     /// Reset all state (KV cache, masks, hidden context buffer, qk mask).

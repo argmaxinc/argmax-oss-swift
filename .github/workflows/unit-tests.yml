@@ -98,7 +98,8 @@ jobs:
         if: ${{ matrix.run-config['condition'] == true }}
         run: |
           set -o pipefail
-          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcbeautify --renderer github-actions
+          # Annotate warnings from a single job only; duplicate check runs each re-post identical annotations on the PR diff
+          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcbeautify --renderer ${{ (matrix.run-config['name'] == 'macOS' && inputs.macos-runner == 'macos-26') && 'github-actions' || 'terminal' }}
       - name: Test - ${{ matrix.run-config['name'] }}
         if: ${{ matrix.run-config['condition'] == true }}
         env:
@@ -106,7 +107,7 @@ jobs:
           TEST_RUNNER_HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -o pipefail
-          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' | xcbeautify --renderer github-actions
+          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' | xcbeautify
       - name: Upload Test Results
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
