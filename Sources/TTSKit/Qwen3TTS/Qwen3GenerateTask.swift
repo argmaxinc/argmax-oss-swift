@@ -61,6 +61,10 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
     public let tokenizer: any TTSTokenizer
     public let suppressTokenIds: Set<Int>
 
+    /// Cloned voices available to this task, keyed by voice name (Base variant only).
+    /// A `voice` argument matching a key here takes precedence over built-in speakers.
+    public let voiceClones: [String: Qwen3VoicePack]
+
     /// Timings captured at model-load time (modelLoading + tokenizerLoading populated).
     public let loadTimings: SpeechTimings
 
@@ -82,7 +86,8 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         tokenizer: any TTSTokenizer,
         suppressTokenIds: Set<Int>,
         loadTimings: SpeechTimings = SpeechTimings(),
-        progress: Progress? = nil
+        progress: Progress? = nil,
+        voiceClones: [String: Qwen3VoicePack] = [:]
     ) {
         self.textProjector = textProjector
         self.codeEmbedder = codeEmbedder
@@ -95,6 +100,7 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         self.suppressTokenIds = suppressTokenIds
         self.loadTimings = loadTimings
         self.progress = progress ?? Progress()
+        self.voiceClones = voiceClones
     }
 
     // MARK: - SpeechGenerating defaults
@@ -276,7 +282,8 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
                 speaker: speaker, lang: lang,
                 instruction: options.instruction,
                 firstTextEmbed: tokenizeResult.firstTextEmbed,
-                embedDim: embedDim
+                embedDim: embedDim,
+                clonePack: voiceClones[voice]
             )
             totalPrefillTokens = combinedEmbeds.count
 
@@ -625,12 +632,18 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
 
     /// Build the full combined embedding sequence (text track + codec track) for prefill.
     /// The returned array includes both the invariant prefix and the variable last token.
+    ///
+    /// When `clonePack` is non-nil (Base variant voice cloning), the codec track uses
+    /// the no-think/auto-language prefix and the pack's x-vector is injected directly
+    /// as the speaker-slot embedding instead of a built-in speaker token — mirroring
+    /// upstream `generate_voice_clone` with `language="Auto"`.
     func buildCombinedEmbeddings(
         speaker: Qwen3Speaker,
         lang: Qwen3Language,
         instruction: String?,
         firstTextEmbed: [FloatType],
-        embedDim: Int
+        embedDim: Int,
+        clonePack: Qwen3VoicePack? = nil
     ) async throws -> [[FloatType]] {
         let zeroCodecEmbed = EmbedUtilities.zeroEmbed(dim: embedDim)
 
@@ -656,21 +669,35 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
         let textPadEmbed = try await textProjector.project(tokenId: Qwen3TTSConstants.textPAD)
         let textBosEmbed = try await textProjector.project(tokenId: Qwen3TTSConstants.textBOS)
 
-        let codecIds: [Int32] = [
-            Qwen3TTSConstants.codecThink,
-            Qwen3TTSConstants.codecThinkBos,
-            lang.tokenID,
-            Qwen3TTSConstants.codecThinkEos,
-            speaker.tokenID,
-            Qwen3TTSConstants.codecPAD,
-            Qwen3TTSConstants.codecBOS
-        ]
         var codecTrackEmbeds: [[FloatType]] = []
-        for codecId in codecIds {
-            try await codecTrackEmbeds.append(codeEmbedder.embed(tokenId: codecId))
+        if let clonePack {
+            // Base-variant clone prompt: no-think prefix (auto language), then the
+            // x-vector as the raw speaker embedding, then PAD + BOS.
+            for codecId in [Qwen3TTSConstants.codecNothink,
+                            Qwen3TTSConstants.codecThinkBos,
+                            Qwen3TTSConstants.codecThinkEos] {
+                try await codecTrackEmbeds.append(codeEmbedder.embed(tokenId: codecId))
+            }
+            codecTrackEmbeds.append(clonePack.speakerEmbed)
+            for codecId in [Qwen3TTSConstants.codecPAD, Qwen3TTSConstants.codecBOS] {
+                try await codecTrackEmbeds.append(codeEmbedder.embed(tokenId: codecId))
+            }
+        } else {
+            let codecIds: [Int32] = [
+                Qwen3TTSConstants.codecThink,
+                Qwen3TTSConstants.codecThinkBos,
+                lang.tokenID,
+                Qwen3TTSConstants.codecThinkEos,
+                speaker.tokenID,
+                Qwen3TTSConstants.codecPAD,
+                Qwen3TTSConstants.codecBOS
+            ]
+            for codecId in codecIds {
+                try await codecTrackEmbeds.append(codeEmbedder.embed(tokenId: codecId))
+            }
         }
 
-        let numPads = codecIds.count - 2
+        let numPads = codecTrackEmbeds.count - 2
         for _ in 0..<numPads {
             textTrackEmbeds.append(textPadEmbed)
         }
@@ -715,7 +742,8 @@ open class Qwen3GenerateTask: @unchecked Sendable, SpeechGenerating {
             lang: lang,
             instruction: instruction,
             firstTextEmbed: dummyFirstTextEmbed,
-            embedDim: embedDim
+            embedDim: embedDim,
+            clonePack: voiceClones[voice]
         )
         let invariantEmbeds = Array(allEmbeds.dropLast())
 

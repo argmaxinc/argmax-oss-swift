@@ -25,11 +25,14 @@ public enum TTSModelFamily: String, Sendable {
 public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Sendable {
     case qwen3TTS_0_6b = "0.6b"
     case qwen3TTS_1_7b = "1.7b"
+    /// The open **Base** 0.6B variant: no built-in speakers, but supports voice
+    /// cloning by injecting a `Qwen3VoicePack` x-vector at the speaker slot.
+    case qwen3TTS_0_6b_base = "0.6b-base"
 
     /// The model architecture family this variant belongs to.
     public var family: TTSModelFamily {
         switch self {
-            case .qwen3TTS_0_6b, .qwen3TTS_1_7b: return .qwen3
+            case .qwen3TTS_0_6b, .qwen3TTS_1_7b, .qwen3TTS_0_6b_base: return .qwen3
         }
     }
 
@@ -37,6 +40,7 @@ public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Send
         switch self {
             case .qwen3TTS_0_6b: return "Qwen3-TTS-0.6B"
             case .qwen3TTS_1_7b: return "Qwen3-TTS-1.7B"
+            case .qwen3TTS_0_6b_base: return "Qwen3-TTS-0.6B-Base"
         }
     }
 
@@ -45,6 +49,7 @@ public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Send
         switch self {
             case .qwen3TTS_0_6b: return "Qwen3 TTS 0.6B"
             case .qwen3TTS_1_7b: return "Qwen3 TTS 1.7B"
+            case .qwen3TTS_0_6b_base: return "Qwen3 TTS 0.6B (Voice Cloning)"
         }
     }
 
@@ -52,8 +57,18 @@ public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Send
     /// Only the 1.7B variant has the capacity to follow style instructions.
     public var supportsVoiceDirection: Bool {
         switch self {
-            case .qwen3TTS_0_6b: return false
+            case .qwen3TTS_0_6b, .qwen3TTS_0_6b_base: return false
             case .qwen3TTS_1_7b: return true
+        }
+    }
+
+    /// Whether this variant supports voice cloning via `Qwen3VoicePack`.
+    /// Only the Base variant's talker was trained to accept a raw speaker
+    /// embedding at the speaker slot; CustomVoice variants use speaker tokens.
+    public var supportsVoiceCloning: Bool {
+        switch self {
+            case .qwen3TTS_0_6b_base: return true
+            case .qwen3TTS_0_6b, .qwen3TTS_1_7b: return false
         }
     }
 
@@ -66,7 +81,7 @@ public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Send
         return true
         #else
         switch self {
-            case .qwen3TTS_0_6b: return true
+            case .qwen3TTS_0_6b, .qwen3TTS_0_6b_base: return true
             case .qwen3TTS_1_7b: return false
         }
         #endif
@@ -81,6 +96,7 @@ public enum TTSModelVariant: String, CustomStringConvertible, CaseIterable, Send
         switch self {
             case .qwen3TTS_0_6b: return "12hz-0.6b-customvoice"
             case .qwen3TTS_1_7b: return "12hz-1.7b-customvoice"
+            case .qwen3TTS_0_6b_base: return "12hz-0.6b-base"
         }
     }
 
@@ -197,6 +213,16 @@ open class TTSKitConfig {
     /// Which multifunction MultiCodeDecoder function to load. `.stepped` (default)
     /// decodes one position per call; `.fused` decodes the whole frame in one call.
     public var multiCodeDecoderMode: Qwen3MultiCodeDecoderMode
+
+    // MARK: - Voice cloning
+
+    /// Cloned voices available for generation, keyed by voice name.
+    ///
+    /// When `generate(voice:)` receives a key from this dictionary, the pack's
+    /// x-vector is injected as the speaker-slot prompt embedding instead of a
+    /// built-in speaker token. Requires a variant with
+    /// `supportsVoiceCloning == true` (the Base model).
+    public var voiceClones: [String: Qwen3VoicePack] = [:]
 
     // MARK: - Compute
 
