@@ -260,6 +260,16 @@ public class GreedyTokenSampler: TokenSampling, @unchecked Sendable {
             let probsArray = await topKProbs.toFloatArray()
             let idxArray = await topKIndices.toIntArray()
             let probSum = probsArray.reduce(0, +)
+
+            // Guard against numerical instability: when all top-K softmax probabilities
+            // underflow to zero (e.g. all logits are -inf or extremely negative), probSum
+            // is zero and Float.random(in: 0..<0) triggers a Swift runtime fatalError.
+            // Fall back to argmax — the token with the highest probability in the top-K set.
+            guard probSum > 0 else {
+                let maxIdx = probsArray.indices.max(by: { probsArray[$0] < probsArray[$1] }) ?? 0
+                return Int32(idxArray[maxIdx])
+            }
+
             let randomValue = Float.random(in: 0..<probSum, using: &rng)
             var cumulativeSum: Float = 0
             for (i, probability) in probsArray.enumerated() {

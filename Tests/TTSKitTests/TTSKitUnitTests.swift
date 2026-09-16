@@ -760,6 +760,41 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(token, 5, "Suppressed token should be skipped, picking next best")
     }
 
+    func testGreedySamplerZeroProbSumFallsBackToArgmax() async throws {
+        // Regression test for: Fatal crash in GreedyTokenSampler.sampleFromProbs
+        // when all top-K softmax probabilities underflow to zero.
+        //
+        // When logits are all -infinity (or so negative that Float32 softmax rounds
+        // every value to 0.0), probSum == 0 and Float.random(in: 0..<0) triggers a
+        // Swift runtime fatalError. The fix guards against this and falls back to
+        // argmax — the token with the highest probability in the top-K set.
+        //
+        // We reproduce the condition by setting all logits to -.infinity except
+        // token 5, which gets a finite value. After softmax+topK the only non-zero
+        // probability belongs to token 5, so argmax must return 5.
+        guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+            throw XCTSkip("sampleFromProbs requires macOS 15+ / iOS 18+")
+        }
+
+        let sampler = GreedyTokenSampler(seed: 0)
+        let vocabSize = 16
+        let logits = try MLMultiArray(shape: [1, 1, NSNumber(value: vocabSize)], dataType: .float16)
+        let ptr = logits.dataPointer.bindMemory(to: FloatType.self, capacity: vocabSize)
+
+        // All logits are -inf — softmax will produce all-zero probabilities.
+        for i in 0..<vocabSize { ptr[i] = FloatType(Float.infinity) * -1 }
+        // Token 5 gets the only finite logit, so it wins the argmax fallback.
+        ptr[5] = FloatType(1.0)
+
+        // Must not crash. Before the fix this triggered:
+        // "Fatal error: Can't get random value with an empty range"
+        let token = await sampler.sampleCodec0(
+            logits: logits, temperature: 0.9, topK: 10,
+            generatedTokens: [], repetitionPenalty: 1.0, suppressTokenIds: []
+        )
+        XCTAssertEqual(token, 5, "Zero-prob fallback must return the argmax token")
+    }
+
     func testGreedySamplerMultiHeadDeterministic() async throws {
         let sampler1 = GreedyTokenSampler(seed: 7)
         let sampler2 = GreedyTokenSampler(seed: 7)
