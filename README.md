@@ -48,6 +48,7 @@
   - [Homebrew](#homebrew)
 - [WhisperKit](#whisperkit)
   - [Quick Example](#quick-example)
+  - [Streaming from the Microphone](#streaming-from-the-microphone)
   - [Memory-Efficient Loading for Large Files](#memory-efficient-loading-for-large-files)
   - [Model Selection](#model-selection)
   - [Generating Models](#generating-models)
@@ -156,6 +157,75 @@ Task {
     print(transcription ?? "")
 }
 ```
+
+### Streaming from the Microphone
+
+`AudioStreamTranscriber` captures microphone audio in memory and reports transcription updates without writing an audio file. Add `NSMicrophoneUsageDescription` to your app's Info.plist; sandboxed macOS apps also need the Audio Input entitlement (`com.apple.security.device.audio-input`).
+
+Run the following setup from an async throwing context. This example uses `tiny` for a quick first run; the model is downloaded if needed. Keep `transcriber` and `streamingTask` in your recording session so your Stop action can access them.
+
+```swift
+import WhisperKit
+
+// Ask before starting the session, so permission denial can be shown in your UI.
+guard await AudioProcessor.requestRecordPermission() else {
+    throw WhisperError.microphoneUnavailable("Microphone permission was denied.")
+}
+// Streaming uses the model components directly, so load them before accessing the tokenizer.
+let kit = try await WhisperKit(WhisperKitConfig(model: "tiny", load: true))
+guard let tokenizer = kit.tokenizer else {
+    throw WhisperError.tokenizerUnavailable()
+}
+
+let transcriber = AudioStreamTranscriber(
+    audioEncoder: kit.audioEncoder,
+    featureExtractor: kit.featureExtractor,
+    segmentSeeker: kit.segmentSeeker,
+    textDecoder: kit.textDecoder,
+    tokenizer: tokenizer,
+    audioProcessor: kit.audioProcessor,
+    decodingOptions: DecodingOptions(detectLanguage: true, skipSpecialTokens: true)
+) { oldState, newState in
+    if oldState.isRecording != newState.isRecording {
+        print(newState.isRecording ? "Listening..." : "Stopped.")
+    }
+
+    // Both states contain the full history. Emit only the newly confirmed suffix.
+    let newSegments = newState.confirmedSegments.dropFirst(oldState.confirmedSegments.count)
+    for segment in newSegments {
+        print("Confirmed: \(segment.text)")
+    }
+
+    // A preview can change on the next pass: replace it instead of appending it.
+    if oldState.unconfirmedSegments != newState.unconfirmedSegments {
+        let preview = newState.unconfirmedSegments.map(\.text).joined()
+        print("Unconfirmed: \(preview)")
+    }
+}
+
+// Starting awaits the recording loop; keep the task handle so Stop can join it.
+let streamingTask = Task {
+    do {
+        try await transcriber.startStreamTranscription()
+    } catch {
+        print("Could not start streaming: \(error)")
+    }
+    await transcriber.stopStreamTranscription()
+}
+```
+
+This enables language detection. If the spoken language is known, set it explicitly, for example `DecodingOptions(language: "es", skipSpecialTokens: true)` for Spanish; this avoids detecting the language from short audio fragments. Omitting both `language` and `detectLanguage` uses an English prompt by default.
+
+Once the callback reports `isRecording == true`, your Stop action can stop capture and wait for any in-flight transcription to return:
+
+```swift
+await transcriber.stopStreamTranscription()
+await streamingTask.value
+```
+
+Keep Start disabled until that task finishes, and create a new `AudioStreamTranscriber` for the next recording; its confirmed segments and seek position belong to one session. The loaded `WhisperKit` models can be reused after the previous task finishes. The callback is `@Sendable` and does not run on the main actor: move UI updates to `MainActor`, passing the text or segments you need rather than the entire state.
+
+By default, the two most recent segments remain unconfirmed. Short utterances may therefore produce only an unconfirmed preview. `stopStreamTranscription()` stops capture; it does **not** force a final decode of pending audio or promote that preview to confirmed text. If your app needs a complete final transcript, handle finalization separately after the streaming task finishes.
 
 ### Memory-Efficient Loading for Large Files
 
