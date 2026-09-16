@@ -496,13 +496,15 @@ extension HubApi {
         }
 
         /// Downloads the file with progress tracking.
-        /// - Parameter progressHandler: Called with download progress (0.0-1.0) and speed in bytes/sec, if available.
+        /// - Parameters:
+        ///   - remoteMetadata: Metadata already fetched for this file by snapshot.
+        ///   - progressHandler: Called with download progress (0.0-1.0) and speed in bytes/sec, if available.
         /// - Returns: Local file URL (uses cached file if commit hash matches).
         /// - Throws: ``EnvironmentError`` errors for file and metadata validation failures, ``Downloader.DownloadError`` errors during transfer, or ``CancellationError`` if the task is cancelled.
+        // Argmax-modification: reuse metadata collected by snapshot for byte-based progress.
         @discardableResult
-        func download(progressHandler: @escaping (Double, Double?) -> Void) async throws -> URL {
+        func download(metadata remoteMetadata: FileMetadata, progressHandler: @escaping (Double, Double?) -> Void) async throws -> URL {
             let localMetadata = try hub.readDownloadMetadata(metadataPath: metadataDestination)
-            let remoteMetadata = try await hub.getFileMetadata(url: source)
 
             let localCommitHash = localMetadata?.commitHash ?? ""
             let remoteCommitHash = remoteMetadata.commitHash ?? ""
@@ -655,9 +657,11 @@ extension HubApi {
         }
 
         let filenames = try await getFilenames(from: repo, revision: revision, matching: globs)
-        let progress = Progress(totalUnitCount: Int64(filenames.count))
+        // Argmax-modification: collect each file's metadata once before transferring so the total
+        // stays fixed. If any size is unavailable, preserve the original file-weighted progress.
+        var files: [(downloader: HubFileDownloader, metadata: FileMetadata)] = []
+        var totalBytes: Int64? = 0
         for filename in filenames {
-            let fileProgress = Progress(totalUnitCount: 100, parent: progress, pendingUnitCount: 1)
             let downloader = HubFileDownloader(
                 hub: self,
                 repo: repo,
@@ -670,10 +674,36 @@ extension HubApi {
                 backgroundSession: useBackgroundSession
             )
 
-            try await downloader.download { fractionDownloaded, speed in
-                fileProgress.completedUnitCount = Int64(100 * fractionDownloaded)
+            let metadata = try await getFileMetadata(url: downloader.source)
+            files.append((downloader, metadata))
+            if let size = metadata.size, size >= 0, let total = totalBytes {
+                let (sum, overflow) = total.addingReportingOverflow(Int64(size))
+                totalBytes = overflow ? nil : sum
+            } else {
+                totalBytes = nil
+            }
+        }
+
+        let byteCount = totalBytes ?? 0
+        let reportsBytes = byteCount > 0
+        let progress = Progress(totalUnitCount: reportsBytes ? byteCount : Int64(files.count))
+        if reportsBytes {
+            progress.kind = .file
+            progress.fileOperationKind = .downloading
+        }
+
+        for (downloader, metadata) in files {
+            let fileSize = Int64(metadata.size ?? 0)
+            let previousBytes = progress.completedUnitCount
+            let fileProgress = reportsBytes ? nil : Progress(totalUnitCount: 100, parent: progress, pendingUnitCount: 1)
+            try await downloader.download(metadata: metadata) { fractionDownloaded, speed in
+                if reportsBytes {
+                    let downloadedBytes = fractionDownloaded >= 1 ? fileSize : Int64((Double(fileSize) * fractionDownloaded).rounded())
+                    progress.completedUnitCount = previousBytes + downloadedBytes
+                } else {
+                    fileProgress?.completedUnitCount = Int64(100 * fractionDownloaded)
+                }
                 if let speed {
-                    fileProgress.setUserInfoObject(speed, forKey: .throughputKey)
                     progress.setUserInfoObject(speed, forKey: .throughputKey)
                 }
                 progressHandler(progress)
@@ -682,10 +712,17 @@ extension HubApi {
                 return repoDestination
             }
 
-            fileProgress.completedUnitCount = 100
+            if reportsBytes {
+                progress.completedUnitCount = previousBytes + fileSize
+            } else {
+                fileProgress?.completedUnitCount = 100
+            }
+            progressHandler(progress)
         }
 
-        progressHandler(progress)
+        if files.isEmpty {
+            progressHandler(progress)
+        }
         return repoDestination
     }
 
