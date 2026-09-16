@@ -85,6 +85,12 @@ public actor AudioStreamTranscriber {
             Logging.error("Microphone access was not granted.")
             return
         }
+        try await startRecordingAndTranscribing()
+    }
+
+    // Kept separate from the system permission prompt so the recording lifecycle
+    // can also be exercised with an AudioProcessing implementation without a microphone.
+    func startRecordingAndTranscribing() async throws {
         state.isRecording = true
         do {
             try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] _ in
@@ -114,6 +120,7 @@ public actor AudioStreamTranscriber {
                 try await transcribeCurrentBuffer()
             } catch {
                 Logging.error("Error: \(error.localizedDescription)")
+                stopStreamTranscription()
                 break
             }
         }
