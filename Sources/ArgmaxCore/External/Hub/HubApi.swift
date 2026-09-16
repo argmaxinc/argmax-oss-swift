@@ -678,9 +678,8 @@ extension HubApi {
                 }
                 progressHandler(progress)
             }
-            if Task.isCancelled {
-                return repoDestination
-            }
+            // Argmax-modification: do not return a partial snapshot as success on cancellation.
+            try Task.checkCancellation()
 
             fileProgress.completedUnitCount = 100
         }
