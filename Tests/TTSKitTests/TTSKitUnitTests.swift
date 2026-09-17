@@ -762,16 +762,20 @@ final class TTSKitUnitTests: XCTestCase {
 
     func testGreedySamplerZeroProbSumFallsBackToArgmax() async throws {
         // Regression test for: Fatal crash in GreedyTokenSampler.sampleFromProbs
-        // when all top-K softmax probabilities underflow to zero.
+        // when all top-K softmax probabilities underflow to zero (probSum == 0).
         //
-        // When logits are all -infinity (or so negative that Float32 softmax rounds
-        // every value to 0.0), probSum == 0 and Float.random(in: 0..<0) triggers a
-        // Swift runtime fatalError. The fix guards against this and falls back to
-        // argmax — the token with the highest probability in the top-K set.
+        // Root cause: Float.random(in: 0..<0) triggers a Swift runtime fatalError
+        // when probSum == 0. The fix adds a `guard probSum > 0` with an argmax fallback.
         //
-        // We reproduce the condition by setting all logits to -.infinity except
-        // token 5, which gets a finite value. After softmax+topK the only non-zero
-        // probability belongs to token 5, so argmax must return 5.
+        // How to reproduce the crash condition reliably:
+        // All logits must be negative enough that exp(logit / temperature) underflows
+        // to 0.0 in Float32. With temperature=0.9, any logit below ~-94 underflows.
+        // Setting all 16 logits to -100.0 guarantees every softmax probability is
+        // exactly 0.0 in Float32, so probSum == 0 and the guard fires.
+        //
+        // Note: when all probs are zero the argmax fallback picks index 0 of the
+        // top-K array (arbitrary but deterministic). We assert the result is a valid
+        // token index rather than a specific value.
         guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
             throw XCTSkip("sampleFromProbs requires macOS 15+ / iOS 18+")
         }
@@ -781,10 +785,10 @@ final class TTSKitUnitTests: XCTestCase {
         let logits = try MLMultiArray(shape: [1, 1, NSNumber(value: vocabSize)], dataType: .float16)
         let ptr = logits.dataPointer.bindMemory(to: FloatType.self, capacity: vocabSize)
 
-        // All logits are -inf — softmax will produce all-zero probabilities.
-        for i in 0..<vocabSize { ptr[i] = FloatType(Float.infinity) * -1 }
-        // Token 5 gets the only finite logit, so it wins the argmax fallback.
-        ptr[5] = FloatType(1.0)
+        // All logits = -100.0. With temperature=0.9: exp(-100/0.9) ≈ 5.6e-49, which
+        // is below Float32 minimum (~1.4e-45) and rounds to exactly 0.0. Every top-K
+        // probability is therefore 0.0, probSum == 0, and the guard must fire.
+        for i in 0..<vocabSize { ptr[i] = FloatType(-100.0) }
 
         // Must not crash. Before the fix this triggered:
         // "Fatal error: Can't get random value with an empty range"
@@ -792,7 +796,10 @@ final class TTSKitUnitTests: XCTestCase {
             logits: logits, temperature: 0.9, topK: 10,
             generatedTokens: [], repetitionPenalty: 1.0, suppressTokenIds: []
         )
-        XCTAssertEqual(token, 5, "Zero-prob fallback must return the argmax token")
+        // Result must be a valid token index — the exact value is arbitrary when all
+        // probabilities are zero, but it must not be out of bounds.
+        XCTAssertGreaterThanOrEqual(token, 0)
+        XCTAssertLessThan(token, Int32(vocabSize))
     }
 
     func testGreedySamplerMultiHeadDeterministic() async throws {
