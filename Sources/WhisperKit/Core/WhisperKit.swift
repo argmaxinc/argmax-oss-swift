@@ -444,7 +444,7 @@ open class WhisperKit {
 
         currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart + currentTimings.prewarmLoadTime
 
-        Logging.info("Loaded models for whisper size: \(modelVariant) in \(String(format: "%.2f", currentTimings.modelLoading))s")
+        Logging.info("Loaded models in \(String(format: "%.2f", currentTimings.modelLoading))s")
     }
 
     open func loadTokenizerIfNeeded() async throws {
@@ -462,7 +462,7 @@ open class WhisperKit {
         textDecoder.isModelMultilingual = ModelUtilities.isModelMultilingual(logitsDim: logitsDim)
         modelVariant = ModelUtilities.detectVariant(logitsDim: logitsDim, encoderDim: encoderDim)
 
-        Logging.debug("Loading tokenizer for \(modelVariant)")
+        Logging.info("Loading tokenizer for whisper size: \(modelVariant)")
         let tokenizerLoadStart = CFAbsoluteTimeGetCurrent()
 
         // Search model folder for tokenizer if it is bundled with the model
