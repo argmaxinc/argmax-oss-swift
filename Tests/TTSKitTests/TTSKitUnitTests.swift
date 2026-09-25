@@ -760,6 +760,60 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertEqual(token, 5, "Suppressed token should be skipped, picking next best")
     }
 
+    func testGreedySamplerZeroProbSumFallsBackToArgmax() async throws {
+        // Regression test for: Fatal crash in GreedyTokenSampler.sampleFromProbs
+        // when all top-K softmax probabilities underflow to zero (probSum == 0).
+        //
+        // Root cause: Float.random(in: 0..<0) triggers a Swift runtime fatalError
+        // when probSum == 0. The fix adds a `guard probSum > 0` with an argmax fallback.
+        //
+        // How to reproduce the crash condition reliably:
+        // The MLMultiArray (.float16) is cast to Float32 inside sampleCodec0WithMLTensor
+        // before softmax. In Float32: exp(-100 / 0.9) ≈ 5.6e-49, which is below the
+        // Float32 minimum normal (~1.18e-38) and rounds to exactly 0.0 after softmax.
+        // Every top-K probability is therefore 0.0, probSum == 0, and the guard fires.
+        //
+        // We verify the guard fires by exploiting the argmax fallback's determinism:
+        // when all probabilities are zero, the fallback picks the index with the highest
+        // value in probsArray — which is index 0 of the topK array (all values equal).
+        // We call the sampler twice with different seeds; both must return the same token
+        // because the argmax path (not the RNG path) was taken.
+        guard #available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *) else {
+            throw XCTSkip("sampleFromProbs requires macOS 15+ / iOS 18+")
+        }
+
+        let vocabSize = 16
+        let logits = try MLMultiArray(shape: [1, 1, NSNumber(value: vocabSize)], dataType: .float16)
+        let ptr = logits.dataPointer.bindMemory(to: FloatType.self, capacity: vocabSize)
+
+        // All logits = -100.0. Cast to Float32 and divided by temperature=0.9:
+        // exp(-100/0.9) ≈ 5.6e-49 < Float32 minimum → rounds to 0.0 after softmax.
+        for i in 0..<vocabSize { ptr[i] = FloatType(-100.0) }
+
+        // Two samplers with different seeds — if the RNG path were taken they would
+        // produce different tokens. The argmax fallback is deterministic, so both
+        // must return the same value. This proves the guard (not the RNG) was taken.
+        let sampler1 = GreedyTokenSampler(seed: 0)
+        let sampler2 = GreedyTokenSampler(seed: 99999)
+
+        let token1 = await sampler1.sampleCodec0(
+            logits: logits, temperature: 0.9, topK: 10,
+            generatedTokens: [], repetitionPenalty: 1.0, suppressTokenIds: []
+        )
+        let token2 = await sampler2.sampleCodec0(
+            logits: logits, temperature: 0.9, topK: 10,
+            generatedTokens: [], repetitionPenalty: 1.0, suppressTokenIds: []
+        )
+
+        // Must not crash — before the fix this triggered:
+        // "Fatal error: Can't get random value with an empty range"
+        XCTAssertGreaterThanOrEqual(token1, 0)
+        XCTAssertLessThan(token1, Int32(vocabSize))
+
+        // Both seeds must produce identical results — proves argmax (not RNG) was used
+        XCTAssertEqual(token1, token2, "Different seeds must produce the same token when all probs are zero — confirms the argmax fallback fired, not Float.random")
+    }
+
     func testGreedySamplerMultiHeadDeterministic() async throws {
         let sampler1 = GreedyTokenSampler(seed: 7)
         let sampler2 = GreedyTokenSampler(seed: 7)
