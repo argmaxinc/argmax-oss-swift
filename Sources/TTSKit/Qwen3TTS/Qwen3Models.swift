@@ -22,6 +22,7 @@ public enum Qwen3TTSConstants {
     public static let codecBOS: Int32 = 2149
     public static let codecEOS: Int32 = 2150
     public static let codecThink: Int32 = 2154
+    public static let codecNothink: Int32 = 2155
     public static let codecThinkBos: Int32 = 2156
     public static let codecThinkEos: Int32 = 2157
 

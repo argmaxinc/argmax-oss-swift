@@ -39,6 +39,9 @@ struct TTSCLI: AsyncParsableCommand {
     @Option(name: .long, help: "Language (english, chinese, japanese, korean)")
     var language: Qwen3Language = .english
 
+    @Option(name: .long, help: "Voice-clone pack JSON path (Base model variant only); overrides --speaker")
+    var voicePack: String?
+
     @Option(name: .long, help: "Output audio file path")
     var outputPath: String = "output"
 
@@ -232,6 +235,21 @@ struct TTSCLI: AsyncParsableCommand {
             print("  Seed: \(effectiveSeed)")
         }
 
+        // Register a cloned voice from a pack file (Base model variant).
+        var cloneVoiceName: String?
+        if let voicePack {
+            let packURL = URL(fileURLWithPath: FileManager.resolveAbsolutePath(voicePack))
+            let pack = try Qwen3VoicePack.load(from: packURL)
+            config.voiceClones[pack.name] = pack
+            cloneVoiceName = pack.name
+            if !model.supportsVoiceCloning {
+                print("Warning: --voice-pack requires the Base model variant (--model 0.6b-base); the pack will likely not clone correctly on \(model.rawValue).")
+            }
+            if verbose {
+                print("  Voice pack: \(pack.name) (\(pack.xVector.count)-dim x-vector, refCodes: \(pack.refCodes?.count ?? 0) frames)")
+            }
+        }
+
         // Initialize pipeline (downloads if needed, loads tokenizer + 6 models concurrently)
         config.seed = effectiveSeed
         let tts = try await TTSKit(config)
@@ -248,18 +266,19 @@ struct TTSCLI: AsyncParsableCommand {
         )
 
         let result: SpeechResult
+        let effectiveVoice = cloneVoiceName ?? speaker.rawValue
         if play {
             result = try await tts.play(
                 text: inputText,
-                speaker: speaker,
-                language: language,
+                voice: effectiveVoice,
+                language: language.rawValue,
                 options: options
             )
         } else {
             result = try await tts.generate(
                 text: inputText,
-                speaker: speaker,
-                language: language,
+                voice: effectiveVoice,
+                language: language.rawValue,
                 options: options
             )
         }
