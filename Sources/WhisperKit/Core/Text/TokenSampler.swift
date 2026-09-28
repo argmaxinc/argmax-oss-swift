@@ -106,6 +106,10 @@ open class GreedyTokenSampler: TokenSampling {
 
             softmaxInput = logitsDescriptor
 
+            // Read logits as [Float]
+            let logitsPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: logits.count)
+            var logitsArray = Array(UnsafeBufferPointer(start: logitsPtr, count: logits.count))
+
             // Scale logits by temperature if > 0
             if temperature != 0.0 {
                 let scaledLogits = BNNSNDArrayDescriptor.allocateUninitialized(
@@ -113,12 +117,9 @@ open class GreedyTokenSampler: TokenSampling {
                     shape: .vector(logits.count, stride: 1)
                 )
 
-                try! BNNS.applyActivation(
-                    activation: BNNS.ActivationFunction.linear(alpha: Float(1 / temperature)),
-                    input: logitsDescriptor,
-                    output: scaledLogits,
-                    batchSize: 1
-                )
+                let scaled = ActivationHelper.linearScale(logitsArray, alpha: Float(1 / temperature))
+                ActivationHelper.writeArray(scaled, to: scaledLogits)
+                logitsArray = scaled  // use scaled array for softmax below
 
                 softmaxInput = scaledLogits
                 softmaxInputNeedsDeallocate = true
@@ -130,12 +131,8 @@ open class GreedyTokenSampler: TokenSampling {
                 shape: .vector(logits.count, stride: 1)
             )
 
-            try BNNS.applyActivation(
-                activation: BNNS.ActivationFunction.softmax,
-                input: softmaxInput!,
-                output: softmaxOutput!,
-                batchSize: 1
-            )
+            let softmaxArray = ActivationHelper.softmax(logitsArray)
+            ActivationHelper.writeArray(softmaxArray, to: softmaxOutput!)
 
             if temperature != 0.0 {
                 // top-k multinomial sampling
