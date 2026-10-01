@@ -22,7 +22,7 @@ actor VBxClustering: Clusterer {
 
         _speakerEmbeddings.sort { ($0.windowIndex, $0.speakerIndex) < ($1.windowIndex, $1.speakerIndex) }
 
-        let (clusters, _, centroids) = cluster(embeddings: _speakerEmbeddings, config: config)
+        let (clusters, _, centroids, pldaCentroids) = cluster(embeddings: _speakerEmbeddings, config: config)
 
         for (clusterIndex, clusterId) in clusters.enumerated() {
             _speakerEmbeddings[clusterIndex].clusterId = clusterId
@@ -31,7 +31,8 @@ actor VBxClustering: Clusterer {
         return ClusteringResult(
             clusterIndices: clusters,
             speakerEmbeddings: _speakerEmbeddings,
-            speakerCentroids: centroids
+            speakerCentroids: centroids,
+            speakerPLDACentroids: pldaCentroids
         )
     }
 
@@ -46,7 +47,7 @@ actor VBxClustering: Clusterer {
     func cluster(
         embeddings: [SpeakerEmbedding],
         config: VBxClusteringConfig
-    ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [Int: [Float]]) {
+    ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [Int: [Float]], pldaCentroids: [Int: [Float]]) {
         let trainableEmbeddings = embeddings.filter { $0.nonOverlappedFrameRatio > config.minActiveRatio }
         let embeddingsFloats = trainableEmbeddings.map { $0.embedding }
         let allEmbeddingsFloats = embeddings.map { $0.embedding }
@@ -140,8 +141,15 @@ actor VBxClustering: Clusterer {
             source: config.centroidSource,
             minActiveRatio: config.minActiveRatio
         )
+        let finalPLDACentroids = centroidsFromFinalAssignments(
+            assignments: clusters,
+            embeddings: embeddings,
+            source: config.centroidSource,
+            minActiveRatio: config.minActiveRatio,
+            vector: { $0.pldaEmbedding }
+        )
 
-        return (clusters, linkageMatrix, finalCentroids)
+        return (clusters, linkageMatrix, finalCentroids, finalPLDACentroids)
     }
 
     // MARK: - Internal Methods
@@ -214,11 +222,16 @@ actor VBxClustering: Clusterer {
 
     /// Mean-pools embeddings under final post-reassignment labels, keyed by cluster id.
     /// Empty clusters (no surviving members after the `.trainableOnly` filter) never get a key.
+    ///
+    /// The `vector` closure selects which embedding to pool from each `SpeakerEmbedding`.
+    /// The default extracts the raw embedding; pass `{ $0.pldaEmbedding }` for PLDA centroids.
+    /// Members whose `vector(...)` returns nil or an empty array are skipped.
     func centroidsFromFinalAssignments(
         assignments: [Int],
         embeddings: [SpeakerEmbedding],
         source: SpeakerCentroidSource,
-        minActiveRatio: Float
+        minActiveRatio: Float,
+        vector: (SpeakerEmbedding) -> [Float]? = { $0.embedding }
     ) -> [Int: [Float]] {
         var sums: [Int: [Float]] = [:]
         var counts: [Int: Int] = [:]
@@ -229,8 +242,7 @@ actor VBxClustering: Clusterer {
             if source == .trainableOnly, speakerEmbedding.nonOverlappedFrameRatio <= minActiveRatio {
                 continue
             }
-            let embedding = speakerEmbedding.embedding
-            guard !embedding.isEmpty else { continue }
+            guard let embedding = vector(speakerEmbedding), !embedding.isEmpty else { continue }
             if var existing = sums[assignment] {
                 guard existing.count == embedding.count else { continue }
                 for d in 0..<embedding.count {

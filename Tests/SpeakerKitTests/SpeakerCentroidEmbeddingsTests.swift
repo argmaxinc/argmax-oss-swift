@@ -438,6 +438,194 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
         XCTAssertEqual(result.speakerCentroidEmbeddings[7], [1.0, 0.0, 0.0])
     }
 
+    // MARK: - PLDA centroid tests
+
+    /// `.trainableOnly` filters overlap-flagged embeddings from PLDA centroids.
+    func testPLDACentroidsFromFinalAssignments_honoursCentroidSource() async {
+        let embeddings = [
+            SpeakerEmbedding(
+                embedding: [1.0, 0.0],
+                pldaEmbedding: [10.0, 0.0],
+                activeFrames: [1.0],
+                windowIndex: 0,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [3.0, 0.0],
+                pldaEmbedding: [30.0, 0.0],
+                activeFrames: [1.0],
+                windowIndex: 1,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0  // overlap-flagged
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 10.0],
+                pldaEmbedding: [0.0, 100.0],
+                activeFrames: [1.0],
+                windowIndex: 2,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 20.0],
+                pldaEmbedding: [0.0, 200.0],
+                activeFrames: [1.0],
+                windowIndex: 3,
+                speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0  // overlap-flagged
+            )
+        ]
+        let assignments = [0, 0, 1, 1]
+        let clusterer = VBxClustering()
+
+        let finalAssignment = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments,
+            embeddings: embeddings,
+            source: .finalAssignment,
+            minActiveRatio: 0.2,
+            vector: { $0.pldaEmbedding }
+        )
+        XCTAssertEqual(Set(finalAssignment.keys), [0, 1])
+        assertVectorsEqual(finalAssignment[0] ?? [], [20.0, 0.0])   // mean(10, 30)
+        assertVectorsEqual(finalAssignment[1] ?? [], [0.0, 150.0])  // mean(100, 200)
+
+        let trainableOnly = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments,
+            embeddings: embeddings,
+            source: .trainableOnly,
+            minActiveRatio: 0.2,
+            vector: { $0.pldaEmbedding }
+        )
+        XCTAssertEqual(Set(trainableOnly.keys), [0, 1])
+        assertVectorsEqual(trainableOnly[0] ?? [], [10.0, 0.0])   // only the trainable member
+        assertVectorsEqual(trainableOnly[1] ?? [], [0.0, 100.0])  // only the trainable member
+    }
+
+    /// Cluster with no trainable members produces no PLDA centroid key.
+    func testPLDACentroidsFromFinalAssignments_omitsClusterWithNoTrainableMembers() async {
+        let embeddings = [
+            SpeakerEmbedding(
+                embedding: [1.0, 0.0],
+                pldaEmbedding: [10.0, 0.0],
+                activeFrames: [1.0], windowIndex: 0, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 1.0],
+                pldaEmbedding: [0.0, 10.0],
+                activeFrames: [1.0], windowIndex: 1, speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0  // overlap-flagged
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 2.0],
+                pldaEmbedding: [0.0, 20.0],
+                activeFrames: [1.0], windowIndex: 2, speakerIndex: 0,
+                nonOverlappedFrameRatio: 0.0  // overlap-flagged
+            )
+        ]
+        let assignments = [0, 1, 1] // cluster 1 is entirely overlap-flagged
+
+        let clusterer = VBxClustering()
+        let trainable = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments, embeddings: embeddings,
+            source: .trainableOnly, minActiveRatio: 0.2,
+            vector: { $0.pldaEmbedding }
+        )
+
+        XCTAssertEqual(Set(trainable.keys), [0])
+        assertVectorsEqual(trainable[0] ?? [], [10.0, 0.0])
+    }
+
+    /// Members with nil `pldaEmbedding` are excluded from the PLDA centroid mean.
+    func testPLDACentroidsFromFinalAssignments_nilPldaEmbeddingSkipped() async {
+        let embeddings = [
+            SpeakerEmbedding(
+                embedding: [1.0, 0.0],
+                pldaEmbedding: [10.0, 0.0],
+                activeFrames: [1.0], windowIndex: 0, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [3.0, 0.0],
+                pldaEmbedding: nil,  // no PLDA embedding
+                activeFrames: [1.0], windowIndex: 1, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [5.0, 0.0],
+                pldaEmbedding: [50.0, 0.0],
+                activeFrames: [1.0], windowIndex: 2, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            )
+        ]
+        let assignments = [0, 0, 0]
+
+        let clusterer = VBxClustering()
+        let plda = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments, embeddings: embeddings,
+            source: .finalAssignment, minActiveRatio: 0.2,
+            vector: { $0.pldaEmbedding }
+        )
+
+        XCTAssertEqual(Set(plda.keys), [0])
+        // Only embeddings 0 and 2 contribute: mean(10, 50) = 30
+        assertVectorsEqual(plda[0] ?? [], [30.0, 0.0])
+    }
+
+    /// PLDA centroid value equals the arithmetic mean of members' `pldaEmbedding`.
+    func testPLDACentroidsFromFinalAssignments_valueEqualsMemberMean() async {
+        let embeddings = [
+            SpeakerEmbedding(
+                embedding: [1.0, 0.0, 0.0],
+                pldaEmbedding: [2.0, 4.0],
+                activeFrames: [1.0], windowIndex: 0, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 1.0, 0.0],
+                pldaEmbedding: [6.0, 8.0],
+                activeFrames: [1.0], windowIndex: 1, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            ),
+            SpeakerEmbedding(
+                embedding: [0.0, 0.0, 1.0],
+                pldaEmbedding: [10.0, 12.0],
+                activeFrames: [1.0], windowIndex: 2, speakerIndex: 0,
+                nonOverlappedFrameRatio: 1.0
+            )
+        ]
+        let assignments = [0, 0, 0]
+
+        let clusterer = VBxClustering()
+        let plda = await clusterer.centroidsFromFinalAssignments(
+            assignments: assignments, embeddings: embeddings,
+            source: .finalAssignment, minActiveRatio: 0.2,
+            vector: { $0.pldaEmbedding }
+        )
+
+        // mean(2,6,10) = 6, mean(4,8,12) = 8
+        assertVectorsEqual(plda[0] ?? [], [6.0, 8.0])
+    }
+
+    /// Generic `DiarizationResult` init round-trips `speakerPLDACentroidEmbeddings`.
+    func testGenericInitAcceptsPLDACentroidEmbeddings() {
+        let segments = [
+            SpeakerSegment(speaker: .speakerId(3), startTime: 0.0, endTime: 1.0, frameRate: 100)
+        ]
+        let result = DiarizationResult(
+            speakerCount: 1,
+            totalFrames: 100,
+            frameRate: 100,
+            segments: segments,
+            speakerCentroidEmbeddings: [3: [1.0, 0.0]],
+            speakerPLDACentroidEmbeddings: [3: [0.5, 0.5]]
+        )
+
+        XCTAssertEqual(result.speakerCentroidEmbeddings[3], [1.0, 0.0])
+        XCTAssertEqual(result.speakerPLDACentroidEmbeddings[3], [0.5, 0.5])
+    }
+
     /// Pairwise distances must be finite, in `[0, 2]`, and delegate exactly to
     /// `MathOps.cosineDistance`. Missing ids yield `nil`.
     func testCentroidCosineDistance_sameDiarization() async throws {

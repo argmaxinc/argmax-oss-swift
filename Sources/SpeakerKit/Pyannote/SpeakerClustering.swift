@@ -49,13 +49,16 @@ struct ClusteringResult {
     let clusterIndices: [Int]
     let speakerEmbeddings: [SpeakerEmbedding]
     let speakerCentroids: [Int: [Float]]
+    let speakerPLDACentroids: [Int: [Float]]
 
     init(clusterIndices: [Int],
          speakerEmbeddings: [SpeakerEmbedding],
-         speakerCentroids: [Int: [Float]] = [:]) {
+         speakerCentroids: [Int: [Float]] = [:],
+         speakerPLDACentroids: [Int: [Float]] = [:]) {
         self.clusterIndices = clusterIndices
         self.speakerEmbeddings = speakerEmbeddings
         self.speakerCentroids = speakerCentroids
+        self.speakerPLDACentroids = speakerPLDACentroids
     }
 }
 

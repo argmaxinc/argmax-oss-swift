@@ -52,8 +52,15 @@ public struct DiarizationResult: Sendable {
     /// conforming to `Diarizer` may leave it as `[:]` if they do not expose per-cluster centroids.
     public private(set) var speakerCentroidEmbeddings: [Int: [Float]]
 
+    /// Per-speaker centroid embeddings in the PLDA-projected space (128-dim for
+    /// pyannote-v4), keyed by `speakerId`. Mean of the per-window PLDA embeddings
+    /// under the same final labels and the same `centroidSource` filter as
+    /// ``speakerCentroidEmbeddings``. Empty when the backend has no PLDA stage.
+    /// A speaker can be absent; use `if let`.
+    public private(set) var speakerPLDACentroidEmbeddings: [Int: [Float]]
+
     /// Pyannote init: builds segments from binary speaker activity matrix
-    init(binaryMatrix: [[Int]], diarizationFrameRate: Float, speakerCentroidEmbeddings: [Int: [Float]] = [:]) {
+    init(binaryMatrix: [[Int]], diarizationFrameRate: Float, speakerCentroidEmbeddings: [Int: [Float]] = [:], speakerPLDACentroidEmbeddings: [Int: [Float]] = [:]) {
         self.binaryMatrix = binaryMatrix
         self.frameRate = diarizationFrameRate
         self.speakerCount = binaryMatrix.count
@@ -61,6 +68,7 @@ public struct DiarizationResult: Sendable {
         self.segments = []
         self.timings = nil
         self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
+        self.speakerPLDACentroidEmbeddings = speakerPLDACentroidEmbeddings
 
         self.updateSegments(minActiveOffset: 0.0)
     }
@@ -72,7 +80,8 @@ public struct DiarizationResult: Sendable {
         frameRate: Float,
         segments: [SpeakerSegment],
         timings: (any DiarizationTimings)? = nil,
-        speakerCentroidEmbeddings: [Int: [Float]] = [:]
+        speakerCentroidEmbeddings: [Int: [Float]] = [:],
+        speakerPLDACentroidEmbeddings: [Int: [Float]] = [:]
     ) {
         self.binaryMatrix = []
         self.speakerCount = speakerCount
@@ -81,6 +90,7 @@ public struct DiarizationResult: Sendable {
         self.segments = segments
         self.timings = timings
         self.speakerCentroidEmbeddings = speakerCentroidEmbeddings
+        self.speakerPLDACentroidEmbeddings = speakerPLDACentroidEmbeddings
     }
 
     public mutating func updateSegments(minActiveOffset: Float) {
