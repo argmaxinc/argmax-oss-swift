@@ -75,6 +75,9 @@ open class WhisperKit {
         tokenizerFolder = config.tokenizerFolder ?? config.downloadBase
         useBackgroundDownloadSession = config.useBackgroundDownloadSession
         currentTimings = TranscriptionTimings()
+        segmentDiscoveryCallback = config.segmentDiscoveryCallback
+        modelStateCallback = config.modelStateCallback
+        transcriptionStateCallback = config.transcriptionStateCallback
         Logging.updateLogLevel(config.verbose ? config.logLevel : .none)
 
         try await setupModels(
@@ -117,7 +120,10 @@ open class WhisperKit {
         prewarm: Bool? = nil,
         load: Bool? = nil,
         download: Bool = true,
-        useBackgroundDownloadSession: Bool = false
+        useBackgroundDownloadSession: Bool = false,
+        modelStateCallback: ModelStateCallback? = nil,
+        segmentDiscoveryCallback: SegmentDiscoveryCallback? = nil,
+        transcriptionStateCallback: TranscriptionStateCallback? = nil
     ) async throws {
         let config = WhisperKitConfig(
             model: model,
@@ -137,7 +143,10 @@ open class WhisperKit {
             prewarm: prewarm,
             load: load,
             download: download,
-            useBackgroundDownloadSession: useBackgroundDownloadSession
+            useBackgroundDownloadSession: useBackgroundDownloadSession,
+            modelStateCallback: modelStateCallback,
+            segmentDiscoveryCallback: segmentDiscoveryCallback,
+            transcriptionStateCallback: transcriptionStateCallback
         )
         try await self.init(config)
     }
