@@ -571,6 +571,11 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         // Logits filters
         let logitsFilters = createLogitsFilters(options: options, initialPromptIndex: initialPromptIndex, tokenizer: tokenizer)
 
+        // Alignment rows are read by a token's index in the segment (SegmentSeeker.addWordTimestamps),
+        // and the segment is cut from <|startoftranscript|> when this loop finishes, so rows are
+        // written from that token too. The <|startofprev|> and prompt tokens ahead of it have no row.
+        let alignmentRowOffset = decoderInputs.initialPrompt.firstIndex(of: tokenizer.specialTokens.startOfTranscriptToken) ?? 0
+
         // MARK: Main loop
 
         // sampleLength counts sampled tokens only, not prefill steps.
@@ -722,12 +727,12 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 decoderInputs.kvCacheUpdateMask[tokenIndex + 1] = 1
 
                 // Update alignment weights for token if present
-                if let newAlignmentWeights = decoderOutput.cache?.alignmentWeights {
+                if let newAlignmentWeights = decoderOutput.cache?.alignmentWeights, tokenIndex >= alignmentRowOffset {
                     hasAlignment = true
                     TextDecoder.updateAlignmentWeights(
                         alignmentTensor: decoderInputs.alignmentWeights,
                         alignmentSlice: newAlignmentWeights,
-                        insertAtIndex: tokenIndex
+                        insertAtIndex: tokenIndex - alignmentRowOffset
                     )
                 }
 
