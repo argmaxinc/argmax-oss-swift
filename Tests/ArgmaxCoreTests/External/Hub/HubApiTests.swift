@@ -56,6 +56,24 @@ final class HubApiTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: repoRoot.appendingPathComponent("weights.bin")), SnapshotHTTPServer.fileData)
     }
 
+    func testMetadataRequestStaysHeadAcrossRelativeRedirect() async throws {
+        let server = try SnapshotHTTPServer()
+        addTeardownBlock { server.stop() }
+        server.start()
+        await fulfillment(of: [server.ready], timeout: 5)
+        let port = try XCTUnwrap(server.port)
+        let hub = HubApi(downloadBase: tempDir, hfToken: "", endpoint: "http://127.0.0.1:\(port)", useOfflineMode: false)
+
+        let metadata = try await hub.getFileMetadata(url: XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/test/redirect/resolve/main/config.json")))
+
+        XCTAssertEqual(metadata.commitHash, SnapshotHTTPServer.commitHash)
+        XCTAssertEqual(metadata.etag, "config-etag")
+        XCTAssertEqual(server.receivedRequests, [
+            "HEAD /test/redirect/resolve/main/config.json",
+            "HEAD /api/resolve-cache/models/test/redirect/config.json",
+        ])
+    }
+
     private func makePartialSnapshot(name: String) async throws -> (HubApi, HubApi.Repo, URL, XCTestExpectation) {
         let server = try SnapshotHTTPServer()
         addTeardownBlock { server.stop() }
@@ -92,8 +110,10 @@ private final class SnapshotHTTPServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "HubApiTests.HTTPServer")
     private var connections: [NWConnection] = []
+    private var requests: [String] = []
 
     var port: UInt16? { listener.port?.rawValue }
+    var receivedRequests: [String] { queue.sync { requests } }
 
     init() throws {
         let parameters = NWParameters.tcp
@@ -152,6 +172,13 @@ private final class SnapshotHTTPServer: @unchecked Sendable {
         }
         let method = parts[0]
         let path = parts[1]
+        requests.append("\(method) \(path)")
+        // Relative redirect, as the Hub returns for non-LFS files.
+        if path == "/test/redirect/resolve/main/config.json" {
+            let headers = "HTTP/1.1 307 Temporary Redirect\r\nLocation: /api/resolve-cache/models/test/redirect/config.json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(headers.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
         // Hold the missing file until the test cancels; no sleeps or timing races.
         if method == "GET", path == "/test/cancel/resolve/main/weights.bin" {
             pendingDownload.fulfill()

@@ -936,6 +936,10 @@ private final class RedirectDelegate: NSObject, URLSessionTaskDelegate, Sendable
                         // Create new request with the resolved URL
                         if let resolvedUrl = components.url {
                             var newRequest = URLRequest(url: resolvedUrl)
+                            // Argmax-modification: this delegate only serves httpHead, so the redirected request must
+                            // stay HEAD. URLRequest(url:) defaults to GET, which downloaded every non-LFS file in full
+                            // (the Hub redirects those with a relative 307) just to read its metadata headers.
+                            newRequest.httpMethod = task.originalRequest?.httpMethod
                             // Copy headers from original request
                             if let headers = task.originalRequest?.allHTTPHeaderFields {
                                 for (key, value) in headers {
