@@ -1873,6 +1873,22 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(resultFull.segments.first?.end, resultSeek.segments.first?.end, "Segments should have the same end time")
     }
 
+    func testShortAudioNotDropped() async throws {
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
+        let whisperKit = try await WhisperKit(config)
+        let audioPath = try XCTUnwrap(Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"))
+        let audio = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioPath)
+
+        // "And so my" at 0.3s, shorter than the default 1s windowClipTime
+        let start = Int(0.3 * Float(WhisperKit.sampleRate))
+        let shortClip = Array(audio[start..<(start + Int(0.9 * Float(WhisperKit.sampleRate)))])
+
+        let results = try await whisperKit.transcribe(audioArray: shortClip, decodeOptions: DecodingOptions(skipSpecialTokens: true))
+        let text = results.map(\.text).joined()
+        XCTAssertFalse(results.flatMap(\.segments).isEmpty, "A clip no longer than windowClipTime should still be decoded")
+        XCTAssertTrue(text.normalized.contains("so my"), "Unexpected transcription: \(text)")
+    }
+
     func testPromptTokens() async throws {
         let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug, load: true)
         let whisperKit = try await WhisperKit(config)
