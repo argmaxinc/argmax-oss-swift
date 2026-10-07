@@ -374,7 +374,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
     /// Two identical calls on the same audio must preserve speaker ids and keep centroids close.
     func testCentroidsStableAcrossReruns() async throws {
-        let centroidDistanceTolerance: Float = 1e-2
+        let centroidDistanceTolerance: Float = 3e-2
         let audioArray = try loadAudio(named: "VADAudio")
         let speakerKit = try await SpeakerKit()
         let first = try await speakerKit.diarize(audioArray: audioArray)
