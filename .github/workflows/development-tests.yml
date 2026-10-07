@@ -7,8 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
+  model-cache:
+    name: "Model Cache"
+    if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
+    uses: ./.github/workflows/model-cache.yml
+
   build-and-test:
     name: "Build and Test"
+    needs: [model-cache]
     if: github.event_name != 'pull_request_review'
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-build-and-test
@@ -22,8 +28,10 @@ jobs:
       visionos-version: "27.0"
       macos-runner: "xcode-27"
       xcode-version: "27.0"
+      model-cache-key: ${{ needs.model-cache.outputs.cache-key }}
 
   check-approvals:
+    name: "Check Approvals"
     if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     outputs:
@@ -46,7 +54,7 @@ jobs:
 
   pre-merge-tests:
     name: "Pre-merge Tests"
-    needs: [check-approvals]
+    needs: [check-approvals, model-cache]
     if: needs.check-approvals.outputs.reviews == 'APPROVED' || github.event_name == 'workflow_dispatch'
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ matrix.os }}
@@ -75,3 +83,4 @@ jobs:
       watchos-version: ${{ matrix.watchos-version }}
       visionos-version: ${{ matrix.visionos-version }}
       xcode-version: ${{ matrix.xcode-version }}
+      model-cache-key: ${{ needs.model-cache.outputs.cache-key }}

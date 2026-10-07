@@ -21,6 +21,9 @@ on:
       xcode-version:
         required: false
         type: string
+      model-cache-key:
+        required: true
+        type: string
     secrets:
       HF_TOKEN:
         required: false
@@ -66,18 +69,12 @@ jobs:
           xcode-version: ${{ inputs.xcode-version || '26.4.1' }}
       - name: Setup environment
         run: make setup
-      - name: Get Model Revision
-        id: model-revision
-        run: echo "sha=$(git ls-remote https://huggingface.co/argmaxinc/whisperkit-coreml HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
       - name: Setup Cache
-        id: model-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae #v5.0.5
+        if: ${{ matrix.run-config['condition'] == true }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae #v5.0.5
         with:
           path: Models
-          key: ${{ runner.os }}-models-${{ steps.model-revision.outputs.sha }}
-      - name: Download Models
-        if: steps.model-cache.outputs.cache-hit != 'true'
-        run: make download-model MODEL=tiny
+          key: ${{ inputs.model-cache-key }}
       - name: Install and discover destinations
         if: ${{ matrix.run-config['condition'] == true }}
         run: |

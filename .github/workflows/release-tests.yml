@@ -6,8 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  model-cache:
+    name: "Model Cache"
+    uses: ./.github/workflows/model-cache.yml
+
   build-and-test-all-platforms:
     name: "Build and Test All Platforms"
+    needs: [model-cache]
     strategy:
       matrix:
         include:
@@ -38,3 +43,4 @@ jobs:
       watchos-version: ${{ matrix.watchos-version }}
       visionos-version: ${{ matrix.visionos-version }}
       xcode-version: ${{ matrix.xcode-version }}
+      model-cache-key: ${{ needs.model-cache.outputs.cache-key }}
