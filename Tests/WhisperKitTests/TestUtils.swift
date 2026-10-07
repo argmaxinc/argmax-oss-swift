@@ -162,6 +162,11 @@ extension XCTestCase {
     }
 
     func tinyModelPath() async throws -> String {
+        if let localPath = ProcessInfo.processInfo.environment["WHISPERKIT_TINY_MODEL_PATH"],
+           FileManager.default.fileExists(atPath: localPath)
+        {
+            return localPath
+        }
         let modelDir = try await WhisperKit.download(variant: "tiny").path()
         return modelDir
     }

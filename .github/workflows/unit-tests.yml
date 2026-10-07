@@ -35,25 +35,27 @@ jobs:
           - {
               name: "macOS",
               condition: true,
-              clean-destination: "generic/platform=macOS",
               test-destination: "platform=macOS,arch=arm64",
             }
           - {
               name: "iOS",
               condition: true,
-              clean-destination: "generic/platform=iOS",
+              os-version: "${{ inputs.ios-version }}",
+              device: "${{ inputs.ios-device }}",
               test-destination: "platform=iOS Simulator,OS=${{ inputs.ios-version }},name=${{ inputs.ios-device }}",
             }
           - {
               name: "watchOS",
-              condition: "${{ inputs.macos-runner == 'macos-26' }}",
-              clean-destination: "generic/platform=watchOS",
-              test-destination: "platform=watchOS Simulator,OS=${{ inputs.watchos-version }},name=Apple Watch Ultra 3 (49mm)",
+              condition: "${{ inputs.macos-runner == 'xcode-27' }}",
+              os-version: "${{ inputs.watchos-version }}",
+              device: "Apple Watch Ultra 4 (49mm)",
+              test-destination: "platform=watchOS Simulator,OS=${{ inputs.watchos-version }},name=Apple Watch Ultra 4 (49mm)",
             }
           - {
               name: "visionOS",
-              condition: "${{ inputs.macos-runner == 'macos-26' }}",
-              clean-destination: "generic/platform=visionOS",
+              condition: "${{ inputs.macos-runner == 'xcode-27' }}",
+              os-version: "${{ inputs.visionos-version }}",
+              device: "Apple Vision Pro",
               test-destination: "platform=visionOS Simulator,OS=${{ inputs.visionos-version }},name=Apple Vision Pro",
             }
     timeout-minutes: ${{ matrix.run-config['name'] == 'visionOS' && 60 || 30 }}
@@ -64,12 +66,15 @@ jobs:
           xcode-version: ${{ inputs.xcode-version || '26.4.1' }}
       - name: Setup environment
         run: make setup
+      - name: Get Model Revision
+        id: model-revision
+        run: echo "sha=$(git ls-remote https://huggingface.co/argmaxinc/whisperkit-coreml HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
       - name: Setup Cache
         id: model-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae #v5.0.5
         with:
           path: Models
-          key: ${{ runner.os }}-models
+          key: ${{ runner.os }}-models-${{ steps.model-revision.outputs.sha }}
       - name: Download Models
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: make download-model MODEL=tiny
@@ -86,28 +91,34 @@ jobs:
           echo "Destinations for testing:"
           xcodebuild test-without-building -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -showdestinations
       - name: Boot Simulator and Wait
-        if: ${{ matrix.run-config['condition'] == true && matrix.run-config['name'] != 'macOS' && inputs.macos-runner == 'macos-26' }}
+        if: ${{ matrix.run-config['condition'] == true && matrix.run-config['name'] != 'macOS' && inputs.macos-runner == 'xcode-27' }}
+        timeout-minutes: 5
+        continue-on-error: true
         # Slower runners require some time to fully boot the simulator
-        # Parse the simulator name from the destination string, boot it, and wait
+        # Boot the simulator for the requested OS and device, and wait
+        env:
+          PLATFORM: ${{ matrix.run-config['name'] }}
+          OS: ${{ matrix.run-config['os-version'] }}
+          DEVICE: ${{ matrix.run-config['device'] }}
         run: |
-          simulator_name=$(echo '${{ matrix.run-config['test-destination'] }}' | sed -n 's/.*name=\([^,]*\).*/\1/p')
-          xcrun simctl boot "$simulator_name" || true
-          sleep 15
-          xcrun simctl list devices
+          udid=$(xcrun simctl list -j | jq -r '(.runtimes[] | select(.isAvailable and (.name | startswith(env.PLATFORM + " ")) and .version == env.OS) | .identifier) as $runtime | .devices[$runtime][]? | select(.isAvailable and .name == env.DEVICE) | .udid' | head -1)
+          xcrun simctl bootstatus "${udid:-$DEVICE}" -b
       - name: Build - ${{ matrix.run-config['name'] }}
         if: ${{ matrix.run-config['condition'] == true }}
         run: |
           set -o pipefail
           # Annotate warnings from a single job only; duplicate check runs each re-post identical annotations on the PR diff
-          xcodebuild clean build-for-testing -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['clean-destination'] }}' | xcbeautify --renderer ${{ (matrix.run-config['name'] == 'macOS' && inputs.macos-runner == 'macos-26') && 'github-actions' || 'terminal' }}
+          xcodebuild clean build-for-testing -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' | xcbeautify --renderer ${{ (matrix.run-config['name'] == 'macOS' && inputs.macos-runner == 'xcode-27') && 'github-actions' || 'terminal' }}
+          xcodebuild build -scheme argmax-oss-swift-Package -destination 'generic/platform=${{ matrix.run-config['name'] }}' -derivedDataPath "$RUNNER_TEMP/generic-build" | xcbeautify
       - name: Test - ${{ matrix.run-config['name'] }}
         if: ${{ matrix.run-config['condition'] == true }}
         env:
-          # xcodebuild strips the TEST_RUNNER_ prefix and forwards HF_TOKEN into the test process
+          # xcodebuild strips the TEST_RUNNER_ prefix and forwards these into the test process
           TEST_RUNNER_HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          TEST_RUNNER_WHISPERKIT_TINY_MODEL_PATH: ${{ github.workspace }}/Models/whisperkit-coreml/openai_whisper-tiny
         run: |
           set -o pipefail
-          xcodebuild test -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' | xcbeautify
+          xcodebuild test-without-building -testPlan UnitTestsPlan -scheme argmax-oss-swift-Package -destination '${{ matrix.run-config['test-destination'] }}' -collect-test-diagnostics never | xcbeautify
       - name: Upload Test Results
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
