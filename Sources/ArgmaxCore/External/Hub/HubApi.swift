@@ -128,28 +128,11 @@ private extension HubApi {
         ProcessInfo.processInfo.environment["HF_ENDPOINT"] ?? "https://huggingface.co"
     }
 
+    // Argmax-modification: removed the HF_TOKEN_PATH, HF_HOME, ~/.cache/huggingface, and ~/.huggingface token file lookups
     static func hfTokenFromEnv() -> String? {
         let possibleTokens = [
             { ProcessInfo.processInfo.environment["HF_TOKEN"] },
             { ProcessInfo.processInfo.environment["HUGGING_FACE_HUB_TOKEN"] },
-            {
-                ProcessInfo.processInfo.environment["HF_TOKEN_PATH"].flatMap {
-                    try? String(
-                        contentsOf: URL(filePath: NSString(string: $0).expandingTildeInPath),
-                        encoding: .utf8
-                    )
-                }
-            },
-            {
-                ProcessInfo.processInfo.environment["HF_HOME"].flatMap {
-                    try? String(
-                        contentsOf: URL(filePath: NSString(string: $0).expandingTildeInPath).appending(path: "token"),
-                        encoding: .utf8
-                    )
-                }
-            },
-            { try? String(contentsOf: .homeDirectory.appending(path: ".cache/huggingface/token"), encoding: .utf8) },
-            { try? String(contentsOf: .homeDirectory.appending(path: ".huggingface/token"), encoding: .utf8) },
         ]
         return possibleTokens
             .lazy
@@ -200,7 +183,7 @@ extension HubApi {
             case 200..<300:
                 return (data, httpResponse)
             case 401, 403:
-                throw Hub.HubClientError.authorizationRequired
+                throw Hub.HubClientError.authorizationRequired(statusCode: httpResponse.statusCode)
             case 404:
                 throw Hub.HubClientError.fileNotFound(url.lastPathComponent)
             default:
@@ -236,7 +219,7 @@ extension HubApi {
 
         switch response.statusCode {
         case 200..<400: break // Allow redirects to pass through to the redirect delegate
-        case 401, 403: throw Hub.HubClientError.authorizationRequired
+        case 401, 403: throw Hub.HubClientError.authorizationRequired(statusCode: response.statusCode)
         case 404: throw Hub.HubClientError.fileNotFound(url.lastPathComponent)
         default: throw Hub.HubClientError.httpStatusCode(response.statusCode)
         }
@@ -332,7 +315,7 @@ extension HubApi {
 /// Whoami
 extension HubApi {
     func whoami() async throws -> Config {
-        guard hfToken != nil else { throw Hub.HubClientError.authorizationRequired }
+        guard hfToken?.isEmpty == false else { throw Hub.HubClientError.authorizationRequired(statusCode: nil) }
 
         let url = URL(string: endpoint)!
             .appending(path: "api")

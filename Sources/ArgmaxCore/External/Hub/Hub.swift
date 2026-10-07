@@ -29,8 +29,9 @@ extension Hub {
     /// interacting with the Hugging Face Hub, including network issues, authentication
     /// problems, file system errors, and parsing failures.
     enum HubClientError: LocalizedError {
-        /// Authentication is required but no valid token was provided.
-        case authorizationRequired
+        /// Authentication failed with the given HTTP status code, or no valid token was provided.
+        // Argmax-modification: carries the HTTP status code
+        case authorizationRequired(statusCode: Int?)
         /// An HTTP error occurred with the specified status code.
         case httpStatusCode(Int)
         /// Failed to parse server response or configuration data.
@@ -57,6 +58,9 @@ extension Hub {
         // Argmax-modification: removed public — Hub is internal
         var errorDescription: String? {
             switch self {
+            // Argmax-modification: include the HTTP status code
+            case let .authorizationRequired(statusCode?):
+                String(localized: "Authentication failed with status code: \(statusCode). Please check your Hugging Face token.")
             case .authorizationRequired:
                 String(localized: "Authentication required. Please provide a valid Hugging Face token.")
             case let .httpStatusCode(code):
