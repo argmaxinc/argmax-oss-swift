@@ -367,6 +367,7 @@ open class WhisperKit {
         try await loadModels(prewarmMode: true)
     }
 
+    /// Override ``loadModelComponents(prewarmMode:)`` to customize model loading.
     open func loadModels(
         prewarmMode: Bool = false
     ) async throws {
@@ -374,6 +375,29 @@ open class WhisperKit {
 
         let modelLoadStart = CFAbsoluteTimeGetCurrent()
 
+        do {
+            try await loadModelComponents(prewarmMode: prewarmMode)
+            if !prewarmMode {
+                try await loadTokenizerIfNeeded()
+            }
+        } catch {
+            await unloadModels()
+            throw error
+        }
+
+        if prewarmMode {
+            modelState = .prewarmed
+            currentTimings.prewarmLoadTime = CFAbsoluteTimeGetCurrent() - modelLoadStart
+            return
+        }
+
+        modelState = .loaded
+        currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart + currentTimings.prewarmLoadTime
+
+        Logging.info("Loaded models in \(String(format: "%.2f", currentTimings.modelLoading))s")
+    }
+
+    open func loadModelComponents(prewarmMode: Bool) async throws {
         guard let path = modelFolder else {
             throw WhisperError.modelsUnavailable("Model folder is not set.")
         }
@@ -437,20 +461,6 @@ open class WhisperKit {
 
             Logging.debug("Loaded audio encoder in \(String(format: "%.2f", currentTimings.encoderLoadTime))s")
         }
-
-        if prewarmMode {
-            modelState = .prewarmed
-            currentTimings.prewarmLoadTime = CFAbsoluteTimeGetCurrent() - modelLoadStart
-            return
-        }
-
-        try await loadTokenizerIfNeeded()
-
-        modelState = .loaded
-
-        currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart + currentTimings.prewarmLoadTime
-
-        Logging.info("Loaded models in \(String(format: "%.2f", currentTimings.modelLoading))s")
     }
 
     open func loadTokenizerIfNeeded() async throws {
@@ -496,18 +506,24 @@ open class WhisperKit {
         Logging.debug("Loaded tokenizer in \(String(format: "%.2f", currentTimings.tokenizerLoadTime))s")
     }
 
+    /// Override ``unloadModelComponents()`` to customize model unloading.
     open func unloadModels() async {
         modelState = .unloading
 
+        await unloadModelComponents()
+        tokenizer = nil
+
+        modelState = .unloaded
+
+        Logging.info("Unloaded all models")
+    }
+
+    open func unloadModelComponents() async {
         for model in [featureExtractor, audioEncoder, textDecoder] {
             if let model = model as? WhisperMLModel {
                 model.unloadModel()
             }
         }
-
-        modelState = .unloaded
-
-        Logging.info("Unloaded all models")
     }
 
     open func clearState() {

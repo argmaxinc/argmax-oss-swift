@@ -925,6 +925,31 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertNil(tts.tokenizer)
     }
 
+    func testLoadModelsStateWithCustomLoader() async throws {
+        final class CustomLoaderTTSKit: TTSKit, @unchecked Sendable {
+            var shouldFail = false
+            override func loadModelComponents(prewarmMode: Bool) async throws {
+                if shouldFail { throw TTSError.modelNotFound("custom loader failed") }
+            }
+        }
+
+        let tts = try await CustomLoaderTTSKit(TTSKitConfig(download: false, load: false))
+        try await tts.prewarmModels()
+        XCTAssertEqual(tts.modelState, .prewarmed)
+
+        tts.shouldFail = true
+        do {
+            try await tts.loadModels()
+            XCTFail("Expected loadModels to throw")
+        } catch {}
+        XCTAssertEqual(tts.modelState, .unloaded)
+
+        tts.shouldFail = false
+        try await tts.prewarmModels()
+        await tts.unloadModels()
+        XCTAssertEqual(tts.modelState, .unloaded)
+    }
+
     func testTTSKitComponentsExist() async throws {
         let tts = try await TTSKit(TTSKitConfig(download: false, load: false))
         // All components should be initialized (models not loaded yet)
