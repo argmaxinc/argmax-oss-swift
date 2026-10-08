@@ -167,7 +167,8 @@ final class Downloader: NSObject, Sendable {
                     var requestHeaders = headers ?? [:]
 
                     // Populate header auth and range fields
-                    if let authToken {
+                    // Argmax-modification: skip the Authorization header for an empty token
+                    if let authToken, !authToken.isEmpty {
                         requestHeaders["Authorization"] = "Bearer \(authToken)"
                     }
 

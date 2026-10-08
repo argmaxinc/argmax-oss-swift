@@ -162,6 +162,11 @@ extension XCTestCase {
     }
 
     func tinyModelPath() async throws -> String {
+        if let localPath = ProcessInfo.processInfo.environment["WHISPERKIT_TINY_MODEL_PATH"],
+           FileManager.default.fileExists(atPath: localPath)
+        {
+            return localPath
+        }
         let modelDir = try await WhisperKit.download(variant: "tiny").path()
         return modelDir
     }
@@ -444,6 +449,8 @@ final class MockTextDecoder: TextDecoder {
     /// The last entry repeats if the decode loop runs longer than the script.
     var script: [Prediction] = []
     private(set) var predictionCount = 0
+    /// Return an output with no logits, as `TextDecoder` does after `unloadModel()`.
+    var isModelUnloaded = false
 
     private let vocabSize = 1024
 
@@ -456,6 +463,9 @@ final class MockTextDecoder: TextDecoder {
     override var embedSize: Int? { 2 }
 
     override func predictLogits(_ inputs: TextDecoderInputType) async throws -> TextDecoderOutputType? {
+        if isModelUnloaded {
+            return TextDecoderMLMultiArrayOutputType()
+        }
         guard !script.isEmpty else {
             throw WhisperError.decodingLogitsFailed("MockTextDecoder.script is empty; set a script before decoding")
         }

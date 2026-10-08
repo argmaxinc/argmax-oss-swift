@@ -733,6 +733,60 @@ final class UnitTests: XCTestCase {
 
     // MARK: - Decoder Tests
 
+    func testDetectLanguageThrowsWhenModelUnloaded() async throws {
+        let (decoder, inputs, sampler, encoderOutput, options) = try await MockTextDecoder.makePromptDecodingContext()
+        decoder.isModelUnloaded = true
+
+        do {
+            _ = try await decoder.detectLanguage(from: encoderOutput, using: inputs, sampler: sampler, options: options, temperature: 0)
+            XCTFail("detectLanguage should throw when the model is unloaded")
+        } catch let error as WhisperError {
+            guard case .decodingLogitsFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testDecodeTextThrowsWhenModelUnloaded() async throws {
+        // As when `unloadModels()` lands between iterations of a decode loop that is still running
+        let (decoder, inputs, sampler, encoderOutput, options) = try await MockTextDecoder.makePromptDecodingContext()
+        decoder.isModelUnloaded = true
+
+        do {
+            _ = try await decoder.decodeText(from: encoderOutput, using: inputs, sampler: sampler, options: options)
+            XCTFail("decodeText should throw when the model is unloaded")
+        } catch let error as WhisperError {
+            guard case .decodingLogitsFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testDecodeTextThrowsWhenSamplerReturnsNoTokens() async throws {
+        // A custom sampler that returns an empty result
+        struct EmptySampler: TokenSampling {
+            func update(tokens: [Int], logits: MLMultiArray, logProbs: [Float]) async -> SamplingResult {
+                SamplingResult(tokens: [], logProbs: [], completed: false)
+            }
+
+            func finalize(tokens: [Int], logProbs: [Float]) -> SamplingResult {
+                SamplingResult(tokens: tokens, logProbs: logProbs, completed: true)
+            }
+        }
+
+        let (decoder, inputs, _, encoderOutput, options) = try await MockTextDecoder.makePromptDecodingContext()
+        decoder.script = [MockTextDecoder.Prediction(token: 100, confident: true)]
+
+        do {
+            _ = try await decoder.decodeText(from: encoderOutput, using: inputs, sampler: EmptySampler(), options: options)
+            XCTFail("decodeText should throw when the sampler returns no tokens")
+        } catch let error as WhisperError {
+            guard case .decodingFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testDecoderOutput() async throws {
         let textDecoder = TextDecoder()
         let decodingOptions = DecodingOptions()

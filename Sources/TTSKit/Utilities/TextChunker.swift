@@ -104,9 +104,13 @@ public struct TextChunker {
                 chunks.append(accepted)
             }
 
+            // Remove trailing whitespace (\s+$ matches the whitespace run at the end of the string),
+            // since BPE tokenizers encode it as part of the next word's token
+            let prefixWithoutTrailingWhitespace = acceptedPrefix.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+
             // Re-tokenize the accepted prefix to advance by its exact token count,
             // avoiding drift from imperfect encode/decode round-trips.
-            let consumed = encodeText(acceptedPrefix).count
+            let consumed = encodeText(prefixWithoutTrailingWhitespace).count
             tokens.removeFirst(min(max(consumed, 1), tokens.count))
         }
 

@@ -487,7 +487,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             )
         ) as? TextDecoderMLMultiArrayOutputType
 
-        guard let decoderOutput = predictedLogits else {
+        guard let decoderLogits = predictedLogits?.logits else {
             Logging.error("Unable to decode logits")
             throw WhisperError.decodingLogitsFailed()
         }
@@ -498,7 +498,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         // MARK: Non-inference
 
         // Update predicted token as current
-        let logits = languageLogitsFilter.filterLogits(decoderOutput.logits!, withTokens: currentTokens)
+        let logits = languageLogitsFilter.filterLogits(decoderLogits, withTokens: currentTokens)
 
         // MARK: Sampling
 
@@ -506,7 +506,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
         let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
-        nextToken = sampleResult.tokens.last!
+        guard let sampledToken = sampleResult.tokens.last else {
+            throw WhisperError.decodingFailed("Token sampler returned no tokens")
+        }
+        nextToken = sampledToken
         logProbs = sampleResult.logProbs
 
         let samplingTime = Date().timeIntervalSince(samplingStartTime)
@@ -641,7 +644,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
                 )
             ) as? TextDecoderMLMultiArrayOutputType
 
-            guard let decoderOutput = predictedLogits else {
+            guard let decoderOutput = predictedLogits, var logits = decoderOutput.logits else {
                 throw WhisperError.decodingLogitsFailed("Unable to decode logits")
             }
 
@@ -653,7 +656,6 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             let nonInferenceStartTime = Date()
 
             // Update predicted token as current
-            var logits = decoderOutput.logits!
             for filter in logitsFilters {
                 logits = filter.filterLogits(logits, withTokens: currentTokens)
             }
@@ -667,8 +669,10 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
 
             let sampleResult = await tokenSampler.update(tokens: currentTokens, logits: logits, logProbs: logProbs)
 
-            nextToken = sampleResult.tokens.last!
-            let nextTokenLogProb = sampleResult.logProbs.last!
+            guard let sampledToken = sampleResult.tokens.last, let nextTokenLogProb = sampleResult.logProbs.last else {
+                throw WhisperError.decodingFailed("Token sampler returned no tokens or log probabilities")
+            }
+            nextToken = sampledToken
 
             Logging.debug("Predicted next tokenIndex: \(tokenIndex + 1), token: \(nextToken), text: \(tokenizer.decode(tokens: [nextToken]))")
 
