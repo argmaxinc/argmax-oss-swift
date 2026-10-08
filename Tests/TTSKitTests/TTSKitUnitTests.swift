@@ -234,6 +234,38 @@ final class TTSKitUnitTests: XCTestCase {
         assertReconstructs(chunks, text)
     }
 
+    func testChunkerKeepsFirstWordAfterSentenceBoundaryWithBPETokenizer() {
+        // BPE tokenizers attach a space to the word after it, so the text encodes as
+        // ["One", " two.", " Three", " four."]. The 3-token window "One two. Three" ends its
+        // sentence at "One two. ", which re-encodes as ["One", " two.", " "]. Advancing by
+        // those 3 tokens skips " Three":
+        //
+        //   bad:  ["One two.", "four."]
+        //   good: ["One two.", "Three four."]
+        //
+        let text = "One two. Three four."
+        // Word-level tokenizer: each word after the first is one token with the space before it.
+        // Token IDs index into `pieces`, which grows as encode sees new pieces.
+        var pieces: [String] = []
+        let chunker = TextChunker(
+            targetChunkSize: 3,
+            minChunkSize: 1,
+            encode: { string in
+                var tokens: [Int] = []
+                for (index, word) in string.components(separatedBy: " ").enumerated() {
+                    let piece = index == 0 ? word : " " + word
+                    if !pieces.contains(piece) { pieces.append(piece) }
+                    tokens.append(pieces.firstIndex(of: piece)!)
+                }
+                return tokens
+            },
+            decode: { tokens in tokens.map { pieces[$0] }.joined() }
+        )
+        let chunks = chunker.chunk(text)
+        XCTAssertEqual(chunks, ["One two.", "Three four."])
+        assertReconstructs(chunks, text)
+    }
+
     // MARK: - Embedding Math
 
     func testZeroEmbed() {
@@ -1234,11 +1266,6 @@ final class TTSKitUnitTests: XCTestCase {
     func testChunkerWordBoundaryFallback() {
         // No punctuation in text - chunker must fall back to word-boundary splits.
         // With char-level tokenizer, targetChunkSize: 15 gives 15-char windows.
-        // Note: multi-word phrase checks are intentionally avoided here because the
-        // re-encode advance can leave a stray char when the token stream has a leading
-        // space (e.g. "very long" → 9 tokens, but the stream starts with " very lon").
-        // This is a char-level mock artifact; BPE tokenizers fold whitespace into the
-        // next word token, so no drift occurs in production.
         let chunker = makeChunker(targetChunkSize: 15, minChunkSize: 3)
         let text = "This is a very long text with no punctuation inside it at all here"
         let chunks = chunker.chunk(text)
