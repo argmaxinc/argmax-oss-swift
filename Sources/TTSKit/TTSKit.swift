@@ -448,9 +448,13 @@ open class TTSKit: @unchecked Sendable {
     open func loadModels(prewarmMode: Bool = false) async throws {
         modelState = prewarmMode ? .prewarming : .loading
 
+        let modelLoadStart = CFAbsoluteTimeGetCurrent()
+
         do {
             try await loadModelComponents(prewarmMode: prewarmMode)
             if !prewarmMode {
+                currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart
+                Logging.info(String(format: "Total model load: %.2fs", modelLoadTime))
                 try await loadTokenizerIfNeeded()
             }
         } catch {
@@ -530,12 +534,8 @@ open class TTSKit: @unchecked Sendable {
             async let loadSD: Void = speechDecoder.loadModel(at: sdURL, computeUnits: sdUnits)
             _ = try await (loadTP, loadCE, loadMCE, loadCD, loadMCD, loadSD)
 
-            currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart
-
             // Sync audio output sample rate to the loaded speech decoder.
             audioOutput.configure(sampleRate: speechDecoder.sampleRate)
-
-            Logging.info(String(format: "Total model load: %.2fs", modelLoadTime))
         }
     }
 
