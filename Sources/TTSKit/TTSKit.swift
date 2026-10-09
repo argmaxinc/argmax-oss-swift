@@ -9,6 +9,11 @@ import os
 
 // MARK: - Callback Typealiases
 
+/// A closure invoked when audio samples are aligned with playback.
+///
+/// Use this for playback-reactive features such as metering or lip sync.
+public typealias PlaybackCallback = (@Sendable ([Float]) -> Void)?
+
 // MARK: - TTSKit
 
 /// Generic TTS orchestrator: text chunking, concurrent generation, crossfade, and audio playback.
@@ -1028,11 +1033,14 @@ open class TTSKit: @unchecked Sendable {
         language: String? = nil,
         options: GenerationOptions = GenerationOptions(),
         playbackStrategy: PlaybackStrategy = .auto,
-        callback: SpeechCallback = nil
+        callback: SpeechCallback = nil,
+        playbackCallback: PlaybackCallback = nil
     ) async throws -> SpeechResult {
         var playOptions = options
 
         let audioOut = audioOutput
+        audioOut.playbackCallback = playbackCallback
+        defer { audioOut.playbackCallback = nil }
         let maxTokens = playOptions.maxNewTokens
 
         // Pre-resolve audio format from the task so the playback closure doesn't
@@ -1096,6 +1104,25 @@ open class TTSKit: @unchecked Sendable {
 
         await audioOut.stopPlayback(waitForCompletion: true)
         return result
+    }
+
+    open func play(
+        text: String,
+        voice: String?,
+        language: String?,
+        options: GenerationOptions,
+        playbackStrategy: PlaybackStrategy,
+        callback: SpeechCallback
+    ) async throws -> SpeechResult {
+        try await play(
+            text: text,
+            voice: voice,
+            language: language,
+            options: options,
+            playbackStrategy: playbackStrategy,
+            callback: callback,
+            playbackCallback: nil
+        )
     }
 
     // MARK: - Qwen3-typed convenience API
@@ -1164,7 +1191,8 @@ open class TTSKit: @unchecked Sendable {
         language: Qwen3Language = .english,
         options: GenerationOptions = GenerationOptions(),
         playbackStrategy: PlaybackStrategy = .auto,
-        callback: SpeechCallback = nil
+        callback: SpeechCallback = nil,
+        playbackCallback: PlaybackCallback = nil
     ) async throws -> SpeechResult {
         try await play(
             text: text,
@@ -1172,7 +1200,27 @@ open class TTSKit: @unchecked Sendable {
             language: language.rawValue,
             options: options,
             playbackStrategy: playbackStrategy,
-            callback: callback
+            callback: callback,
+            playbackCallback: playbackCallback
+        )
+    }
+
+    open func play(
+        text: String,
+        speaker: Qwen3Speaker,
+        language: Qwen3Language = .english,
+        options: GenerationOptions = GenerationOptions(),
+        playbackStrategy: PlaybackStrategy = .auto,
+        callback: SpeechCallback = nil
+    ) async throws -> SpeechResult {
+        try await play(
+            text: text,
+            speaker: speaker,
+            language: language,
+            options: options,
+            playbackStrategy: playbackStrategy,
+            callback: callback,
+            playbackCallback: nil
         )
     }
 }
