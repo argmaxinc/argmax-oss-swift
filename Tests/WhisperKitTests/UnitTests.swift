@@ -1980,6 +1980,31 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(result.segments.first?.text, " and so my fellow americans ask not what your country can do for you ask what you can do for your country")
     }
 
+    func testLoadModelsStateWithCustomLoader() async throws {
+        final class CustomLoaderWhisperKit: WhisperKit {
+            var shouldFail = false
+            override func loadModelComponents(prewarmMode: Bool) async throws {
+                if shouldFail { throw WhisperError.modelsUnavailable("custom loader failed") }
+            }
+        }
+
+        let whisperKit = try await CustomLoaderWhisperKit(WhisperKitConfig(load: false, download: false))
+        try await whisperKit.prewarmModels()
+        XCTAssertEqual(whisperKit.modelState, .prewarmed)
+
+        whisperKit.shouldFail = true
+        do {
+            try await whisperKit.loadModels()
+            XCTFail("Expected loadModels to throw")
+        } catch {}
+        XCTAssertEqual(whisperKit.modelState, .unloaded)
+
+        whisperKit.shouldFail = false
+        try await whisperKit.prewarmModels()
+        await whisperKit.unloadModels()
+        XCTAssertEqual(whisperKit.modelState, .unloaded)
+    }
+
     func testCallbacks() async throws {
         let config = WhisperKitConfig(
             model: "tiny",

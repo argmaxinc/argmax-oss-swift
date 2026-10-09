@@ -440,6 +440,7 @@ open class TTSKit: @unchecked Sendable {
     ///
     /// Expects `config.modelFolder` to be set (call `setupModels` first if needed).
     /// Mirrors `WhisperKit.loadModels(prewarmMode:)`.
+    /// Override ``loadModelComponents(prewarmMode:)`` to customize model loading.
     ///
     /// - Parameter prewarmMode: When `true`, compile models one at a time and discard weights
     ///   to limit peak memory (prewarm). When `false` (default), load all concurrently.
@@ -447,6 +448,24 @@ open class TTSKit: @unchecked Sendable {
     open func loadModels(prewarmMode: Bool = false) async throws {
         modelState = prewarmMode ? .prewarming : .loading
 
+        let modelLoadStart = CFAbsoluteTimeGetCurrent()
+
+        do {
+            try await loadModelComponents(prewarmMode: prewarmMode)
+            if !prewarmMode {
+                currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart
+                Logging.info(String(format: "Total model load: %.2fs", modelLoadTime))
+                try await loadTokenizerIfNeeded()
+            }
+        } catch {
+            await unloadModels()
+            throw error
+        }
+
+        modelState = prewarmMode ? .prewarmed : .loaded
+    }
+
+    open func loadModelComponents(prewarmMode: Bool) async throws {
         let embedUnits = config.computeOptions.embedderComputeUnits
         let cdUnits = config.computeOptions.codeDecoderComputeUnits
         let mcdUnits = config.computeOptions.multiCodeDecoderComputeUnits
@@ -455,7 +474,6 @@ open class TTSKit: @unchecked Sendable {
         guard let modelFolder = config.modelFolder,
             FileManager.default.fileExists(atPath: modelFolder.path)
         else {
-            modelState = .unloaded
             throw TTSError.modelNotFound(config.modelFolder?.path ?? "<nil>")
         }
 
@@ -475,11 +493,6 @@ open class TTSKit: @unchecked Sendable {
         let cdURL = try requireURL("code_decoder", config.codeDecoderVariant)
         let mcdURL = try requireURL("multi_code_decoder", config.multiCodeDecoderVariant)
         let sdURL = try requireURL("speech_decoder", config.speechDecoderVariant)
-
-        // Load tokenizer (skipped in prewarm - only CoreML compilation needed).
-        if !prewarmMode {
-            try await loadTokenizerIfNeeded()
-        }
 
         // Propagate Qwen3-specific config to the concrete SpeechDecoder before `loadModel`
         // selects which function of the multifunction asset to compile.
@@ -504,7 +517,6 @@ open class TTSKit: @unchecked Sendable {
             try await multiCodeDecoder.loadModel(at: mcdURL, computeUnits: mcdUnits, prewarmMode: true)
             try await speechDecoder.loadModel(at: sdURL, computeUnits: sdUnits, prewarmMode: true)
             Logging.info(String(format: "Prewarm complete in %.2fs", CFAbsoluteTimeGetCurrent() - modelLoadStart))
-            modelState = .prewarmed
         } else {
             Logging.info("Loading 6 CoreML models concurrently...")
             Logging.debug("  TextProjector:     \(tpURL.lastPathComponent)  compute: \(embedUnits.description)")
@@ -522,13 +534,8 @@ open class TTSKit: @unchecked Sendable {
             async let loadSD: Void = speechDecoder.loadModel(at: sdURL, computeUnits: sdUnits)
             _ = try await (loadTP, loadCE, loadMCE, loadCD, loadMCD, loadSD)
 
-            currentTimings.modelLoading = CFAbsoluteTimeGetCurrent() - modelLoadStart
-
             // Sync audio output sample rate to the loaded speech decoder.
             audioOutput.configure(sampleRate: speechDecoder.sampleRate)
-
-            Logging.info(String(format: "Total model load: %.2fs", modelLoadTime))
-            modelState = .loaded
         }
     }
 
@@ -571,17 +578,22 @@ open class TTSKit: @unchecked Sendable {
     ///
     /// Mirrors `WhisperKit.unloadModels()`. Transitions through `.unloading` before
     /// reaching `.unloaded` so observers can distinguish the in-progress state.
+    /// Override ``unloadModelComponents()`` to customize model unloading.
     open func unloadModels() async {
         modelState = .unloading
+        await unloadModelComponents()
+        tokenizer = nil
+        modelState = .unloaded
+        Logging.info("Unloaded all models")
+    }
+
+    open func unloadModelComponents() async {
         textProjector.unloadModel()
         codeEmbedder.unloadModel()
         multiCodeEmbedder.unloadModel()
         codeDecoder.unloadModel()
         multiCodeDecoder.unloadModel()
         speechDecoder.unloadModel()
-        tokenizer = nil
-        modelState = .unloaded
-        Logging.info("Unloaded all models")
     }
 
     /// Reset all accumulated timing statistics.
