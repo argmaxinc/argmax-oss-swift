@@ -3058,6 +3058,32 @@ final class UnitTests: XCTestCase {
         }
     }
 
+    func testPromptTokensKeepWordTimestamps() async throws {
+        // A prompt is prefilled ahead of <|startoftranscript|>, and word timings are read from
+        // alignment rows indexed from that token, so a prompt must not move the words in time.
+        let promptless = try await XCTUnwrapAsync(
+            await transcribe(with: .tiny, options: DecodingOptions(wordTimestamps: true)),
+            "Failed to transcribe"
+        )
+        let promptlessWords = promptless.segments.compactMap { $0.words }.flatMap { $0 }
+        XCTAssertFalse(promptlessWords.isEmpty, "Promptless run should produce word timings")
+
+        let whisperKit = try await WhisperKit(WhisperKitConfig(model: "tiny", load: true))
+        let tokenizer = try XCTUnwrap(whisperKit.tokenizer)
+        let promptTokens = tokenizer.encode(text: " Wexford Ballymore Kilcullen")
+        let prompted = try await XCTUnwrapAsync(
+            await transcribe(with: .tiny, options: DecodingOptions(wordTimestamps: true, promptTokens: promptTokens)),
+            "Failed to transcribe"
+        )
+        let promptedWords = prompted.segments.compactMap { $0.words }.flatMap { $0 }
+
+        XCTAssertEqual(promptedWords.map { $0.word.normalized }, promptlessWords.map { $0.word.normalized }, "Prompt should not change the words")
+        for (promptedWord, promptlessWord) in zip(promptedWords, promptlessWords) {
+            XCTAssertEqual(promptedWord.start, promptlessWord.start, accuracy: 1.0, "Start of '\(promptedWord.word)' moved under a prompt (promptless: \(promptlessWord.start), prompted: \(promptedWord.start))")
+            XCTAssertEqual(promptedWord.end, promptlessWord.end, accuracy: 1.0, "End of '\(promptedWord.word)' moved under a prompt (promptless: \(promptlessWord.end), prompted: \(promptedWord.end))")
+        }
+    }
+
     func testLongWordDurations() async {
         // Test case with words spanning very long durations
         let wordTimings = [
