@@ -45,6 +45,22 @@ final class PyannoteIntegrationTests: XCTestCase {
         XCTAssertFalse(result.segments.isEmpty, "Should have at least one segment")
     }
 
+    func testClipTimestampsKeepAbsoluteTimes() async throws {
+        let audioArray = try loadAudio(named: "VADAudio")
+        let speakerKit = try await SpeakerKit()
+        let seconds = Float(audioArray.count) / Float(WhisperKit.sampleRate)
+        let whole = try await speakerKit.diarize(audioArray: audioArray)
+        let half = (seconds / 2).rounded()
+        let clipped = try await speakerKit.diarize(audioArray: audioArray, options: PyannoteDiarizationOptions(
+            clipTimestamps: [0, half, half, seconds]
+        ))
+        let wholeEnd = try XCTUnwrap(whole.segments.map(\.endTime).max())
+        let clippedEnd = try XCTUnwrap(clipped.segments.map(\.endTime).max())
+        // Segments from the second clip used to restart at zero, so nothing reached past the first clip.
+        XCTAssertGreaterThan(clippedEnd, half, "Second clip's segments must keep their place in the recording")
+        XCTAssertEqual(clippedEnd, wholeEnd, accuracy: 2.0)
+    }
+
     func testDiarizationBasicSanity() async throws {
         let audioArray = try loadAudio(named: "VADAudio")
         let speakerKit = try await SpeakerKit()
