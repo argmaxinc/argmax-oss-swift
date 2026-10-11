@@ -40,6 +40,13 @@ open class WhisperKitConfig {
     public var segmentSeeker: (any SegmentSeeking)?
     public var voiceActivityDetector: VoiceActivityDetector?
 
+    /// Callback invoked when the model state changes, including during initialization.
+    public var modelStateCallback: ModelStateCallback?
+    /// Callback invoked when transcription discovers new segments.
+    public var segmentDiscoveryCallback: SegmentDiscoveryCallback?
+    /// Callback invoked when the transcription state changes.
+    public var transcriptionStateCallback: TranscriptionStateCallback?
+
     /// Enable extra verbosity for logging
     public var verbose: Bool
     /// Maximum log level
@@ -100,7 +107,10 @@ open class WhisperKitConfig {
                 prewarm: Bool? = nil,
                 load: Bool? = nil,
                 download: Bool = true,
-                useBackgroundDownloadSession: Bool = false)
+                useBackgroundDownloadSession: Bool = false,
+                modelStateCallback: ModelStateCallback? = nil,
+                segmentDiscoveryCallback: SegmentDiscoveryCallback? = nil,
+                transcriptionStateCallback: TranscriptionStateCallback? = nil)
     {
         self.model = model
         self.downloadBase = downloadBase
@@ -118,6 +128,9 @@ open class WhisperKitConfig {
         self.logitsFilters = logitsFilters
         self.segmentSeeker = segmentSeeker
         self.voiceActivityDetector = voiceActivityDetector
+        self.modelStateCallback = modelStateCallback
+        self.segmentDiscoveryCallback = segmentDiscoveryCallback
+        self.transcriptionStateCallback = transcriptionStateCallback
         self.verbose = verbose
         self.logLevel = logLevel
         self.prewarm = prewarm

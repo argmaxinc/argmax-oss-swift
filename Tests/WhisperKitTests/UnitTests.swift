@@ -2006,40 +2006,64 @@ final class UnitTests: XCTestCase {
     }
 
     func testCallbacks() async throws {
+        let modelStateExpectation = XCTestExpectation(description: "Model state callback expectation")
+        let segmentDiscoveryExpectation = XCTestExpectation(description: "Segment discovery callback expectation")
+        let transcriptionStateExpectation = XCTestExpectation(description: "Transcription state callback expectation")
         let config = WhisperKitConfig(
             model: "tiny",
             verbose: true,
             logLevel: .debug,
-            load: false
+            load: true,
+            modelStateCallback: { _, newState in
+                Logging.debug("Model state: \(newState)")
+                modelStateExpectation.fulfill()
+            },
+            segmentDiscoveryCallback: { (segments: [TranscriptionSegment]) in
+                Logging.debug("Segments discovered: \(segments)")
+                segmentDiscoveryExpectation.fulfill()
+            },
+            transcriptionStateCallback: { (state: TranscriptionState) in
+                Logging.debug("Transcription state: \(state)")
+                transcriptionStateExpectation.fulfill()
+            }
         )
         let whisperKit = try await WhisperKit(config)
-        let modelStateExpectation = XCTestExpectation(description: "Model state callback expectation")
-        whisperKit.modelStateCallback = { (oldState: ModelState?, newState: ModelState) in
-            Logging.debug("Model state: \(newState)")
-            modelStateExpectation.fulfill()
-        }
 
-        let segmentDiscoveryExpectation = XCTestExpectation(description: "Segment discovery callback expectation")
-        whisperKit.segmentDiscoveryCallback = { (segments: [TranscriptionSegment]) in
-            Logging.debug("Segments discovered: \(segments)")
-            segmentDiscoveryExpectation.fulfill()
-        }
-
-        let transcriptionStateExpectation = XCTestExpectation(description: "Transcription state callback expectation")
-        whisperKit.transcriptionStateCallback = { (state: TranscriptionState) in
-            Logging.debug("Transcription state: \(state)")
-            transcriptionStateExpectation.fulfill()
-        }
-
-        // Run the full pipeline
-        try await whisperKit.loadModels()
+        // Model loading starts inside initialization, so the configured model-state callback
+        // must already be installed before init returns.
         let audioFilePath = try XCTUnwrap(
             Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
             "Audio file not found"
         )
-        let _ = try await whisperKit.transcribe(audioPath: audioFilePath)
+        _ = try await whisperKit.transcribe(audioPath: audioFilePath)
 
         await fulfillment(of: [modelStateExpectation, segmentDiscoveryExpectation, transcriptionStateExpectation], timeout: 1)
+    }
+
+    func testConvenienceInitializerSetsModelStateCallbackBeforeLoading() async throws {
+        let modelStateExpectation = XCTestExpectation(description: "Model state callback during convenience initialization")
+        do {
+            _ = try await WhisperKit(
+                modelFolder: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("argmax-missing-model-callback-\(UUID().uuidString)")
+                    .path,
+                verbose: false,
+                load: true,
+                download: false,
+                modelStateCallback: { _, newState in
+                    if newState == .loading {
+                        modelStateExpectation.fulfill()
+                    }
+                }
+            )
+            XCTFail("Initialization should fail when the model folder is missing")
+        } catch WhisperError.modelsUnavailable(_) {
+            // The missing model is intentional; the callback should run before the load fails.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        await fulfillment(of: [modelStateExpectation], timeout: 1)
     }
 
     func testCallbackWithEarlyStopping() async throws {
