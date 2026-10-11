@@ -51,6 +51,15 @@ final class TTSKitUnitTests: XCTestCase {
         XCTAssertNotNil(opts.concurrentWorkerCount)
     }
 
+    func testOutputSuppressionToggleState() {
+        let output = AudioOutput()
+        XCTAssertFalse(output.isOutputSuppressed, "Suppression should be disabled by default")
+        output.setOutputSuppressed(true)
+        XCTAssertTrue(output.isOutputSuppressed, "Suppression should be enabled after setting true")
+        output.setOutputSuppressed(false)
+        XCTAssertFalse(output.isOutputSuppressed, "Suppression should be disabled after setting false")
+    }
+
     func testDownloadPatterns() {
         let config = TTSKitConfig()
         let patterns = config.downloadPatterns
