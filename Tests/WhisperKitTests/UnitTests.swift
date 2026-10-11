@@ -1065,6 +1065,20 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(fallback4.fallbackReason, "logProbThreshold")
         XCTAssertTrue(fallback4.needsFallback)
 
+        // A confident decode is not silence, so a repetitive one still falls back
+        let fallback5 = try XCTUnwrap(
+            DecodingFallback(
+                options: DecodingOptions(compressionRatioThreshold: 2.4, logProbThreshold: -1.0, noSpeechThreshold: 0.6),
+                isFirstTokenLogProbTooLow: false,
+                noSpeechProb: 0.9,
+                compressionRatio: 3.0,
+                avgLogProb: -0.5
+            )
+        )
+
+        XCTAssertEqual(fallback5.fallbackReason, "compressionRatioThreshold")
+        XCTAssertTrue(fallback5.needsFallback)
+
         XCTAssertNil(
             DecodingFallback(
                 options: DecodingOptions(compressionRatioThreshold: 0.0, logProbThreshold: 0.0, noSpeechThreshold: 0.0),
@@ -1863,6 +1877,25 @@ final class UnitTests: XCTestCase {
         XCTAssertTrue(segment.tokens.contains(tokenizer.specialTokens.noSpeechToken))
     }
 
+    func testNoSpeechProbability() async throws {
+        let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
+        let whisperKit = try await WhisperKit(config)
+
+        // Without a threshold the silent window is kept, so its probability can be read
+        let options = DecodingOptions(noSpeechThreshold: nil)
+        let silence = try await whisperKit.transcribe(audioArray: [Float](repeating: 0.0, count: 30 * 16000), decodeOptions: options)
+        // tiny predates large-v3 and spells the token <|nocaptions|>
+        let tokenizer = try XCTUnwrap(whisperKit.tokenizer, "Tokenizer not available")
+        XCTAssertEqual(tokenizer.convertIdToToken(tokenizer.specialTokens.noSpeechToken), "<|nocaptions|>")
+        let silentSegment = try XCTUnwrap(silence.first?.segments.first, "Silent segment not available")
+        XCTAssertGreaterThan(silentSegment.noSpeechProb, 0.6)
+
+        let audioFilePath = try XCTUnwrap(Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"), "Audio file not found")
+        let speech = try await whisperKit.transcribe(audioPath: audioFilePath, decodeOptions: options)
+        let speechSegment = try XCTUnwrap(speech.first?.segments.first, "Speech segment not available")
+        XCTAssertLessThan(speechSegment.noSpeechProb, 0.2)
+    }
+
     func testTemperatureIncrement() async throws {
         let config = WhisperKitConfig(model: "tiny", verbose: true, logLevel: .debug)
         let whisperKit = try await WhisperKit(config)
@@ -1879,7 +1912,9 @@ final class UnitTests: XCTestCase {
             temperatureIncrementOnFallback: temperatureIncrement,
             temperatureFallbackCount: fallbackCount,
             usePrefillPrompt: false,
-            logProbThreshold: 0
+            logProbThreshold: 0,
+            // Noise is likely no speech, which would skip the window instead of falling back
+            noSpeechThreshold: nil
         )
 
         // Perform transcription

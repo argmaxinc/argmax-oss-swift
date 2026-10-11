@@ -548,6 +548,14 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         )
     }
 
+    /// Softmax probability of one token over the whole vocabulary.
+    static func softmaxProbability(of token: Int, in logits: MLMultiArray) -> Float {
+        let values = MLShapedArray<FloatType>(logits).scalars.map { Float($0) }
+        guard values.indices.contains(token), let maxLogit = values.max() else { return 0 }
+        let sumExp = values.reduce(Float(0)) { $0 + exp($1 - maxLogit) }
+        return exp(values[token] - maxLogit) / sumExp
+    }
+
     public func decodeText(
         from encoderOutput: any AudioEncoderOutputType,
         using decoderInputs: any DecodingInputsType,
@@ -581,6 +589,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         Logging.debug("Running main loop for a maximum of \(loopCount) iterations")
         var hasAlignment = false
         var isFirstTokenLogProbTooLow = false
+        var noSpeechProb: Float = 0
         let windowUUID = UUID()
         await earlyStopActor.set(false, for: windowUUID)
 
@@ -649,6 +658,11 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             // MARK: Non-inference
 
             let nonInferenceStartTime = Date()
+
+            // As in OpenAI Whisper, read the no-speech probability from the unfiltered logits after the start-of-transcript token
+            if tokenIndex < initialPromptIndex, nextToken == tokenizer.specialTokens.startOfTranscriptToken {
+                noSpeechProb = TextDecoder.softmaxProbability(of: tokenizer.specialTokens.noSpeechToken, in: logits)
+            }
 
             // Update predicted token as current
             for filter in logitsFilters {
@@ -817,8 +831,6 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
             // Convert Float16 temperature to Float with 3 decimal places
             temperature = Float(sampler.temperature).rounded(3)
         }
-
-        let noSpeechProb: Float = 0 // TODO: implement no speech prob
 
         // If language is still nil here, check language can be inferred from tokens
         var language = options.language ?? Constants.defaultLanguageCode

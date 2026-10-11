@@ -365,8 +365,10 @@ public extension DecodingFallback {
         // NOTE: order matters here
         if isFirstTokenLogProbTooLow {
             self.init(needsFallback: true, fallbackReason: "firstTokenLogProbThreshold")
-        } else if let threshold = options.noSpeechThreshold, noSpeechProb > threshold {
-            // silence detected
+        } else if let threshold = options.noSpeechThreshold, noSpeechProb > threshold,
+                  let logProbThreshold = options.logProbThreshold, avgLogProb < logProbThreshold
+        {
+            // silence detected: likely no speech and a low-confidence decode, as in OpenAI Whisper
             self.init(needsFallback: false, fallbackReason: "silence")
         } else if let threshold = options.compressionRatioThreshold, compressionRatio > threshold {
             // too repetitive
@@ -1203,7 +1205,8 @@ open class WhisperTokenizerWrapper: WhisperTokenizer {
         let specialTokens = SpecialTokens(
             endToken: tokenizer.convertTokenToId("<|endoftext|>") ?? Self.defaultEndToken,
             englishToken: tokenizer.convertTokenToId("<|en|>") ?? Self.defaultEnglishToken,
-            noSpeechToken: tokenizer.convertTokenToId("<|nospeech|>") ?? Self.defaultNoSpeechToken,
+            // Whisper large-v3 vocabularies spell it <|nospeech|>, earlier ones <|nocaptions|>
+            noSpeechToken: Self.tokenId(for: ["<|nospeech|>", "<|nocaptions|>"], in: tokenizer) ?? Self.defaultNoSpeechToken,
             noTimestampsToken: tokenizer.convertTokenToId("<|notimestamps|>") ?? Self.defaultNoTimestampsToken,
             specialTokenBegin: tokenizer.convertTokenToId("<|endoftext|>") ?? Self.defaultSpecialTokenBegin,
             startOfPreviousToken: tokenizer.convertTokenToId("<|startofprev|>") ?? Self.defaultStartOfPreviousToken,
@@ -1221,6 +1224,14 @@ open class WhisperTokenizerWrapper: WhisperTokenizer {
                 .compactMap { tokenizer.convertTokenToId("<|\($0.value)|>") }
                 .filter { $0 > specialTokens.specialTokenBegin }
         )
+    }
+
+    /// The id of the first name in the vocabulary. An unknown name resolves to the unknown token,
+    /// so only an id that maps back to the same name counts.
+    private static func tokenId(for names: [String], in tokenizer: TokenizerWrapper) -> Int? {
+        names.lazy.compactMap { name in
+            tokenizer.convertTokenToId(name).flatMap { tokenizer.convertIdToToken($0) == name ? $0 : nil }
+        }.first
     }
 
     private func splitTokensOnUnicode(tokens: [Int]) -> (words: [String], wordTokens: [[Int]]) {
