@@ -141,19 +141,20 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
 
         let maxChunkLength = Int(Self.chunkLengthInSeconds) * sampleRate
 
-        var chunks: [(index: Int, waveform: [Float])] = []
+        // Chunks are ranges into audioArray; each worker copies its chunk straight into the model input,
+        // so the whole recording is never duplicated as a list of chunk arrays.
+        var chunks: [(index: Int, range: Range<Int>)] = []
         var chunkIndex = 0
         let chunkStrideOffset = useFullRedundancy ? modelChunkStrideOffset : 0
         while chunkEndIndex < maxIndex {
             let chunkStartIndex = max(chunkEndIndex - chunkStrideOffset, 0)
             chunkEndIndex = min(chunkStartIndex + maxChunkLength, audioArrayCount)
-            let chunk = Array(audioArray[chunkStartIndex..<chunkEndIndex])
-            chunks.append((index: chunkIndex, waveform: chunk))
+            chunks.append((index: chunkIndex, range: chunkStartIndex..<chunkEndIndex))
             chunkIndex += 1
         }
         Logging.debug("[SpeakerSegmenter] split \(audioArrayCount) into \(chunkIndex) chunks with stride offset \(chunkStrideOffset)")
 
-        let chunkStream = AsyncStream<(index: Int, waveform: [Float])> { continuation in
+        let chunkStream = AsyncStream<(index: Int, range: Range<Int>)> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)
             }
@@ -170,14 +171,14 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
                 taskGroup.addTask { [model] in
                     for await chunk in chunkStream {
                         guard !Task.isCancelled else { break }
-                        Logging.debug("[SpeakerSegmenter][\(workerID)] inferring chunk \(chunk.index) count: \(chunk.waveform.count)")
+                        Logging.debug("[SpeakerSegmenter][\(workerID)] inferring chunk \(chunk.index) count: \(chunk.range.count)")
 
                         var output: SpeakerSegmenterOutput
-                        let waveformLength = Float(chunk.waveform.count) / sampleRateFloat
+                        let waveformLength = Float(chunk.range.count) / sampleRateFloat
                         do {
                             guard let audioSamples = AudioProcessor.padOrTrimAudio(
-                                fromArray: chunk.waveform,
-                                startAt: 0,
+                                fromArray: audioArray,
+                                startAt: chunk.range.lowerBound,
                                 toLength: maxChunkLength
                             ) else {
                                 throw SpeakerKitError.generic("Segmentation Failed: Audio samples are nil")
