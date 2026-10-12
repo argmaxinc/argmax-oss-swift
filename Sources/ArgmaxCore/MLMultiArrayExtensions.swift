@@ -3,11 +3,29 @@
 
 import CoreML
 
+private extension UnsafeMutableRawBufferPointer {
+    /// Writes `value` into the first `count` elements of the buffer.
+    ///
+    /// Clamps to the buffer's own capacity, which can be larger than `count` when the backing
+    /// pixel buffer pads its rows.
+    func initializeElements<Element>(repeating value: Element, count: Int) {
+        let typed = bindMemory(to: Element.self)
+        guard let base = typed.baseAddress else { return }
+        base.initialize(repeating: value, count: Swift.min(count, typed.count))
+    }
+}
+
 // MARK: - MLMultiArray Creation
 
 public extension MLMultiArray {
     /// Creates an MLMultiArray pre-filled with an initial value.
     /// Uses IOSurface-backed storage for float16 arrays.
+    ///
+    /// Writes go through `withUnsafeMutableBytes` rather than `dataPointer`. Touching
+    /// `dataPointer` on a pixel-buffer-backed array locks that pixel buffer for as long as the
+    /// array is alive, which Core ML reports as "Pixel buffer backing MLMultiArray is locked
+    /// until this MultiArray is deallocated (or storage swapped) due to usage of deprecated
+    /// dataPointer or bytes properties".
     convenience init(shape: [NSNumber], dataType: MLMultiArrayDataType, initialValue: Any) throws {
         switch dataType {
             case .float16:
@@ -19,37 +37,35 @@ public extension MLMultiArray {
                 try self.init(shape: shape, dataType: dataType)
         }
 
-        switch dataType {
-            case .double:
-                if let value = initialValue as? Double {
-                    let typedPointer = dataPointer.bindMemory(to: Double.self, capacity: count)
-                    typedPointer.initialize(repeating: value, count: count)
-                }
-            case .float32:
-                if let value = initialValue as? Float {
-                    let typedPointer = dataPointer.bindMemory(to: Float.self, capacity: count)
-                    typedPointer.initialize(repeating: value, count: count)
-                }
-            case .float16:
-                if let value = initialValue as? FloatType {
-                    let typedPointer = dataPointer.bindMemory(to: FloatType.self, capacity: count)
-                    typedPointer.initialize(repeating: value, count: count)
-                }
-            case .int32:
-                if let value = initialValue as? Int32 {
-                    let typedPointer = dataPointer.bindMemory(to: Int32.self, capacity: count)
-                    typedPointer.initialize(repeating: value, count: count)
-                }
-            #if compiler(>=6.2)
-            case .int8:
-                if #available(macOS 26.0, iOS 26.0, watchOS 26.0, visionOS 26.0, tvOS 26.0, *),
-                   let value = initialValue as? Int8 {
-                    let typedPointer = dataPointer.bindMemory(to: Int8.self, capacity: count)
-                    typedPointer.initialize(repeating: value, count: count)
-                }
-            #endif
-            @unknown default:
-                break
+        let elementCount = count
+        withUnsafeMutableBytes { buffer, _ in
+            switch dataType {
+                case .double:
+                    if let value = initialValue as? Double {
+                        buffer.initializeElements(repeating: value, count: elementCount)
+                    }
+                case .float32:
+                    if let value = initialValue as? Float {
+                        buffer.initializeElements(repeating: value, count: elementCount)
+                    }
+                case .float16:
+                    if let value = initialValue as? FloatType {
+                        buffer.initializeElements(repeating: value, count: elementCount)
+                    }
+                case .int32:
+                    if let value = initialValue as? Int32 {
+                        buffer.initializeElements(repeating: value, count: elementCount)
+                    }
+                #if compiler(>=6.2)
+                case .int8:
+                    if #available(macOS 26.0, iOS 26.0, watchOS 26.0, visionOS 26.0, tvOS 26.0, *),
+                       let value = initialValue as? Int8 {
+                        buffer.initializeElements(repeating: value, count: elementCount)
+                    }
+                #endif
+                @unknown default:
+                    break
+            }
         }
     }
 
@@ -59,9 +75,11 @@ public extension MLMultiArray {
         var shape = Array(repeating: 1, count: dims)
         shape[shape.count - 1] = array.count
         let output = try MLMultiArray(shape: shape as [NSNumber], dataType: .int32)
-        let pointer = UnsafeMutablePointer<Int32>(OpaquePointer(output.dataPointer))
-        for (i, item) in array.enumerated() {
-            pointer[i] = Int32(item)
+        output.withUnsafeMutableBytes { buffer, _ in
+            let pointer = buffer.bindMemory(to: Int32.self)
+            for (i, item) in array.enumerated() {
+                pointer[i] = Int32(item)
+            }
         }
         return output
     }
@@ -100,16 +118,18 @@ public extension MLMultiArray {
 
     /// Fills specific multi-dimensional indices with a value.
     func fill<Value>(indexes: [[Int]], with value: Value) {
-        let pointer = UnsafeMutablePointer<Value>(OpaquePointer(dataPointer))
         let strideInts = strides.map { $0.intValue }
         let shapeInts = shape.map { $0.intValue }
-        for index in indexes {
-            guard index.count == shapeInts.count,
-                  zip(index, shapeInts).allSatisfy({ $0 >= 0 && $0 < $1 }) else {
-                continue
+        withUnsafeMutableBytes { buffer, _ in
+            let pointer = buffer.bindMemory(to: Value.self)
+            for index in indexes {
+                guard index.count == shapeInts.count,
+                      zip(index, shapeInts).allSatisfy({ $0 >= 0 && $0 < $1 }) else {
+                    continue
+                }
+                let linearOffset = linearOffset(for: index, strides: strideInts)
+                pointer[linearOffset] = value
             }
-            let linearOffset = linearOffset(for: index, strides: strideInts)
-            pointer[linearOffset] = value
         }
     }
 
