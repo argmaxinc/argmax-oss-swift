@@ -211,7 +211,10 @@ actor PyannoteDiarizerActor {
 
                     group.addTask {
                         let segmenterStart = CFAbsoluteTimeGetCurrent()
-                        try await segmenterModel.predict(audioArray: audioClip, outputContinuation: outputContinuation)
+                        try await segmenterModel.predict(
+                            audioArray: audioClip, outputContinuation: outputContinuation,
+                            clipStart: Float(seekClipStart) / Float(WhisperKit.sampleRate)
+                        )
                         await counter.addSegmenterTime((CFAbsoluteTimeGetCurrent() - segmenterStart) * 1_000)
                     }
 

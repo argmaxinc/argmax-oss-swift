@@ -44,6 +44,8 @@ struct SpeakerEmbedderContext {
 
     let chunkStride: Int
     let waveformLength: Float
+    /// Start of the clip this chunk came from, in seconds; rounded onto the one-second `windowIndex` grid.
+    let clipStart: Float
 
     var speakersCount: Int { speakerActivity.shape[1].intValue }
     var framesPerWindowCount: Int { speakerIds.shape[1].intValue }
@@ -80,7 +82,8 @@ struct SpeakerEmbedderContext {
          windowsCount: Int,
          chunkStride: Int,
          secondsPerWindow: Float,
-         waveformLength: Float
+         waveformLength: Float,
+         clipStart: Float = 0
     ) {
         self.speakerActivity = speakerActivity
         self.speakerIds = speakerIds
@@ -89,10 +92,11 @@ struct SpeakerEmbedderContext {
         self.chunkStride = chunkStride
         self.secondsPerWindow = secondsPerWindow
         self.waveformLength = waveformLength
+        self.clipStart = clipStart
     }
 
     func chunkOffset(for chunkIndex: Int) -> Int {
-        chunkIndex * Int(chunkStride)
+        chunkIndex * Int(chunkStride) + Int(clipStart.rounded())
     }
 
     func activeSpeakerIndices(for windowIdx: Int) -> [Int] {
@@ -339,7 +343,8 @@ public final class SpeakerEmbedderModel: @unchecked Sendable {
                                              windowsCount: segmenterOutput.windowsCount,
                                              chunkStride: segmenterOutput.chunkStride,
                                              secondsPerWindow: segmenterOutput.secondsPerWindow,
-                                             waveformLength: segmenterOutput.waveformLength)
+                                             waveformLength: segmenterOutput.waveformLength,
+                                             clipStart: segmenterOutput.clipStart)
         let chunkIndex = segmenterOutput.chunkIndex
         Logging.debug("Processing chunk \(context.chunkOffset(for: chunkIndex))")
         let embeddings = try await processChunk(

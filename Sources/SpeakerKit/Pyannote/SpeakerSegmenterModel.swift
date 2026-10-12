@@ -121,7 +121,8 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
     public func predict(
         audioArray: [Float],
         outputContinuation: AsyncStream<SpeakerSegmenterOutput>.Continuation,
-        windowPadding: Int = 0
+        windowPadding: Int = 0,
+        clipStart: Float = 0
     ) async throws {
         defer { outputContinuation.finish() }
 
@@ -193,7 +194,8 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
                                 chunkStride: chunkStride,
                                 waveformLength: waveformLength,
                                 modelSampleRate: modelSampleRate,
-                                audioSampleRate: sampleRateFloat
+                                audioSampleRate: sampleRateFloat,
+                                clipStart: clipStart
                             )
                             Logging.debug("[SpeakerSegmenter][\(workerID)] inference for chunk \(chunk.index) took \(CFAbsoluteTimeGetCurrent() - start)")
                         } catch {
@@ -204,7 +206,8 @@ public class SpeakerSegmenterModel: @unchecked Sendable {
                                 chunkStride: chunkStride,
                                 waveformLength: waveformLength,
                                 modelSampleRate: modelSampleRate,
-                                audioSampleRate: sampleRateFloat
+                                audioSampleRate: sampleRateFloat,
+                                clipStart: clipStart
                             )
                             Logging.debug("[SpeakerSegmenter][\(workerID)] inference for chunk \(chunk.index) encountered an error: \(error)")
                         }
@@ -256,6 +259,8 @@ public class SpeakerSegmenterOutput: MLFeatureProvider, CustomDebugStringConvert
     public let waveformLength: Float
     public let modelSampleRate: Float
     public let audioSampleRate: Float
+    /// Where the clip this chunk came from starts in the full recording, in seconds.
+    public let clipStart: Float
 
     public var featureNames: Set<String> { provider.featureNames }
 
@@ -295,7 +300,7 @@ public class SpeakerSegmenterOutput: MLFeatureProvider, CustomDebugStringConvert
         return slidingWindowWaveform.shape[2].floatValue / audioSampleRate
     }
 
-    public init(features: MLFeatureProvider, chunkIndex: Int, audioChunk: MLMultiArray, chunkStride: Int, waveformLength: Float, modelSampleRate: Float, audioSampleRate: Float) {
+    public init(features: MLFeatureProvider, chunkIndex: Int, audioChunk: MLMultiArray, chunkStride: Int, waveformLength: Float, modelSampleRate: Float, audioSampleRate: Float, clipStart: Float = 0) {
         self.provider = features
         self.chunkIndex = chunkIndex
         self.audioChunk = audioChunk
@@ -303,6 +308,7 @@ public class SpeakerSegmenterOutput: MLFeatureProvider, CustomDebugStringConvert
         self.waveformLength = waveformLength
         self.modelSampleRate = modelSampleRate
         self.audioSampleRate = audioSampleRate
+        self.clipStart = clipStart
     }
 
     public convenience init() {

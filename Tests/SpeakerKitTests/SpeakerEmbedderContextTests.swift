@@ -19,7 +19,8 @@ final class SpeakerEmbedderContextTests: XCTestCase {
         framesPerWindow: Int = 100,
         secondsPerWindow: Float = 10.0,
         chunkStride: Int = 30,
-        waveformLength: Float = 30.0
+        waveformLength: Float = 30.0,
+        clipStart: Float = 0
     ) throws -> SpeakerEmbedderContext {
         let speakerActivity = try makeArray(shape: [windowsCount, speakersCount])
         let speakerIds = try makeArray(shape: [windowsCount, framesPerWindow, speakersCount])
@@ -31,8 +32,17 @@ final class SpeakerEmbedderContextTests: XCTestCase {
             windowsCount: windowsCount,
             chunkStride: chunkStride,
             secondsPerWindow: secondsPerWindow,
-            waveformLength: waveformLength
+            waveformLength: waveformLength,
+            clipStart: clipStart
         )
+    }
+
+    // MARK: - chunkOffset
+
+    func testChunkOffsetAddsClipStart() throws {
+        // The third chunk of a clip starting at 95.4 s sits at 60 s + 95 s on the one-second window grid.
+        XCTAssertEqual(try makeContext(chunkStride: 30, clipStart: 95.4).chunkOffset(for: 2), 155)
+        XCTAssertEqual(try makeContext(chunkStride: 30).chunkOffset(for: 2), 60)
     }
 
     // MARK: - secondsPerStride
