@@ -1805,6 +1805,12 @@ final class UnitTests: XCTestCase {
             let result = try await whisperKit.detectLanguage(audioPath: audioFilePath)
 
             XCTAssertEqual(result.language, language)
+
+            // Every language gets a log probability, and together they form one distribution
+            let tokenizer = try XCTUnwrap(whisperKit.tokenizer)
+            XCTAssertEqual(result.langProbs.count, tokenizer.allLanguageTokens.count)
+            XCTAssertEqual(result.langProbs.values.reduce(0) { $0 + exp($1) }, 1, accuracy: 0.001)
+            XCTAssertEqual(result.langProbs.max { $0.value < $1.value }?.key, language)
         }
     }
 

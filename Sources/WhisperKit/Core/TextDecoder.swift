@@ -425,6 +425,16 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         return (logits, cache)
     }
 
+    /// Log-softmax over the logits of the language tokens, keyed by token.
+    static func languageLogProbs(in logits: MLMultiArray, languageTokens: Set<Int>) -> [Int: Float] {
+        let languageLogits = languageTokens.map { token in
+            (token, logits[[0, 0, NSNumber(value: token)]].floatValue)
+        }
+        guard let maxLogit = languageLogits.map(\.1).max() else { return [:] }
+        let logSumExp = maxLogit + log(languageLogits.reduce(Float(0)) { $0 + exp($1.1 - maxLogit) })
+        return Dictionary(uniqueKeysWithValues: languageLogits.map { ($0.0, $0.1 - logSumExp) })
+    }
+
     public func detectLanguage(
         from encoderOutput: any AudioEncoderOutputType,
         using decoderInputs: any DecodingInputsType,
@@ -515,12 +525,11 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         let samplingTime = Date().timeIntervalSince(samplingStartTime)
         timings.decodingSampling += samplingTime
 
+        // Report every language, as OpenAI Whisper's detect_language does, not only the sampled one
         var languageProbs = [String: Float]()
-        for (tokenIndex, token) in sampleResult.tokens.enumerated() {
-            if tokenizer.allLanguageTokens.contains(token) {
-                let language = tokenizer.decode(tokens: [token]).trimmingSpecialTokenCharacters()
-                languageProbs[language] = sampleResult.logProbs[tokenIndex]
-            }
+        for (token, logProb) in TextDecoder.languageLogProbs(in: logits, languageTokens: tokenizer.allLanguageTokens) {
+            let language = tokenizer.decode(tokens: [token]).trimmingSpecialTokenCharacters()
+            languageProbs[language] = logProb
         }
 
         let sampledLanguage = tokenizer.decode(tokens: [nextToken]).trimmingSpecialTokenCharacters()
