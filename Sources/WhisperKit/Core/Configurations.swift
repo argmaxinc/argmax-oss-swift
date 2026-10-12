@@ -149,7 +149,8 @@ open class WhisperKitConfig {
 ///   - maxInitialTimestamp: Maximal initial timestamp.
 ///   - maxWindowSeek: If provided, prevents the seek in samples from exceeding this value for each window
 ///   - clipTimestamps: Array of timestamps (in seconds) to split the audio into segments for transcription.
-///   - windowClipTime: Time in seconds to clip from the end of an audio window to help prevent hallucinations
+///   - windowClipTime: Time in seconds to clip from the end of an audio window to help prevent hallucinations.
+///     A remainder this short after a full window is skipped; the first window of each clip is always decoded.
 ///   - promptTokens: Array of token IDs to use as the conditioning prompt for the decoder. These are prepended to the prefill tokens.
 ///   - prefixTokens: Array of token IDs to use as the initial prefix for the decoder. These are appended to the prefill tokens.
 ///   - suppressBlank: If true, blank tokens will be suppressed during decoding.
