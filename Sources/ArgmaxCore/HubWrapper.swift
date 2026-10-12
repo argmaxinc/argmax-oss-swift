@@ -71,7 +71,11 @@ public struct HubApiWrapper: Sendable {
     ///   - repo: The repository to download from
     ///   - revision: Git revision (defaults to "main")
     ///   - globs: File patterns to include (empty means all files)
-    ///   - progressHandler: Called periodically with download progress
+    ///   - progressHandler: Called periodically for online snapshots. File sizes are collected
+    ///     before transfers begin. When a positive total byte count can be determined,
+    ///     `kind` is `.file` and unit counts represent bytes, including cached and resumed data.
+    ///     Otherwise, progress remains file-weighted with a `nil` kind. Transfer speed, when
+    ///     available, is reported in bytes per second under `ProgressUserInfoKey.throughputKey`.
     /// - Returns: Local directory URL containing the downloaded files
     public func snapshot(
         from repo: Repo,
