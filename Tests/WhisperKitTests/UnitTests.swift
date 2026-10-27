@@ -2583,6 +2583,28 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual(audioChunks.count, 3)
     }
 
+    func testVADAudioChunkerSplitsQuietSpeechAtAPause() async throws {
+        let audioPath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
+            "Audio file not found"
+        )
+        let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioPath)
+        // An 8 s window puts the split search in 4 to 8 s, where jfk pauses around 4.4 to 5.2 s
+        let maxChunkLength = 8 * WhisperKit.sampleRate
+
+        // At full level the default chunker splits where the fixed threshold does: loud audio is unchanged
+        let loudChunks = try await VADAudioChunker().chunkAll(audioArray: audioArray, maxChunkLength: maxChunkLength, decodeOptions: nil)
+        let fixedChunks = try await VADAudioChunker(vad: EnergyVAD()).chunkAll(audioArray: audioArray, maxChunkLength: maxChunkLength, decodeOptions: nil)
+        XCTAssertEqual(loudChunks.map(\.seekOffsetIndex), fixedChunks.map(\.seekOffsetIndex))
+        XCTAssertEqual(loudChunks.map(\.seekOffsetIndex), [0, 76800])
+
+        // The same speech at 0.05 gain runs at about 0.005 to 0.02 RMS, under the fixed 0.02 threshold.
+        // A fixed threshold reads all of it as silence and splits mid-word, a level-aware one at the same pause.
+        let quietAudio = audioArray.map { $0 * 0.05 }
+        let quietChunks = try await VADAudioChunker().chunkAll(audioArray: quietAudio, maxChunkLength: maxChunkLength, decodeOptions: nil)
+        XCTAssertEqual(quietChunks.map(\.seekOffsetIndex), [0, 76800], "Quiet speech should split at the same pause as loud speech")
+    }
+
     #if !os(watchOS) // FIXME: These tests are flaky
     func testVADAudioChunkerAccuracy() async throws {
         guard #available(macOS 15, iOS 18, watchOS 11, visionOS 2, *) else {

@@ -733,7 +733,7 @@ open class WhisperKit {
                                     chunkDurationSeconds: chunkDurationSeconds,
                                     maxBufferedChunks: maxBufferedChunks,
                                     maxChunkLength: self.featureExtractor.windowSamples ?? Constants.defaultWindowSamples,
-                                    vad: self.voiceActivityDetector ?? EnergyVAD()
+                                    vad: self.voiceActivityDetector ?? VADAudioChunker.defaultVoiceActivityDetector()
                                 )
                                 let transcriptionResults = try await self.transcribeFileStream(
                                     audioStream: audioStream,
@@ -984,7 +984,7 @@ open class WhisperKit {
                 chunkDurationSeconds: chunkDurationSeconds,
                 maxBufferedChunks: maxBufferedChunks,
                 maxChunkLength: featureExtractor.windowSamples ?? Constants.defaultWindowSamples,
-                vad: voiceActivityDetector ?? EnergyVAD()
+                vad: voiceActivityDetector ?? VADAudioChunker.defaultVoiceActivityDetector()
             )
 
             // Process audio stream
@@ -1044,7 +1044,7 @@ open class WhisperKit {
         switch (isChunkable, decodeOptions?.chunkingStrategy) {
             case (true, .vad):
                 // We have some audio that will require multiple windows and a strategy to chunk them
-                let vad = voiceActivityDetector ?? EnergyVAD()
+                let vad = voiceActivityDetector ?? VADAudioChunker.defaultVoiceActivityDetector()
                 let chunker = VADAudioChunker(vad: vad)
                 let audioChunks: [AudioChunk] = try await chunker.chunkAll(
                     audioArray: audioArray,

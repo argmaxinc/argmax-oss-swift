@@ -99,7 +99,7 @@ extension AudioProcessor {
         chunkDurationSeconds: Double,
         maxBufferedChunks: Int,
         maxChunkLength: Int = Constants.defaultWindowSamples,
-        vad: VoiceActivityDetector = EnergyVAD()
+        vad: VoiceActivityDetector = VADAudioChunker.defaultVoiceActivityDetector()
     ) throws -> IncrementalFileStream {
         guard chunkDurationSeconds.isFinite, chunkDurationSeconds > 0 else {
             throw WhisperError.loadAudioFailed("Incremental chunk duration must be greater than 0")

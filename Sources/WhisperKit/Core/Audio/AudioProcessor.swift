@@ -711,6 +711,31 @@ open class AudioProcessor: NSObject, AudioProcessing {
         frameOverlapSamples: Int = 0,
         energyThreshold: Float = 0.022
     ) -> [Bool] {
+        let chunkEnergies = calculateEnergyInChunks(
+            of: signal,
+            chunkCount: chunkCount,
+            frameLengthSamples: frameLengthSamples,
+            frameOverlapSamples: frameOverlapSamples
+        )
+
+        let vadResult = chunkEnergies.map { $0 > energyThreshold }
+
+        return vadResult
+    }
+
+    /// Calculates the average (RMS) energy of each frame of a signal.
+    /// - Parameters:
+    ///   - signal: Audio signal.
+    ///   - chunkCount: Number of frames.
+    ///   - frameLengthSamples: Frame length in samples.
+    ///   - frameOverlapSamples: Samples of the next frame included in each frame.
+    /// - Returns: One RMS energy per frame.
+    public static func calculateEnergyInChunks(
+        of signal: [Float],
+        chunkCount: Int,
+        frameLengthSamples: Int,
+        frameOverlapSamples: Int = 0
+    ) -> [Float] {
         var chunkEnergies = [Float]()
         for chunkIndex in 0..<chunkCount {
             let startIndex = chunkIndex * frameLengthSamples
@@ -719,10 +744,7 @@ open class AudioProcessor: NSObject, AudioProcessing {
             let avgEnergy = calculateAverageEnergy(of: chunk)
             chunkEnergies.append(avgEnergy)
         }
-
-        let vadResult = chunkEnergies.map { $0 > energyThreshold }
-
-        return vadResult
+        return chunkEnergies
     }
 
     /// Calculate average energy of a signal chunk.

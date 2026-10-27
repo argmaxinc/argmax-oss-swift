@@ -47,7 +47,17 @@ open class VADAudioChunker: AudioChunking {
 
     public init(windowPadding: Int = 16000, vad: VoiceActivityDetector? = nil) {
         self.windowPadding = windowPadding
-        self.vad = vad ?? EnergyVAD()
+        self.vad = vad ?? Self.defaultVoiceActivityDetector()
+    }
+
+    /// The detector used to find split points when none is given: an `EnergyVAD` whose threshold
+    /// follows the level of the window it splits.
+    ///
+    /// A fixed threshold reads quiet speech (frame RMS under 0.02) as silence, so the longest
+    /// "silence" in a quiet window is speech and the split lands inside a word. Loud audio, whose
+    /// loud level is at least 0.08 RMS, keeps the fixed 0.02 threshold and splits exactly as before.
+    public static func defaultVoiceActivityDetector() -> VoiceActivityDetector {
+        EnergyVAD(relativeThreshold: 0.25)
     }
 
     private func splitOnMiddleOfLongestSilence(audioArray: [Float], startIndex: Int, endIndex: Int) -> Int {
