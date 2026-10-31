@@ -1162,65 +1162,45 @@ final class UnitTests: XCTestCase {
     }
     
     func testTokenizerLoadingPriority() async throws {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenizer_loading_test_folder_\(UUID().uuidString)")
-        
-        // Test tokenizer folder resolution priority
-        let repoStyleDir = tempDir.appendingPathComponent("models")
-            .appendingPathComponent("openai")
-            .appendingPathComponent("whisper-tiny")
-        
-        // Download the tokenizer first
-        let repoTokenizer = try await ModelUtilities.loadTokenizer(
-            for: .tiny,
-            tokenizerFolder: tempDir,
-            useBackgroundSession: false
-        ) as! WhisperTokenizerWrapper
-        XCTAssertEqual(repoTokenizer.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
-        
-        // Check that direct loading from the top level of the directory is prioritized when no repo style exists (tokenizer already exists here)
-        let tokenizer = try await ModelUtilities.loadTokenizer(
-            for: .tiny,
-            tokenizerFolder: repoStyleDir,
-            useBackgroundSession: false
-        ) as! WhisperTokenizerWrapper
-        XCTAssertEqual(tokenizer.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
-        
-        // Move the tokenizer files to the top level
-        let repoContents = try FileManager.default.contentsOfDirectory(at: repoStyleDir, includingPropertiesForKeys: nil)
-        for item in repoContents {
-            let destination = tempDir.appendingPathComponent(item.lastPathComponent)
-            try FileManager.default.copyItem(at: item, to: destination)
-        }
-        
-        // Check that when the tokenizer is both at the top level and in the repo style location, the repo style is prioritized
-        // Loading from the top level is considered a fallback and simplifies offline use cases
-        let tokenizerAtTopLevel = try await ModelUtilities.loadTokenizer(
-            for: .tiny,
-            tokenizerFolder: tempDir,
-            useBackgroundSession: false
-        ) as! WhisperTokenizerWrapper
-        XCTAssertEqual(tokenizerAtTopLevel.tokenizerFolder?.path, repoStyleDir.path, "tokenizerFolder should exactly match repoStyleDir path")
-    }
-    
-        func testTokenizerLoadingFromDifferentVariants() async throws {
-        // Test that different model variants resolve to correct tokenizer names
-        for variant in ModelVariant.allCases {
-            let expectedName = "openai/whisper-\(variant.description)"
-            let tokenizer = try await ModelUtilities.loadTokenizer(
-                for: variant,
-                tokenizerFolder: nil,
-                useBackgroundSession: false
-            ) as! WhisperTokenizerWrapper
-            XCTAssertNotNil(tokenizer, "Should load tokenizer for variant \(variant)")
-            XCTAssertTrue(tokenizer.tokenizerFolder!.path.contains(expectedName), "Tokenizer folder should contain \(expectedName)")
-            
-            // Test that the tokenizer has expected properties
-            XCTAssertGreaterThan(tokenizer.specialTokens.specialTokenBegin, 0, "Special token begin should be set")
-            XCTAssertNotNil(tokenizer.encode(text: "test"), "Should be able to encode text")
-            XCTAssertNotNil(tokenizer.decode(tokens: [1, 2, 3]), "Should be able to decode tokens")
+        try await withTokenizerRequestInterception {
+            let folder = try makeFolder()
+            // Explicit producer repository names: large/large-v2 differ from enum descriptions.
+            let repositories: [(ModelVariant, String)] = [
+                (.tiny, "tiny"), (.tinyEn, "tiny.en"), (.base, "base"), (.baseEn, "base.en"),
+                (.small, "small"), (.smallEn, "small.en"), (.medium, "medium"), (.mediumEn, "medium.en"),
+                (.large, "large"), (.largev2, "large-v2"), (.largev3, "large-v3")
+            ]
+            XCTAssertEqual(Set(repositories.map(\.0)), Set(ModelVariant.allCases))
+            let additional = folder.appendingPathComponent("additional")
+            let later = folder.appendingPathComponent("later")
+            for (path, token) in [(folder, 2000), (additional, 3000), (later, 4000)] {
+                try writeTokenizer(at: path, endToken: token)
+            }
+            for (index, (_, name)) in repositories.enumerated() {
+                try writeTokenizer(at: folder.appendingPathComponent("models/openai/whisper-\(name)"), endToken: 1000 + index)
+            }
+            for (index, (variant, name)) in repositories.enumerated() {
+                let tokenizer = try await ModelUtilities.loadTokenizer(
+                    for: variant, tokenizerFolder: folder, additionalSearchPaths: [additional, later], localFilesOnly: true
+                ) as! WhisperTokenizerWrapper
+                XCTAssertEqual(tokenizer.tokenizerFolder?.path, folder.appendingPathComponent("models/openai/whisper-\(name)").path)
+                XCTAssertEqual(tokenizer.specialTokens.endToken, 1000 + index, "\(variant)")
+                XCTAssertEqual(tokenizer.allLanguageTokens, Set([1001 + index, 1002 + index]))
+            }
+            // After the repository candidate, use the explicit folder, then ordered additional paths.
+            let repo = folder.appendingPathComponent("models/openai/whisper-tiny")
+            for (removed, expected, token) in [(repo, folder, 2000), (folder, additional, 3000), (additional, later, 4000)] {
+                try FileManager.default.removeItem(at: removed.appendingPathComponent("tokenizer.json"))
+                let tokenizer = try await ModelUtilities.loadTokenizer(
+                    for: .tiny, tokenizerFolder: folder, additionalSearchPaths: [additional, later], localFilesOnly: true
+                ) as! WhisperTokenizerWrapper
+                XCTAssertEqual(tokenizer.tokenizerFolder?.path, expected.path)
+                XCTAssertEqual(tokenizer.specialTokens.endToken, token)
+            }
+            XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
         }
     }
-        
+
     func testTokenizerLoadingFromWhisperKit() async throws {
         // Test that tokenizer is properly loaded and assigned during WhisperKit model loading
         let config = WhisperKitConfig(
@@ -1267,37 +1247,106 @@ final class UnitTests: XCTestCase {
     }
     
     func testTokenizerFallbackToHubWhenLocalFails() async throws {
-        // Test scenario where local tokenizer loading fails and falls back to Hub
-        let tempDir = FileManager.default.temporaryDirectory
-        let corruptedTokenizerDir = tempDir.appendingPathComponent("corrupted_tokenizer")
-        
-        try FileManager.default.createDirectory(at: corruptedTokenizerDir, withIntermediateDirectories: true)
-        
-        defer {
-            try? FileManager.default.removeItem(at: corruptedTokenizerDir)
-        }
-        
-        // Create a corrupted tokenizer.json file
-        let corruptedJson = "{ invalid json content"
-        let tokenizerFile = corruptedTokenizerDir.appendingPathComponent("tokenizer.json")
-        try corruptedJson.write(to: tokenizerFile, atomically: true, encoding: .utf8)
-        let configFile = corruptedTokenizerDir.appendingPathComponent("config.json")
-        try corruptedJson.write(to: configFile, atomically: true, encoding: .utf8)
-        
-        // This should fail to load locally and fall back to Hub
-        do {
+        try await withTokenizerRequestInterception {
+            let folder = try makeFolder()
+            try writeTokenizer(at: folder)
+            let later = folder.appendingPathComponent("later")
+            try writeTokenizer(at: later, endToken: 1000)
+            for filename in ["tokenizer.json", "tokenizer_config.json"] {
+                let file = folder.appendingPathComponent(filename)
+                let original = try Data(contentsOf: file)
+                for replacement in [Data?.none, Data("invalid json".utf8), Data("[]".utf8)] {
+                    if let replacement { try replacement.write(to: file) }
+                    else { try FileManager.default.removeItem(at: file) }
+                    // A missing tokenizer.json is not selected; every selected failure has a valid later candidate.
+                    let selected = replacement != nil || filename != "tokenizer.json"
+                    let paths = selected ? [later] : []
+                    var parserReason: String?
+                    if selected {
+                        do {
+                            _ = try await AutoTokenizerWrapper.from(modelFolder: folder)
+                            XCTFail("Expected parser failure for \(filename)")
+                        } catch {
+                            parserReason = error.localizedDescription
+                        }
+                    }
+                    TokenizerRequestInterceptor.reset()
+                    do {
+                        _ = try await ModelUtilities.loadTokenizer(
+                            for: .tiny, tokenizerFolder: folder, additionalSearchPaths: paths, localFilesOnly: true
+                        )
+                        XCTFail("Expected local failure for \(filename)")
+                    } catch {
+                        if selected {
+                            let reason = try XCTUnwrap(parserReason)
+                            XCTAssertEqual(error as? WhisperError, .tokenizerUnavailable(
+                                "Failed to load installed tokenizer at \(folder.path): \(reason)"
+                            ))
+                        } else {
+                            XCTAssertEqual(error as? WhisperError, .tokenizerUnavailable("Installed tokenizer not found for tiny."))
+                        }
+                    }
+                    XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
+                    // A later default call retains intercepted Hub fallback; the policy is per call.
+                    do {
+                        _ = try await ModelUtilities.loadTokenizer(for: .tiny, tokenizerFolder: folder, additionalSearchPaths: paths)
+                        XCTFail("Expected intercepted Hub failure")
+                    } catch {}
+                    XCTAssertGreaterThan(TokenizerRequestInterceptor.requestCount, 0)
+                    try original.write(to: file)
+                    TokenizerRequestInterceptor.reset()
+                    _ = try await ModelUtilities.loadTokenizer(
+                        for: .tiny, tokenizerFolder: folder, additionalSearchPaths: paths, localFilesOnly: true
+                    )
+                    XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
+                }
+            }
+            let repo = folder.appendingPathComponent("models/openai/whisper-tiny")
+            try writeTokenizer(at: folder)
+            try writeTokenizer(at: repo)
+            var components = URLComponents()
+            components.scheme = "https"
+            components.host = "tokenizer.invalid"
+            components.path = folder.path
+            let remote = try XCTUnwrap(components.url)
+
+            // Positive control for the same synchronous remote-read route used by HubApi.configuration.
+            let remoteConfig = remote.appendingPathComponent("tokenizer.json")
+            XCTAssertThrowsError(try Data(contentsOf: remoteConfig))
+            XCTAssertEqual(TokenizerRequestInterceptor.requests, [remoteConfig])
+
+            // Each HTTPS candidate has the exact path of a real installed tokenizer.
+            for (base, paths) in [(remote, [URL]()), (folder.appendingPathComponent("empty"), [remote])] {
+                TokenizerRequestInterceptor.reset()
+                do {
+                    _ = try await ModelUtilities.loadTokenizer(
+                        for: .tiny, tokenizerFolder: base, additionalSearchPaths: paths, localFilesOnly: true
+                    )
+                    XCTFail("Expected installed-tokenizer refusal")
+                } catch {
+                    XCTAssertEqual(error as? WhisperError, .tokenizerUnavailable("Installed tokenizer not found for tiny."))
+                }
+                XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
+            }
+            try FileManager.default.removeItem(at: repo)
+            TokenizerRequestInterceptor.reset()
+            do {
+                _ = try await ModelUtilities.loadTokenizer(for: .tiny, tokenizerFolder: remote, localFilesOnly: true)
+                XCTFail("Expected explicit HTTPS folder refusal")
+            } catch {
+                XCTAssertEqual(error as? WhisperError, .tokenizerUnavailable("Installed tokenizer not found for tiny."))
+            }
+            XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
+
+            TokenizerRequestInterceptor.reset()
             let tokenizer = try await ModelUtilities.loadTokenizer(
-                for: .tiny,
-                tokenizerFolder: corruptedTokenizerDir,
-                useBackgroundSession: false
+                for: .tiny, tokenizerFolder: remote, additionalSearchPaths: [folder], localFilesOnly: true
             )
-            XCTAssertNotNil(tokenizer, "Should successfully fall back to Hub when local loading fails")
-        } catch {
-            // If Hub download also fails, that's acceptable in test environment
-            Logging.debug("Both local and Hub loading failed: \(error)")
+            XCTAssertEqual(tokenizer.specialTokens.endToken, 256)
+            XCTAssertEqual(TokenizerRequestInterceptor.requestCount, 0)
         }
     }
-    
+
     func testTokenizerModelVariantDetection() async throws {
         // Test that model variant detection works correctly for tokenizer selection
         let testDimensions: [(logitsDim: Int, encoderDim: Int, expectedVariant: ModelVariant)] = [

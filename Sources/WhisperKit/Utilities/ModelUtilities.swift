@@ -20,6 +20,17 @@ extension ModelUtilities {
         additionalSearchPaths: [URL] = [],
         useBackgroundSession: Bool = false
     ) async throws -> WhisperTokenizer {
+        try await loadTokenizer(for: pretrained, tokenizerFolder: tokenizerFolder, additionalSearchPaths: additionalSearchPaths,
+                                useBackgroundSession: useBackgroundSession, localFilesOnly: false)
+    }
+    /// Local-only calls fail on missing assets or errors thrown by the parser without a Hub retry.
+    public static func loadTokenizer(
+        for pretrained: ModelVariant,
+        tokenizerFolder: URL? = nil,
+        additionalSearchPaths: [URL] = [],
+        useBackgroundSession: Bool = false,
+        localFilesOnly: Bool
+    ) async throws -> WhisperTokenizer {
         let tokenizerName = tokenizerNameForVariant(pretrained)
         let hubApi = HubApiWrapper(downloadBase: tokenizerFolder, useBackgroundSession: useBackgroundSession)
         let hubTokenizerFolder = hubApi.localRepoLocation(HubApiWrapper.Repo(id: tokenizerName))
@@ -27,6 +38,7 @@ extension ModelUtilities {
         // Determine which local folder to use
         let localTokenizerFolder: URL? = {
             func hasTokenizer(in folder: URL) -> Bool {
+                guard !localFilesOnly || folder.isFileURL else { return false }
                 let tokenizerPath = folder.appendingPathComponent("tokenizer.json")
                 let exists = FileManager.default.fileExists(atPath: tokenizerPath.path)
                 Logging.debug("Checking for local tokenizer at \(tokenizerPath.path) - \(exists ? "found" : "not found")")
@@ -60,9 +72,16 @@ extension ModelUtilities {
                 let wrapper = try await AutoTokenizerWrapper.from(modelFolder: localFolder, hubApi: hubApi)
                 return WhisperTokenizerWrapper(tokenizer: wrapper, at: localFolder)
             } catch {
+                if localFilesOnly {
+                    throw WhisperError.tokenizerUnavailable("Failed to load installed tokenizer at \(localFolder.path): \(error.localizedDescription)")
+                }
                 // Error during the local loading process and fall through to load from Hub
                 Logging.debug("Error loading local tokenizer: \(error)")
             }
+        }
+
+        guard !localFilesOnly else {
+            throw WhisperError.tokenizerUnavailable("Installed tokenizer not found for \(pretrained).")
         }
 
         // Fallback to downloading from the Hub if local loading is not possible or fails
