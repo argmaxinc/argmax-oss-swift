@@ -367,9 +367,15 @@ open class WhisperKit {
         try await loadModels(prewarmMode: true)
     }
 
+    open func loadModels(prewarmMode: Bool = false) async throws {
+        try await loadModels(prewarmMode: prewarmMode, localFilesOnly: false)
+    }
+
+    /// Loads installed assets without Hub fallback when `localFilesOnly` is true for this call.
     /// Override ``loadModelComponents(prewarmMode:)`` to customize model loading.
     open func loadModels(
-        prewarmMode: Bool = false
+        prewarmMode: Bool = false,
+        localFilesOnly: Bool
     ) async throws {
         modelState = prewarmMode ? .prewarming : .loading
 
@@ -378,7 +384,11 @@ open class WhisperKit {
         do {
             try await loadModelComponents(prewarmMode: prewarmMode)
             if !prewarmMode {
-                try await loadTokenizerIfNeeded()
+                if localFilesOnly {
+                    try await loadTokenizerIfNeeded(localFilesOnly: true)
+                } else {
+                    try await loadTokenizerIfNeeded()
+                }
             }
         } catch {
             await unloadModels()
@@ -464,6 +474,11 @@ open class WhisperKit {
     }
 
     open func loadTokenizerIfNeeded() async throws {
+        try await loadTokenizerIfNeeded(localFilesOnly: false)
+    }
+
+    /// The local-only policy applies to this call; subsequent default loads retain Hub fallback.
+    open func loadTokenizerIfNeeded(localFilesOnly: Bool) async throws {
         // Loading not needed if tokenizer is non-nil
         guard tokenizer == nil else {
             Logging.debug("Tokenizer already exists on WhisperKit, skipping load")
@@ -498,7 +513,8 @@ open class WhisperKit {
             for: modelVariant,
             tokenizerFolder: tokenizerFolder,
             additionalSearchPaths: additionalSearchPaths,
-            useBackgroundSession: useBackgroundDownloadSession
+            useBackgroundSession: useBackgroundDownloadSession,
+            localFilesOnly: localFilesOnly
         )
         currentTimings.tokenizerLoadTime = CFAbsoluteTimeGetCurrent() - tokenizerLoadStart
 

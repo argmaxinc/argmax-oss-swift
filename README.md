@@ -217,6 +217,26 @@ Note that the model search must return a single model from the source repo, othe
 
 For a list of available models, see our [HuggingFace repo](https://huggingface.co/argmaxinc/whisperkit-coreml).
 
+### Loading Installed Models Only
+
+Disable automatic loading and downloads, then explicitly load installed model and tokenizer files:
+
+```swift
+let pipe = try await WhisperKit(WhisperKitConfig(
+    modelFolder: "/path/to/installed/model",
+    tokenizerFolder: URL(fileURLWithPath: "/path/to/installed/tokenizer"),
+    load: false,
+    download: false
+))
+try await pipe.loadModels(localFilesOnly: true)
+```
+
+Missing tokenizer assets and errors thrown by the existing tokenizer parser fail without a Hub
+fallback. Parser errors report `WhisperError.tokenizerUnavailable` with the selected local tokenizer
+path and original parser reason. This policy applies only to the explicit call. Retry with
+`loadModels(localFilesOnly: true)` to keep the retry local-only. Later automatic or default loads
+retain their original download policy.
+
 ### Generating Models
 
 WhisperKit also comes with the supporting repo [`whisperkittools`](https://github.com/argmaxinc/whisperkittools) which lets you create and deploy your own fine tuned versions of Whisper in CoreML format to HuggingFace. Once generated, they can be loaded by simply changing the repo name to the one used to upload the model:

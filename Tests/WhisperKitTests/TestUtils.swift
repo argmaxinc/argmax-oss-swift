@@ -510,3 +510,58 @@ final class MockTextDecoder: TextDecoder {
         return (decoder, inputs, sampler, encoderOutput, options)
     }
 }
+
+// Synthetic tokenizer assets shared by the loader-owning tests.
+extension XCTestCase {
+    func makeFolder() throws -> URL {
+        let root = ProcessInfo.processInfo.environment["WHISPERKIT_TEST_TMPDIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.temporaryDirectory
+        let folder = root.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try FileManager.default.removeItem(at: folder) }
+        return folder
+    }
+
+    func writeTokenizer(at folder: URL, endToken: Int = 256) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let data = #"""
+        {"model": {"type": "BPE", "merges": [], "vocab": {
+          "<|endoftext|>": \#(endToken), "<|en|>": \#(endToken + 1), "<|ja|>": \#(endToken + 2)
+        }}}
+        """#
+        let config = #"{"tokenizer_class":"WhisperTokenizer"}"#
+        try Data(data.utf8).write(to: folder.appendingPathComponent("tokenizer.json"))
+        try Data(config.utf8).write(to: folder.appendingPathComponent("tokenizer_config.json"))
+    }
+}
+
+func withTokenizerRequestInterception(_ body: () async throws -> Void) async rethrows {
+    let previous = ProcessInfo.processInfo.environment["CI_DISABLE_NETWORK_MONITOR"]
+    setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
+    XCTAssertTrue(URLProtocol.registerClass(TokenizerRequestInterceptor.self))
+    TokenizerRequestInterceptor.reset()
+    defer {
+        URLProtocol.unregisterClass(TokenizerRequestInterceptor.self)
+        if let previous { setenv("CI_DISABLE_NETWORK_MONITOR", previous, 1) }
+        else { unsetenv("CI_DISABLE_NETWORK_MONITOR") }
+    }
+    try await body()
+}
+
+final class TokenizerRequestInterceptor: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var urls: [URL] = []
+    static var requests: [URL] { lock.withLock { urls } }
+    static var requestCount: Int { requests.count }
+    static func reset() { lock.withLock { urls = [] } }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["http", "https"].contains(request.url?.scheme ?? "")
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        if let url = request.url { Self.lock.withLock { Self.urls.append(url) } }
+        client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+    override func stopLoading() {}
+}
