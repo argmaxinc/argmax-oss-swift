@@ -1494,15 +1494,17 @@ public enum Constants {
                     )
                 ),
                 DeviceSupport(
-                    chips: "A16, A17 Pro, A18",
+                    chips: "A16, A17 Pro, A18, A19",
                     identifiers: [
                         "iPhone15",
                         "iPhone16",
                         "iPhone17",
+                        "iPhone18",
                         "iPad15,7",
                         "iPad15,8",
                         "iPad16,1",
-                        "iPad16,2"
+                        "iPad16,2",
+                        "Mac17,5"
                     ],
                     models: ModelSupport(
                         default: "openai_whisper-base",
@@ -1568,11 +1570,12 @@ public enum Constants {
                     )
                 ),
                 DeviceSupport(
-                    chips: "M2, M3, M4",
+                    chips: "M2, M3, M4, M5",
                     identifiers: [
                         "Mac14",
                         "Mac15",
                         "Mac16",
+                        "Mac17",
                         "iPad14,3",
                         "iPad14,4",
                         "iPad14,5",
@@ -1583,6 +1586,10 @@ public enum Constants {
                         "iPad14,11",
                         "iPad15",
                         "iPad16",
+                        "iPad17,1",
+                        "iPad17,2",
+                        "iPad17,3",
+                        "iPad17,4",
                     ],
                     models: ModelSupport(
                         default: "openai_whisper-large-v3-v20240930",

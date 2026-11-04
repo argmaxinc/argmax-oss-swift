@@ -260,6 +260,22 @@ final class UnitTests: XCTestCase {
         }
     }
 
+    func testFallbackModelSupportForM5AndA19Devices() {
+        let config = Constants.fallbackModelSupportConfig
+        let m4Support = config.modelSupport(for: "Mac16,1")
+        let a18Support = config.modelSupport(for: "iPhone17,1")
+
+        // M5 Macs and iPads use the same support as M2, M3, M4
+        for deviceIdentifier in ["Mac17,2", "Mac17,3", "Mac17,4", "Mac17,6", "Mac17,7", "Mac17,8", "Mac17,9", "iPad17,1", "iPad17,2", "iPad17,3", "iPad17,4"] {
+            XCTAssertEqual(config.modelSupport(for: deviceIdentifier), m4Support, "Device: \(deviceIdentifier)")
+        }
+
+        // A19 iPhones and the A18 Pro MacBook Neo (`Mac17,5`) use the same support as A18
+        for deviceIdentifier in ["iPhone18,1", "iPhone18,2", "iPhone18,3", "iPhone18,4", "iPhone18,5", "Mac17,5"] {
+            XCTAssertEqual(config.modelSupport(for: deviceIdentifier), a18Support, "Device: \(deviceIdentifier)")
+        }
+    }
+
     func testModelSupportConfigFetch() async throws {
         // Make sure remote repo config loads successfully from HF
         let modelRepoConfig = await WhisperKit.fetchModelSupportConfig()
