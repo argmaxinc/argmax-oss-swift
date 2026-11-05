@@ -15,14 +15,14 @@ actor VBxClustering: Clusterer {
         return _speakerEmbeddings
     }
 
-    func update(config: VBxClusteringConfig) async -> ClusteringResult {
+    func update(config: VBxClusteringConfig) async throws -> ClusteringResult {
         guard !_speakerEmbeddings.isEmpty else {
             return ClusteringResult(clusterIndices: [], speakerEmbeddings: [])
         }
 
         _speakerEmbeddings.sort { ($0.windowIndex, $0.speakerIndex) < ($1.windowIndex, $1.speakerIndex) }
 
-        let (clusters, _, centroids) = cluster(embeddings: _speakerEmbeddings, config: config)
+        let (clusters, _, centroids) = try cluster(embeddings: _speakerEmbeddings, config: config)
 
         for (clusterIndex, clusterId) in clusters.enumerated() {
             _speakerEmbeddings[clusterIndex].clusterId = clusterId
@@ -46,7 +46,7 @@ actor VBxClustering: Clusterer {
     func cluster(
         embeddings: [SpeakerEmbedding],
         config: VBxClusteringConfig
-    ) -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [Int: [Float]]) {
+    ) throws -> (clusters: [Int], linkageMatrix: [[Float]], centroids: [Int: [Float]]) {
         let trainableEmbeddings = embeddings.filter { $0.nonOverlappedFrameRatio > config.minActiveRatio }
         let embeddingsFloats = trainableEmbeddings.map { $0.embedding }
         let allEmbeddingsFloats = embeddings.map { $0.embedding }
@@ -59,13 +59,13 @@ actor VBxClustering: Clusterer {
             return embedding.map { $0 / norm }
         }
 
-        let linkageMatrix = ClusterAlgorithms.fastLinkage(embeddings: embeddingsNormalized)
+        let linkageMatrix = try ClusterAlgorithms.fastLinkage(embeddings: embeddingsNormalized)
 
         var clusters = assignFlatClusters(linkage: linkageMatrix, threshold: config.threshold)
 
         Logging.debug("Calling vbx with \(pldaEmbeddingsFloats.count) embeddings")
 
-        let (speakerAssignmentMatrix, speakerPriorProbabilities) = VariationalBayesHiddenMarkovModel.vbx(
+        let (speakerAssignmentMatrix, speakerPriorProbabilities) = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: clusters,
             pldaEmbeddings: pldaEmbeddingsFloats,
             speakerRelevanceFactorA: config.speakerRelevanceFactorA,

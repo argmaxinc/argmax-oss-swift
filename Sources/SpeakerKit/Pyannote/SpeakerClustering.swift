@@ -63,7 +63,7 @@ struct ClusteringResult {
 protocol Clusterer: Sendable {
     func add(speakerEmbeddings: [SpeakerEmbedding]) async
     func speakerEmbeddings() async -> [SpeakerEmbedding]
-    func update(config: VBxClusteringConfig) async -> ClusteringResult
+    func update(config: VBxClusteringConfig) async throws -> ClusteringResult
     func reset() async
     func clusteringConfig(from options: PyannoteDiarizationOptions) -> VBxClusteringConfig
     func isEqual(to other: any Clusterer) -> Bool

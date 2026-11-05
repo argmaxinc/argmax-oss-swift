@@ -266,7 +266,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
     /// (VBx weighted, kMeans correction, AHC fallback) produced the assignments, because the
     /// final recompute is always a plain `centroidsFromAssignments(...)` over the
     /// post-reassignment labels.
-    func testCentroidValuesMatchFinalAssignmentMean() async {
+    func testCentroidValuesMatchFinalAssignmentMean() async throws {
         let dim = 128
         // two separated groups in raw embedder space (4 + 4), with an explicit two-speaker
         // request so this fixture exercises the post-reassignment centroid recompute path.
@@ -298,7 +298,7 @@ final class SpeakerCentroidEmbeddingsTests: XCTestCase {
 
         let clusterer = VBxClustering()
         await clusterer.add(speakerEmbeddings: speakerEmbeddings)
-        let result = await clusterer.update(config: VBxClusteringConfig(numSpeakers: 2))
+        let result = try await clusterer.update(config: VBxClusteringConfig(numSpeakers: 2))
 
         let clusters = result.clusterIndices
         XCTAssertEqual(clusters.count, raw.count)
