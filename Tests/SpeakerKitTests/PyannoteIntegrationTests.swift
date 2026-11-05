@@ -52,4 +52,32 @@ final class PyannoteIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(result.speakerCount, 0, "Should have at least one speaker")
         XCTAssertFalse(result.segments.isEmpty, "Should have at least one segment")
     }
+
+    func testDiarizationReportsEmbeddingProgressBeforeClustering() async throws {
+        let audioArray = try loadAudio(named: "VADAudio")
+        let speakerKit = try await SpeakerKit()
+        let recorder = ProgressRecorder()
+        _ = try await speakerKit.diarize(audioArray: audioArray) { progress in
+            recorder.append(progress.completedUnitCount)
+        }
+
+        let values = recorder.values
+        XCTAssertTrue(values.contains { $0 > 0 && $0 < 85 },
+                      "Segmentation + embedding progress (0-85) should reach the caller before clustering, got \(values)")
+        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy { $0 < $1 }, "Progress should only move forward, got \(values)")
+        XCTAssertEqual(values.last, 100, "Progress should end at 100, got \(values)")
+    }
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Int64] = []
+
+    var values: [Int64] {
+        lock.withLock { recorded }
+    }
+
+    func append(_ value: Int64) {
+        lock.withLock { recorded.append(value) }
+    }
 }

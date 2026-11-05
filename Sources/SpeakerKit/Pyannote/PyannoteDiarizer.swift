@@ -231,11 +231,14 @@ actor PyannoteDiarizerActor {
     }
 
     func clusterSpeakers(with clusterer: Clusterer, options: PyannoteDiarizationOptions? = nil, progressCallback: (@Sendable (Progress) -> Void)? = nil) async throws -> DiarizationResult {
+        // Wait for segmentation + embedding before reporting anything: diarize() maps this phase above
+        // every embedding update and drops lower values, so an earlier report would hide all embedding progress.
+        try await diarizationTask?.value
+        diarizationTask = nil
+
         let progressObj = Progress(totalUnitCount: 100)
         progressObj.completedUnitCount = 0
         progressCallback?(progressObj)
-        try await diarizationTask?.value
-        diarizationTask = nil
 
         progressObj.completedUnitCount = 50
         progressCallback?(progressObj)
