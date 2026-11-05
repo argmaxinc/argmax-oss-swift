@@ -12,7 +12,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         let ahcClusters = [0, 1, -1, 2, -5, 3]
         let pldaEmbeddings = Array(repeating: Array(repeating: Float(0.1), count: 128), count: 6)
 
-        let result = VariationalBayesHiddenMarkovModel.vbx(
+        let result = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: ahcClusters,
             pldaEmbeddings: pldaEmbeddings,
             maxIterations: 1
@@ -54,7 +54,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         let ahcClusters = [0, 1, 2]
         let pldaEmbeddings = Array(repeating: Array(repeating: Float(0.1), count: 128), count: 3)
 
-        let result = VariationalBayesHiddenMarkovModel.vbx(
+        let result = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: ahcClusters,
             pldaEmbeddings: pldaEmbeddings,
             speakerRelevanceFactorA: 0.001,
@@ -85,7 +85,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         let ahcClusters = [0, 1]
         let pldaEmbeddings = Array(repeating: Array(repeating: Float(0.1), count: 128), count: 2)
 
-        let result = VariationalBayesHiddenMarkovModel.vbx(
+        let result = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: ahcClusters,
             pldaEmbeddings: pldaEmbeddings,
             speakerRelevanceFactorA: 1000.0,
@@ -110,7 +110,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         let ahcClusters = [0, 1, 2]
         let pldaEmbeddings = Array(repeating: Array(repeating: Float(0.1), count: 128), count: 3)
 
-        let result = VariationalBayesHiddenMarkovModel.vbx(
+        let result = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: ahcClusters,
             pldaEmbeddings: pldaEmbeddings,
             speakerRelevanceFactorA: 0.001,
@@ -135,7 +135,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
             [Float(0.1), Float(0.2), Float(0.3)] + Array(repeating: Float(0.0), count: 125)
         let singleCluster = [0]
 
-        let result1 = VariationalBayesHiddenMarkovModel.vbx(
+        let result1 = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: singleCluster,
             pldaEmbeddings: [singleEmbedding]
         )
@@ -145,7 +145,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         XCTAssertEqual(result1.speakerPriorProbabilities.count, 1)
 
         let mixedClusters = [-1, 0, -2, 1]
-        let result2 = VariationalBayesHiddenMarkovModel.vbx(
+        let result2 = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: mixedClusters,
             pldaEmbeddings: Array(repeating: singleEmbedding, count: 4)
         )
@@ -308,7 +308,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
 
     // MARK: - VBxClustering Cluster Coverage
 
-    func testVBxClusteringAllNonTrainableEmbeddingsGetAssigned() async {
+    func testVBxClusteringAllNonTrainableEmbeddingsGetAssigned() async throws {
         // All embeddings have nonOverlappedFrameRatio = 0, below the default minActiveRatio
         // of 0.2, so trainableEmbeddings is empty. This forces the centroids.isEmpty path.
         // The bug: clusters returned from cluster() was [], leaving all clusterId at -1 after
@@ -327,7 +327,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
 
         let clustering = VBxClustering()
         await clustering.add(speakerEmbeddings: embeddings)
-        let result = await clustering.update(config: VBxClusteringConfig())
+        let result = try await clustering.update(config: VBxClusteringConfig())
 
         XCTAssertEqual(result.clusterIndices.count, embeddings.count,
                        "clusterIndices must cover all embeddings, not just trainable ones")
@@ -338,7 +338,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         }
     }
 
-    func testVBxClusteringNonTrainableEmbeddingsGetAssignedAlongWithTrainable() async {
+    func testVBxClusteringNonTrainableEmbeddingsGetAssignedAlongWithTrainable() async throws {
         // Trainable embeddings (nonOverlappedFrameRatio = 1.0) drive the VBx clustering;
         // non-trainable ones (ratio = 0.0) are excluded from training but must still receive a
         // valid clusterId via clusterReassignment over all N embeddings.
@@ -367,7 +367,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
 
         let clustering = VBxClustering()
         await clustering.add(speakerEmbeddings: trainable + nonTrainable)
-        let result = await clustering.update(config: VBxClusteringConfig())
+        let result = try await clustering.update(config: VBxClusteringConfig())
 
         XCTAssertEqual(result.clusterIndices.count, total,
                        "clusterIndices must cover all \(total) embeddings")
@@ -390,7 +390,7 @@ final class ClusterAlgorithmsTests: XCTestCase {
         let ahcClusters = [0, 1, 2]
         let pldaEmbeddings = Array(repeating: Array(repeating: Float(0.1), count: 128), count: 3)
 
-        let result = VariationalBayesHiddenMarkovModel.vbx(
+        let result = try VariationalBayesHiddenMarkovModel.vbx(
             ahcClusters: ahcClusters,
             pldaEmbeddings: pldaEmbeddings,
             speakerRelevanceFactorA: 0.0001,

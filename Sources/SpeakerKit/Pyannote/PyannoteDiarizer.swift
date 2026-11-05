@@ -226,16 +226,30 @@ actor PyannoteDiarizerActor {
                 processedAudioSeconds += clipSeconds
             }
 
+            // Cancelled workers stop early and the loop still exits normally, so check before
+            // reporting the phase as complete.
+            try Task.checkCancellation()
             await progressReporter.report(completed: 100)
         }
     }
 
     func clusterSpeakers(with clusterer: Clusterer, options: PyannoteDiarizationOptions? = nil, progressCallback: (@Sendable (Progress) -> Void)? = nil) async throws -> DiarizationResult {
+        // Wait for segmentation + embedding before reporting anything: diarize() maps this phase above
+        // every embedding update and drops lower values, so an earlier report would hide all embedding progress.
+        // diarizationTask is unstructured, so cancelling this call reaches it only through the handler.
+        let embeddingTask = diarizationTask
+        try await withTaskCancellationHandler {
+            try await embeddingTask?.value
+        } onCancel: {
+            embeddingTask?.cancel()
+        }
+        diarizationTask = nil
+        // The caller can be cancelled just after embedding finished; stop before clustering.
+        try Task.checkCancellation()
+
         let progressObj = Progress(totalUnitCount: 100)
         progressObj.completedUnitCount = 0
         progressCallback?(progressObj)
-        try await diarizationTask?.value
-        diarizationTask = nil
 
         progressObj.completedUnitCount = 50
         progressCallback?(progressObj)
@@ -248,7 +262,7 @@ actor PyannoteDiarizerActor {
         let startTime = CFAbsoluteTimeGetCurrent()
         let resolvedOptions = options ?? PyannoteDiarizationOptions()
         let clusteringConfig = clusterer.clusteringConfig(from: resolvedOptions)
-        let clusteringResult = await clusterer.update(config: clusteringConfig)
+        let clusteringResult = try await clusterer.update(config: clusteringConfig)
         timings.numberOfEmbeddings = clusteringResult.speakerEmbeddings.count
         timings.clusteringTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1_000
 

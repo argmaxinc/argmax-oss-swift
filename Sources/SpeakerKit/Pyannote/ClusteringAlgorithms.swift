@@ -19,16 +19,20 @@ struct ClusterAlgorithms {
     ///
     /// - Note: This implementation is based on `fast_linkage` implementation from scipy
     /// https://github.com/scipy/scipy/blob/main/scipy/cluster/_hierarchy.pyx#L792
-    static func fastLinkage(embeddings: [[Float]]) -> [[Float]] {
+    ///
+    /// - Throws: `CancellationError` if the calling task is cancelled. The work grows with the square
+    ///   of the embedding count, so each pass over the clusters checks for cancellation.
+    static func fastLinkage(embeddings: [[Float]]) throws -> [[Float]] {
         let numEmbeddings = embeddings.count
         guard numEmbeddings > 1 else { return [] }
 
-        var condensedDistance = CondensedDistanceMatrix(embeddings)
+        var condensedDistance = try CondensedDistanceMatrix(embeddings)
         var context = LinkageContext(numEmbeddings)
         var linkageMatrix = Array(
             repeating: Array(repeating: Float(0), count: 4), count: numEmbeddings - 1)
 
         for x in 0..<(numEmbeddings - 1) {
+            try Task.checkCancellation()
             let pair = condensedDistance.findMinDist(for: x, clusterSizes: context.sizes)
             context.updateNeighbor(clusterIndex: x, neighborIndex: pair.key, distance: pair.value)
         }
@@ -36,6 +40,7 @@ struct ClusterAlgorithms {
         var minDistHeap = MinHeap(context.minDistances)
 
         for k in 0..<(numEmbeddings - 1) {
+            try Task.checkCancellation()
             var leftClusterIndex = 0
             var rightClusterIndex = 0
             var dist = Float(0)
@@ -365,7 +370,7 @@ private struct CondensedDistanceMatrix {
     var distances: [Float]
     let numEmbeddings: Int
 
-    init(_ embeddings: [[Float]]) {
+    init(_ embeddings: [[Float]]) throws {
         assert(!embeddings.isEmpty, "Cannot create distance matrix with empty embeddings")
         assert(
             embeddings.allSatisfy { $0.count == embeddings[0].count },
@@ -375,6 +380,7 @@ private struct CondensedDistanceMatrix {
         distances = Array(repeating: Float(0), count: (numEmbeddings * (numEmbeddings - 1)) / 2)
 
         for i in 0..<(numEmbeddings - 1) {
+            try Task.checkCancellation()
             for j in (i + 1)..<numEmbeddings {
                 distances[condensedIndex(i: i, j: j)] = euclideanDistance(embeddings[i], embeddings[j])
             }
@@ -561,6 +567,8 @@ internal struct VariationalBayesHiddenMarkovModel {
     // MARK: - Main VB-HMM Algorithm
 
     /// Variational Bayes Hidden Markov Model algorithm for speaker diarization
+    ///
+    /// - Throws: `CancellationError` if the calling task is cancelled, checked once per iteration.
     static func vbx(
         ahcClusters: [Int],
         pldaEmbeddings: [[Float]],
@@ -569,7 +577,7 @@ internal struct VariationalBayesHiddenMarkovModel {
         maxIterations: Int = 20,
         initialSmoothingFactor: Float = 7.0,
         verbose: Bool = false
-    ) -> (speakerAssignmentMatrix: [[Float]], speakerPriorProbabilities: [Float]) {
+    ) throws -> (speakerAssignmentMatrix: [[Float]], speakerPriorProbabilities: [Float]) {
         #if DEBUG
         let vbxStart = CFAbsoluteTimeGetCurrent()
         #endif
@@ -622,6 +630,7 @@ internal struct VariationalBayesHiddenMarkovModel {
         let convergenceThreshold: Float = 1e-4
 
         for iteration in 0..<maxIterations {
+            try Task.checkCancellation()
             let speakerAssignmentSums = (0..<numClusters).map { clusterIdx in
                 speakerAssignmentMatrix.map { $0[clusterIdx] }.reduce(0, +)
             }
