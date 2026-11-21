@@ -11,11 +11,13 @@ struct OpenAIHandler: APIProtocol {
     let whisperKit: WhisperKit
     private let logger: Logger
     private let transcribeArguments: TranscribeCLIArguments
+    private let maxBodyBytes: Int
 
-    init(whisperKit: WhisperKit, logger: Logger, transcribeArguments: TranscribeCLIArguments) {
+    init(whisperKit: WhisperKit, logger: Logger, transcribeArguments: TranscribeCLIArguments, maxBodyBytes: Int) {
         self.whisperKit = whisperKit
         self.logger = logger
         self.transcribeArguments = transcribeArguments
+        self.maxBodyBytes = maxBodyBytes
     }
 
     // Helper function to create streaming response
@@ -139,7 +141,7 @@ struct OpenAIHandler: APIProtocol {
         for try await part in multipartBody {
             switch part {
             case .file(let filePart):
-                let data = try await Data(collecting: filePart.payload.body, upTo: Int.max)
+                let data = try await Data(collecting: filePart.payload.body, upTo: maxBodyBytes)
                 tmpURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString)
                     .appendingPathExtension(String(filePart.filename?.split(separator: ".").last ?? "wav"))
@@ -341,7 +343,7 @@ struct OpenAIHandler: APIProtocol {
         for try await part in multipartBody {
             switch part {
             case .file(let filePart):
-                let data = try await Data(collecting: filePart.payload.body, upTo: Int.max)
+                let data = try await Data(collecting: filePart.payload.body, upTo: maxBodyBytes)
                 tmpURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString)
                     .appendingPathExtension("audio")

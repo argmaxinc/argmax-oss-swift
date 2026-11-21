@@ -41,8 +41,14 @@ struct ServeCLI: AsyncParsableCommand {
 
         let config = TranscribeCLIUtils.createWhisperKitConfig(from: transcribeArguments)
         let whisperKit = try await WhisperKit(config)
-        let handler = OpenAIHandler(whisperKit: whisperKit, logger: app.logger, transcribeArguments: transcribeArguments)
-        try handler.registerHandlers(on: transport, serverURL: URL(string: "/v1")!)
+        let maxBodyBytes = cliArguments.maxBodySize * 1024 * 1024
+        let bodyReadTimeout: Duration? = cliArguments.bodyReadTimeout > 0 ? .seconds(cliArguments.bodyReadTimeout) : nil
+        let handler = OpenAIHandler(whisperKit: whisperKit, logger: app.logger, transcribeArguments: transcribeArguments, maxBodyBytes: maxBodyBytes)
+        try handler.registerHandlers(
+            on: transport,
+            serverURL: URL(string: "/v1")!,
+            middlewares: [RequestBodyLimitMiddleware(maxBytes: maxBodyBytes, readTimeout: bodyReadTimeout)]
+        )
         
         // Register base routes after OpenAPI routes to ensure they take precedence
         app.get("") { req async throws -> EndpointInfo in
