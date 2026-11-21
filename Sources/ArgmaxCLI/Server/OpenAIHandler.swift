@@ -31,6 +31,7 @@ struct OpenAIHandler: APIProtocol {
         // Create a streaming response that yields data immediately
         let stream = AsyncStream<ArraySlice<UInt8>> { continuation in
             Task {
+                defer { try? FileManager.default.removeItem(atPath: audioPath) }
                 let progressCallback: TranscriptionCallback = { progress in
                     // Send progress update as SSE immediately
                     let progressEvent = Components.Schemas.TranscriptTextDeltaEvent(
@@ -127,6 +128,12 @@ struct OpenAIHandler: APIProtocol {
 
         var transcription: TranscriptionResult?
         var tmpURL: URL?
+        var tmpFileOwnedByStream = false
+        defer {
+            if !tmpFileOwnedByStream, let tmpURL {
+                try? FileManager.default.removeItem(at: tmpURL)
+            }
+        }
         var requestLanguage: String?
         var requestPrompt: String?
         var requestTemperature: Float = 0.0
@@ -234,6 +241,7 @@ struct OpenAIHandler: APIProtocol {
             // For streaming, we need to return a text/event-stream response
             logger.notice("Starting streaming transcription")
 
+            tmpFileOwnedByStream = true
             let streamingResponse = try await createStreamingResponse(
                 whisperKit: whisperKit,
                 audioPath: audioURL.path(),
@@ -332,6 +340,11 @@ struct OpenAIHandler: APIProtocol {
 
         var translation: TranscriptionResult?
         var tmpURL: URL?
+        defer {
+            if let tmpURL {
+                try? FileManager.default.removeItem(at: tmpURL)
+            }
+        }
         var requestPrompt: String?
         var requestTemperature: Float = 0.0
         var requestModel: String?
