@@ -2252,6 +2252,27 @@ final class UnitTests: XCTestCase {
         XCTAssertEqual("endoftext|>".trimmingSpecialTokenCharacters(), "endoftext")
     }
 
+    func testMergeTranscriptionResultsSegmentIds() {
+        // Each chunk numbers its segments from 0, as VAD chunking produces them
+        let chunks = (0..<3).map { chunkIndex in
+            TranscriptionResult(
+                text: "chunk \(chunkIndex)",
+                segments: (0..<2).map { TranscriptionSegment(id: $0, text: "chunk \(chunkIndex) segment \($0)") },
+                language: "en",
+                timings: TranscriptionTimings(),
+                seekTime: Float(chunkIndex) * 30
+            )
+        }
+
+        let merged = TranscriptionUtilities.mergeTranscriptionResults(chunks)
+        XCTAssertEqual(merged.segments.map(\.id), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(merged.segments.map(\.text), chunks.flatMap { $0.segments.map(\.text) })
+
+        // A missing result is skipped without leaving a gap in the ids
+        let withGap = TranscriptionUtilities.mergeTranscriptionResults([chunks[0], nil, chunks[1]])
+        XCTAssertEqual(withGap.segments.map(\.id), [0, 1, 2, 3])
+    }
+
     func testDeviceName() {
         let deviceName = WhisperKit.deviceName()
         XCTAssertFalse(deviceName.isEmpty, "Device name should not be empty")
