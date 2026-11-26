@@ -108,11 +108,11 @@ public struct TranscriptionUtilities {
         let validResults = results.compactMap { $0 }
         var mergedSegments = [TranscriptionSegment]()
         var previousSeek: Float = 0.0
-        for (resultIndex, result) in validResults.enumerated() {
+        for result in validResults {
             let seekTime = result.seekTime ?? previousSeek
-            for (segmentIndex, segment) in result.segments.enumerated() {
+            for segment in result.segments {
                 var updatedSegment = segment
-                updatedSegment.id = resultIndex + segmentIndex
+                updatedSegment.id = mergedSegments.count
                 mergedSegments.append(updatedSegment)
             }
             // Update previousSeek only if seekTime is nil
