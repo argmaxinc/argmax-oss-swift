@@ -1940,7 +1940,7 @@ final class UnitTests: XCTestCase {
             "Failed to transcribe"
         )
 
-        XCTAssertEqual(result.segments.first?.text, " and so my fellow americans ask not what your country can do for you ask what you can do for your country.")
+        XCTAssertEqual(result.segments.first?.text, " and so my fellow americans ask not what your country can do for you ask what you can do for your country")
         XCTAssertFalse(result.text.contains(promptText), "Prompt text should not be present in the result")
     }
 
@@ -2419,6 +2419,11 @@ final class UnitTests: XCTestCase {
         let logits4 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
         let result4 = tokensFilter.filterLogits(logits4, withTokens: [0, 4, 0, 7])
         XCTAssertEqual(result4.data(for: 2), [-FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity, 0.1, 0.1])
+
+        // A prompt before the start of transcript moves the task token past the first three tokens
+        let logits5 = try MLMultiArray.logits([1.1, 5.2, 0.3, 0.4, 0.2, 0.1, 0.2, 0.1, 0.1])
+        let result5 = tokensFilter.filterLogits(logits5, withTokens: [1, 0, 1, 0, 4, 6, 7])
+        XCTAssertEqual(result5.data(for: 2), [1.1, 5.2, -FloatType.infinity, 0.4, 0.2, 0.1, -FloatType.infinity, -FloatType.infinity, -FloatType.infinity])
     }
 
     // MARK: - VAD Tests
